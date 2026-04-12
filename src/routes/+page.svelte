@@ -1,9 +1,9 @@
 <script lang="ts">
     import { resolve } from "$app/paths";
-    import { getTeams } from "$lib/game.remote";
     import { TEAM_COLORS } from "$lib/team-colors";
 
-    let teams = await getTeams();
+    let { data } = $props();
+    let { teams } = $derived(data);
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white">

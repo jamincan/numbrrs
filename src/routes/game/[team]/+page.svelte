@@ -1,27 +1,26 @@
 <script lang="ts">
-    import { getTeam, getTeamRoster } from "$lib/game.remote";
     import HockeyCard from "$lib/components/HockeyCard.svelte";
     import type { Player } from "$lib/server/db";
     import { TEAM_COLORS } from "$lib/team-colors";
     import { resolve } from "$app/paths";
 
-    let { params } = $props();
-    let [team, roster] = $derived(
-        await Promise.all([getTeam(params.team), getTeamRoster(params.team)]),
-    );
-    let colors = $derived(TEAM_COLORS[team.abbreviation]);
-    let forwards = $derived(
+    const { data } = $props();
+    const { team, roster } = $derived(data);
+
+    const colors = $derived(TEAM_COLORS[team.abbreviation]);
+
+    const forwards = $derived(
         roster.filter((player) =>
             ["L", "C", "R"].includes(player.positionCode),
         ),
     );
-    let defensemen = $derived(
+    const defensemen = $derived(
         roster.filter((player) => player.positionCode === "D"),
     );
-    let goalies = $derived(
+    const goalies = $derived(
         roster.filter((player) => player.positionCode === "G"),
     );
-    let other = $derived(
+    const other = $derived(
         roster.filter(
             (player) =>
                 !["L", "C", "R", "D", "G"].includes(player.positionCode),
@@ -46,13 +45,28 @@
             ? (localStorage.getItem(AUTO_ADVANCE_KEY) ?? "true") !== "false"
             : true,
     );
+
     $effect(() => {
-        localStorage.setItem(DIFFICULTY_KEY, String(difficulty));
         localStorage.setItem(AUTO_ADVANCE_KEY, String(autoAdvance));
+        localStorage.setItem(DIFFICULTY_KEY, String(difficulty));
     });
+
     let autoTimer: ReturnType<typeof setTimeout> | null = $state(null);
     let flipTimer: ReturnType<typeof setTimeout> | null = $state(null);
     let timerRunning = $state(false);
+
+    $effect(() => {
+        return () => {
+            if (flipTimer) {
+                clearTimeout(flipTimer);
+            }
+            if (autoTimer) {
+                clearTimeout(autoTimer);
+            }
+        };
+    });
+
+    let drawerOpen = $state(false);
 
     // Explicit game state
     type Question = {
@@ -60,24 +74,7 @@
         optionIds: number[];
     };
 
-    const emptyPlayer: Player = {
-        id: 0,
-        teamId: "",
-        firstName: "",
-        lastName: "",
-        sweaterNumber: 0,
-        positionCode: "",
-        headshotUrl: "",
-    };
-
     type GameState =
-        | {
-              phase: "loading";
-              question: null;
-              correct: null;
-              guesses: number;
-              correctGuesses: number[];
-          }
         | {
               phase: "guessing";
               question: Question;
@@ -94,33 +91,20 @@
           };
 
     let gameState = $state<GameState>({
-        phase: "loading",
-        question: null,
+        phase: "guessing",
+        question: getNextQuestion([]),
         correct: null,
         guesses: 0,
         correctGuesses: [],
     });
 
-    $effect(() => {
-        if (gameState.phase === "loading") {
-            gameState = {
-                phase: "guessing",
-                question: getNextQuestion(difficulty, []),
-                correct: null,
-                guesses: 0,
-                correctGuesses: [],
-            };
-        }
-        return () => {
-            if (flipTimer) {
-                clearTimeout(flipTimer);
-            }
-            if (autoTimer) {
-                clearTimeout(autoTimer);
-            }
-        };
-    });
+    let activeOptions = $derived(
+        roster.filter((player) =>
+            gameState.question.optionIds.includes(player.id),
+        ),
+    );
 
+    /// start a timer that will call nextPlayer after 1.5s provided autoAdvance is set
     function startAutoTimer() {
         cancelAutoTimer();
         if (!autoAdvance) return;
@@ -141,6 +125,7 @@
 
     function guessPlayer(playerId: number) {
         if (gameState.phase !== "guessing") return;
+        drawerOpen = false;
         gameState.guesses += 1;
         if (playerId === gameState.question.player.id) {
             gameState.correctGuesses.push(playerId);
@@ -161,30 +146,22 @@
 
     function nextPlayer() {
         cancelAutoTimer();
-        if (gameState.phase !== "loading") {
+        gameState = {
+            ...gameState,
+            phase: "guessing",
+            correct: null,
+        };
+        flipTimer = setTimeout(() => {
             gameState = {
                 ...gameState,
                 phase: "guessing",
                 correct: null,
+                question: getNextQuestion(gameState.correctGuesses),
             };
-            flipTimer = setTimeout(() => {
-                gameState = {
-                    ...gameState,
-                    phase: "guessing",
-                    correct: null,
-                    question: getNextQuestion(
-                        difficulty,
-                        gameState.correctGuesses,
-                    ),
-                };
-            }, 300);
-        }
+        }, 300);
     }
 
-    function getNextQuestion(
-        count: number,
-        correctGuesses: number[],
-    ): Question {
+    function getNextQuestion(correctGuesses: number[]): Question {
         const remaining = roster.filter((p) => !correctGuesses.includes(p.id));
         const player = remaining[Math.floor(Math.random() * remaining.length)];
         const others = remaining.filter((p) => p.id !== player.id);
@@ -192,7 +169,7 @@
             const j = Math.floor(Math.random() * (i + 1));
             [others[i], others[j]] = [others[j], others[i]];
         }
-        const numOptions = Math.min(count, remaining.length);
+        const numOptions = Math.min(difficulty, remaining.length);
         const optionIds = [
             player.id,
             ...others.slice(0, numOptions - 1).map((p) => p.id),
@@ -210,7 +187,10 @@
         <a href={resolve("/")} class="text-sm text-gray-400 hover:text-white"
             >&larr; Back</a
         >
-        <h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
+        <h1
+            class="text-xl font-bold"
+            style="color: {colors?.primary ?? '#fff'};"
+        >
             {team.name}
         </h1>
         <div class="flex items-center gap-3">
@@ -220,14 +200,11 @@
                     gameState = {
                         ...gameState,
                         phase: "guessing",
-                        question: getNextQuestion(
-                            difficulty,
-                            gameState.correctGuesses,
-                        ),
+                        question: getNextQuestion(gameState.correctGuesses),
                         correct: null,
                     };
                 }}
-                class="rounded bg-white/10 px-2 py-1 text-xs text-gray-300"
+                class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400"
             >
                 {#each DIFFICULTY_OPTIONS as opt}
                     <option value={opt.value}>{opt.label}</option>
@@ -249,7 +226,7 @@
         </div>
     </header>
 
-    <main class="mx-auto max-w-6xl px-4 pb-12">
+    <main class="mx-auto max-w-6xl px-4 pb-64 lg:pb-12">
         {#if gameState.correctGuesses.length === roster.length}
             <!-- Game complete -->
             <div class="mt-12 text-center">
@@ -268,7 +245,7 @@
                     onclick={() => {
                         gameState = {
                             phase: "guessing",
-                            question: getNextQuestion(difficulty, []),
+                            question: getNextQuestion([]),
                             correct: null,
                             guesses: 0,
                             correctGuesses: [],
@@ -279,7 +256,87 @@
                     Play Again
                 </button>
             </div>
-        {:else if gameState.phase !== "loading"}
+        {:else}
+            {#snippet playerGrid(group: typeof roster)}
+                <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {#each group as player (player.id)}
+                        {@const identified = gameState.correctGuesses.includes(
+                            player.id,
+                        )}
+                        {@const selectable =
+                            gameState.question.optionIds.includes(player.id)}
+                        {#if identified}
+                            <div
+                                class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
+                            >
+                                <div>
+                                    {player.firstName}
+                                    {player.lastName}
+                                </div>
+                                {player.sweaterNumber}
+                            </div>
+                        {:else if selectable}
+                            <button
+                                onclick={() => guessPlayer(player.id)}
+                                class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all hover:scale-105"
+                                style="border-color: {colors?.primary ??
+                                    '#555'}; background: {colors?.primary ??
+                                    '#555'}22; color: white;"
+                            >
+                                {player.firstName}
+                                {player.lastName}
+                            </button>
+                        {:else}
+                            <div
+                                class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600"
+                            >
+                                {player.firstName}
+                                {player.lastName}
+                            </div>
+                        {/if}
+                    {/each}
+                </div>
+            {/snippet}
+
+            {#snippet rosterGroups()}
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <p
+                            class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
+                        >
+                            Forwards
+                        </p>
+                        {@render playerGrid(forwards)}
+                    </div>
+                    <div>
+                        <p
+                            class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
+                        >
+                            Defense
+                        </p>
+                        {@render playerGrid(defensemen)}
+                    </div>
+                    <div>
+                        <p
+                            class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
+                        >
+                            Goalies
+                        </p>
+                        {@render playerGrid(goalies)}
+                    </div>
+                    {#if other.length > 0}
+                        <div>
+                            <p
+                                class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
+                            >
+                                Other
+                            </p>
+                            {@render playerGrid(other)}
+                        </div>
+                    {/if}
+                </div>
+            {/snippet}
+
             <div
                 class="flex flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center"
             >
@@ -311,99 +368,63 @@
                     {/if}
                 </div>
 
-                <!-- Full Roster as selection grid -->
-                <div class="w-full max-w-lg">
+                <!-- Full Roster — desktop only -->
+                <div class="hidden w-full max-w-lg lg:block">
                     <h3
                         class="mb-3 text-center text-lg font-semibold text-gray-500"
                     >
                         Roster
                     </h3>
-
-                    {#snippet playerGrid(group: typeof roster)}
-                        {#if gameState.phase !== "loading"}
-                            <div
-                                class="grid grid-cols-2 gap-1.5 sm:grid-cols-3"
-                            >
-                                {#each group as player (player.id)}
-                                    {@const identified =
-                                        gameState.correctGuesses.includes(
-                                            player.id,
-                                        )}
-                                    {@const selectable =
-                                        gameState.question.optionIds.includes(
-                                            player.id,
-                                        )}
-                                    {#if identified}
-                                        <div
-                                            class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
-                                        >
-                                            <div>
-                                                {player.firstName}
-                                                {player.lastName}
-                                            </div>
-
-                                            {player.sweaterNumber}
-                                        </div>
-                                    {:else if selectable}
-                                        <button
-                                            onclick={() =>
-                                                guessPlayer(player.id)}
-                                            class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all hover:scale-105"
-                                            style="border-color: {colors?.primary ?? '#555'}; background: {colors?.primary ?? '#555'}22; color: white;"
-                                        >
-                                            {player.firstName}
-                                            {player.lastName}
-                                        </button>
-                                    {:else}
-                                        <div
-                                            class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600"
-                                        >
-                                            {player.firstName}
-                                            {player.lastName}
-                                        </div>
-                                    {/if}
-                                {/each}
-                            </div>
-                        {/if}
-                    {/snippet}
-
-                    <div class="flex flex-col gap-4">
-                        <div>
-                            <p
-                                class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
-                            >
-                                Forwards
-                            </p>
-                            {@render playerGrid(forwards)}
-                        </div>
-                        <div>
-                            <p
-                                class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
-                            >
-                                Defense
-                            </p>
-                            {@render playerGrid(defensemen)}
-                        </div>
-                        <div>
-                            <p
-                                class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
-                            >
-                                Goalies
-                            </p>
-                            {@render playerGrid(goalies)}
-                        </div>
-                        {#if other.length > 0}
-                            <div>
-                                <p
-                                    class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500"
-                                >
-                                    Other
-                                </p>
-                                {@render playerGrid(other)}
-                            </div>
-                        {/if}
-                    </div>
+                    {@render rosterGroups()}
                 </div>
+            </div>
+
+            <!-- Mobile bottom drawer -->
+            <div
+                class="drawer lg:hidden fixed bottom-0 left-0 right-0 z-40 rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl"
+                class:drawer--open={drawerOpen}
+            >
+                <!-- Handle / toggle -->
+                <button
+                    onclick={() => (drawerOpen = !drawerOpen)}
+                    class="flex w-full flex-col items-center gap-1.5 px-4 pb-2 pt-3"
+                    aria-label={drawerOpen
+                        ? "Collapse roster"
+                        : "Expand roster"}
+                >
+                    <div class="h-1 w-10 rounded-full bg-white/20"></div>
+                    <span class="text-xs text-gray-500">
+                        {drawerOpen ? "▼ hide roster" : "▲ show all"}
+                    </span>
+                </button>
+
+                {#if drawerOpen}
+                    <!-- Expanded: full roster, scrollable -->
+                    <div class="overflow-y-auto px-4 pb-8 drawer__full">
+                        <p class="mb-3 text-center text-4xl font-black" style="color: {colors?.primary ?? '#fff'};">
+                            #{gameState.question.player.sweaterNumber}
+                        </p>
+                        {@render rosterGroups()}
+                    </div>
+                {:else}
+                    <!-- Collapsed: active options only -->
+                    <div class="overflow-y-auto px-4 pb-4 drawer__options">
+                        <div class="grid grid-cols-2 gap-1.5">
+                            {#each activeOptions as player (player.id)}
+                                <button
+                                    onclick={() => guessPlayer(player.id)}
+                                    class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all active:scale-95"
+                                    style="border-color: {colors?.primary ??
+                                        '#555'}; background: {colors?.primary ??
+                                        '#555'}22; color: white;"
+                                >
+                                    {player.firstName}
+                                    {player.lastName}
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
             </div>
         {/if}
     </main>
@@ -431,5 +452,13 @@
         to {
             width: 0%;
         }
+    }
+
+    .drawer__options {
+        max-height: 45vw;
+    }
+
+    .drawer__full {
+        max-height: 65vh;
     }
 </style>
