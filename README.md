@@ -1,15 +1,34 @@
 # NumBrrs
 
-This is a sveltekit app that is intended to help game players learn NHL player jersey numbers. It will start out easier and get harder to help them learn progressively.
+**NumBrrs** is a flashcard-style game for learning NHL player jersey numbers. Pick a team, guess who wears each number, and work your way through the full roster.
 
-The basic idea is that a game player will be shown a team name and number and have to guess the NHL player's name. Initially, there will be multiple choices they can choose from, starting with 2 at the easiest level and up to the full team roster at the hardest.
+## How it works
 
-Visually, the full team roster will be shown in all cases, with only the options the game player is choosing from highlighted.
+You're shown a hockey card with a team and jersey number. Guess the player from the options highlighted in the roster — then the card flips to reveal whether you got it right.
 
-Optionally, a game player can have the number of NHL players they have correctly identified be shown in the roster and removed as an option for future guesses to make it easier.
+- **Easy** — 2 choices
+- **Medium** — 4 choices
+- **Hard** — 8 choices
+- **Expert** — the entire roster
 
-The data for the game should be pulled periodically from the NHL api (described at https://github.com/Zmalski/NHL-API-Reference?tab=readme-ov-file#get-specific-player-info) and cached in the app so that roster changes are reflected over time and don't need app updates.
+Correctly identified players are marked in the roster and won't appear as options again, so the game gets progressively easier as you learn the team.
 
-Visually I'm going for a flashcard theme. The idea is for something themed kind of like a hockey card - initially only seeing team name and number (with colour reflecting the team) and then flipping over with a hockey card type of thing showing the player info and photo.
+Roster data is pulled from the NHL API and refreshed daily, so it stays up to date as trades and signings happen.
 
-Optionally, players can login to see their results and how they have improved over time.
+## Contributing
+
+Contributions are welcome! If you spot a bug, have an idea, or want to improve the team colours, feel free to:
+
+- [Open an issue](https://github.com/jamincan/numbrrs/issues) to report a bug or suggest a feature
+- [Submit a pull request](https://github.com/jamincan/numbrrs/pulls) with your changes
+
+### Running locally
+
+```bash
+pnpm install
+pnpm dev
+```
+
+## License
+
+[MIT](LICENSE)
