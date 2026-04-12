@@ -2,19 +2,23 @@
     import "../app.css";
     import { resolve } from "$app/paths";
     import favicon from "$lib/assets/favicon.svg";
+    import NumbrrsIcon from "$lib/components/NumbrrsIcon.svelte";
 
     let { children } = $props();
 </script>
 
 <svelte:head>
     <link rel="icon" href={favicon} />
-    <title>NumBrrs - Learn NHL Jersey Numbers</title>
+    <title>Numbrrs - Learn NHL Jersey Numbers</title>
 </svelte:head>
 
 <nav
     class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300"
 >
-    <a href={resolve("/")} class="font-bold text-white">NumBrrs</a>
+    <a href={resolve("/")} class="font-condensed flex items-center gap-2 text-lg font-black text-white">
+        <NumbrrsIcon class="h-7 w-7" />
+        Numbrrs
+    </a>
     <a
         href="https://github.com/jamincan/numbrrs"
         target="_blank"
