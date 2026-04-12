@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 const NHL_API_BASE = "https://api-web.nhle.com/v1";
 
-const ACTIVE_TEAMS = [
+export const ACTIVE_TEAMS = [
   "ANA",
   "BOS",
   "BUF",
@@ -115,7 +115,6 @@ async function fetchTeamRoster(teamCode: TEAM_CODE): Promise<FetchResult> {
 }
 
 export async function syncRosters(): Promise<void> {
-
   console.log("Syncing NHL rosters...");
 
   const queue: TEAM_CODE[] = [...ACTIVE_TEAMS];
@@ -183,7 +182,6 @@ export async function syncRosters(): Promise<void> {
         .run();
     }
   }
-
 
   console.log("Roster sync complete");
 }
