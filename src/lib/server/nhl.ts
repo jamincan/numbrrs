@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { teams, players } from "./db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 
 const NHL_API_BASE = "https://api-web.nhle.com/v1";
 
@@ -114,6 +114,21 @@ async function fetchTeamRoster(teamCode: TEAM_CODE): Promise<FetchResult> {
   };
 }
 
+let inFlight: Promise<void> | null = null;
+
+/**
+ * Run a roster sync, coalescing concurrent callers onto a single run so a
+ * manual trigger can't overlap the automatic hourly sync. Returns whether this
+ * call started a new sync or joined one already in progress.
+ */
+export function syncRostersOnce(): { started: boolean; done: Promise<void> } {
+  if (inFlight) return { started: false, done: inFlight };
+  inFlight = syncRosters().finally(() => {
+    inFlight = null;
+  });
+  return { started: true, done: inFlight };
+}
+
 export async function syncRosters(): Promise<void> {
   console.log("Syncing NHL rosters...");
 
@@ -141,46 +156,60 @@ export async function syncRosters(): Promise<void> {
     }
 
     const rosterPlayers = result.players;
+    const rosterIds = rosterPlayers.map((p) => p.id);
 
-    db.insert(teams)
-      .values({
-        id: teamCode,
-        name: TEAM_NAMES[teamCode] || teamCode,
-        abbreviation: teamCode,
-      })
-      .onConflictDoUpdate({
-        target: teams.id,
-        set: {
-          name: TEAM_NAMES[teamCode] || teamCode,
-        },
-      })
-      .run();
-
-    for (const p of rosterPlayers) {
-      if (!p.sweaterNumber) continue;
-      db.insert(players)
+    db.transaction((tx) => {
+      tx.insert(teams)
         .values({
-          id: p.id,
-          teamId: teamCode,
-          firstName: p.firstName.default,
-          lastName: p.lastName.default ?? p.lastName,
-          sweaterNumber: p.sweaterNumber,
-          positionCode: p.positionCode,
-          headshotUrl: p.headshot,
+          id: teamCode,
+          name: TEAM_NAMES[teamCode] || teamCode,
+          abbreviation: teamCode,
         })
         .onConflictDoUpdate({
-          target: players.id,
+          target: teams.id,
           set: {
+            name: TEAM_NAMES[teamCode] || teamCode,
+          },
+        })
+        .run();
+
+      for (const p of rosterPlayers) {
+        if (!p.sweaterNumber) continue;
+        tx.insert(players)
+          .values({
+            id: p.id,
             teamId: teamCode,
             firstName: p.firstName.default,
             lastName: p.lastName.default ?? p.lastName,
             sweaterNumber: p.sweaterNumber,
             positionCode: p.positionCode,
             headshotUrl: p.headshot,
-          },
-        })
+          })
+          .onConflictDoUpdate({
+            target: players.id,
+            set: {
+              teamId: teamCode,
+              firstName: p.firstName.default,
+              lastName: p.lastName.default ?? p.lastName,
+              sweaterNumber: p.sweaterNumber,
+              positionCode: p.positionCode,
+              headshotUrl: p.headshot,
+            },
+          })
+          .run();
+      }
+
+      // Remove players who are no longer on this team's roster (trades,
+      // waivers, call-ups/downs). Scoped to teamId so a player who moved to
+      // another team isn't deleted here — their new team's sync owns them.
+      tx.delete(players)
+        .where(
+          rosterIds.length > 0
+            ? and(eq(players.teamId, teamCode), notInArray(players.id, rosterIds))
+            : eq(players.teamId, teamCode),
+        )
         .run();
-    }
+    });
   }
 
   console.log("Roster sync complete");
