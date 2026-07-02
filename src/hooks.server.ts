@@ -1,4 +1,4 @@
-import { syncRosters } from "$lib/server/nhl";
+import { syncRostersOnce } from "$lib/server/nhl";
 
 let lastCheckAt = 0;
 const ONE_HOUR = 60 * 60 * 1000;
@@ -7,12 +7,12 @@ function maybeSync() {
   const now = Date.now();
   if (now - lastCheckAt < ONE_HOUR) return;
   lastCheckAt = now;
-  syncRosters().catch((err) => console.error("Failed to sync rosters:", err));
+  syncRostersOnce().done.catch((err) => console.error("Failed to sync rosters:", err));
 }
 
 export async function init() {
   lastCheckAt = Date.now();
-  syncRosters().catch((err) => console.error("Failed to sync rosters:", err));
+  syncRostersOnce().done.catch((err) => console.error("Failed to sync rosters:", err));
 }
 
 export const handle = async ({ event, resolve }) => {

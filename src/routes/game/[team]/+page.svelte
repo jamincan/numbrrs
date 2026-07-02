@@ -206,7 +206,7 @@
                 }}
                 class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400"
             >
-                {#each DIFFICULTY_OPTIONS as opt}
+                {#each DIFFICULTY_OPTIONS as opt (opt.label)}
                     <option value={opt.value}>{opt.label}</option>
                 {/each}
             </select>
@@ -401,7 +401,10 @@
                 {#if drawerOpen}
                     <!-- Expanded: full roster, scrollable -->
                     <div class="overflow-y-auto px-4 pb-8 drawer__full">
-                        <p class="mb-3 text-center text-4xl font-black" style="color: {colors?.primary ?? '#fff'};">
+                        <p
+                            class="mb-3 text-center text-4xl font-black"
+                            style="color: {colors?.primary ?? '#fff'};"
+                        >
                             #{gameState.question.player.sweaterNumber}
                         </p>
                         {@render rosterGroups()}
