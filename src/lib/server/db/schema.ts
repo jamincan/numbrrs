@@ -13,7 +13,7 @@ export const players = sqliteTable("players", {
     .references(() => teams.id),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
-  sweaterNumber: integer("sweater_number").notNull(),
+  sweaterNumber: integer("sweater_number"),
   positionCode: text("position_code").notNull(),
   headshotUrl: text("headshot_url").notNull(),
 });

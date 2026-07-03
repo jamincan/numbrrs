@@ -81,7 +81,7 @@ interface NHLPlayer {
   headshot: string;
   firstName: { default: string };
   lastName: { default: string };
-  sweaterNumber: number;
+  sweaterNumber?: number;
   positionCode: string;
 }
 
@@ -174,14 +174,16 @@ export async function syncRosters(): Promise<void> {
         .run();
 
       for (const p of rosterPlayers) {
-        if (!p.sweaterNumber) continue;
+        // Players without a sweater number are still stored (with a null
+        // number); the game treats them as already-identified.
+        const sweaterNumber = p.sweaterNumber ?? null;
         tx.insert(players)
           .values({
             id: p.id,
             teamId: teamCode,
             firstName: p.firstName.default,
             lastName: p.lastName.default ?? p.lastName,
-            sweaterNumber: p.sweaterNumber,
+            sweaterNumber,
             positionCode: p.positionCode,
             headshotUrl: p.headshot,
           })
@@ -191,7 +193,7 @@ export async function syncRosters(): Promise<void> {
               teamId: teamCode,
               firstName: p.firstName.default,
               lastName: p.lastName.default ?? p.lastName,
-              sweaterNumber: p.sweaterNumber,
+              sweaterNumber,
               positionCode: p.positionCode,
               headshotUrl: p.headshot,
             },

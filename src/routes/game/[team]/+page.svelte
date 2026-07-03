@@ -90,12 +90,19 @@
               correctGuesses: number[];
           };
 
+    // Players without a sweater number can't be guessed by number, so they
+    // start already-identified (shown green/unselectable with "--").
+    function preIdentifiedIds(): number[] {
+        return roster.filter((p) => p.sweaterNumber == null).map((p) => p.id);
+    }
+    const guessableCount = $derived(roster.length - preIdentifiedIds().length);
+
     let gameState = $state<GameState>({
         phase: "guessing",
-        question: getNextQuestion([]),
+        question: getNextQuestion(preIdentifiedIds()),
         correct: null,
         guesses: 0,
-        correctGuesses: [],
+        correctGuesses: preIdentifiedIds(),
     });
 
     let activeOptions = $derived(
@@ -238,17 +245,17 @@
                 </p>
                 <p class="mt-2 text-gray-400">
                     Accuracy: {Math.round(
-                        (100 * roster.length) / gameState.guesses,
+                        (100 * guessableCount) / gameState.guesses,
                     )}%
                 </p>
                 <button
                     onclick={() => {
                         gameState = {
                             phase: "guessing",
-                            question: getNextQuestion([]),
+                            question: getNextQuestion(preIdentifiedIds()),
                             correct: null,
                             guesses: 0,
-                            correctGuesses: [],
+                            correctGuesses: preIdentifiedIds(),
                         };
                     }}
                     class="mt-6 inline-block rounded-lg bg-white/10 px-6 py-3 font-semibold hover:bg-white/20"
@@ -273,7 +280,7 @@
                                     {player.firstName}
                                     {player.lastName}
                                 </div>
-                                {player.sweaterNumber}
+                                {player.sweaterNumber ?? "--"}
                             </div>
                         {:else if selectable}
                             <button
