@@ -242,6 +242,17 @@ export async function ensureTeam(league: LeagueId, code: string) {
 	const row = teamRow(dbId);
 	if (row) return row;
 
+	// Unknown code with a fresh team list means the team doesn't exist — don't
+	// ask the league again. Without this check every request for a bogus code
+	// (a typo'd link, a scanner) would trigger another round of upstream
+	// fetches; once() only coalesces the concurrent ones.
+	const state = db
+		.select()
+		.from(syncState)
+		.where(eq(syncState.key, teamListKey(league)))
+		.get();
+	if (isFresh(state?.syncedAt, TEAM_LIST_TTL)) return undefined;
+
 	await withTimeout(
 		once(teamListKey(league), () => syncTeamList(adapter)),
 		BLOCKING_TIMEOUT
