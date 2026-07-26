@@ -168,58 +168,94 @@
 		};
 	}
 
-	// The drawer sizes itself to its content, capped at the free space between
-	// the bottom of the card table and the bottom of the viewport — as much
-	// room as it can take without covering the decks, and no forced inner
-	// scrolling before that.
+	// A short, wide viewport — a phone in landscape — has no vertical room to
+	// put anything under the cards. There the drawer moves to the right edge
+	// as a full-height panel and stops being height-budgeted at all.
+	let sideDrawer = $state(false);
+	$effect(() => {
+		const query = window.matchMedia(
+			'(min-width: 600px) and (max-width: 1023px) and (max-height: 620px)'
+		);
+		const sync = () => (sideDrawer = query.matches);
+		sync();
+		query.addEventListener('change', sync);
+		return () => query.removeEventListener('change', sync);
+	});
+
+	// The drawer sizes itself to its content but never past the room it actually
+	// has, so it scrolls internally instead of stretching the page: down to the
+	// bottom of the viewport from wherever it starts. As a bottom drawer that
+	// means the space under the card table; as a side panel, its own top edge.
+	// Without the cap the panel's content would inflate the flex row it sits in
+	// and the whole page would scroll.
 	let cardTable = $state<HTMLElement>();
+	let drawerEl = $state<HTMLElement>();
 	let drawerMax = $state<number | null>(null);
 	let viewportWidth = $state(0);
 	function measureDrawerSpace() {
-		if (!cardTable) return;
-		drawerMax = Math.max(window.innerHeight - cardTable.getBoundingClientRect().bottom - 8, 96);
+		const anchor = sideDrawer ? drawerEl : cardTable;
+		if (!anchor) return;
+		const box = anchor.getBoundingClientRect();
+		const next = Math.max(window.innerHeight - (sideDrawer ? box.top : box.bottom + 8), 96);
+		// Only on a real change: the observer below watches the very element
+		// this resizes, so an unconditional write would loop.
+		if (next !== drawerMax) drawerMax = next;
 	}
-	$effect(measureDrawerSpace);
+
+	// Measured from a ResizeObserver rather than on state changes alone, because
+	// swapping between the two arrangements moves the drawer without changing
+	// anything reactive — the first measurement would otherwise be taken while
+	// the element was still laid out the old way.
+	$effect(() => {
+		const observer = new ResizeObserver(measureDrawerSpace);
+		if (cardTable) observer.observe(cardTable);
+		if (drawerEl) observer.observe(drawerEl);
+		measureDrawerSpace();
+		return () => observer.disconnect();
+	});
 
 	/** `gap-1.5` between option buttons, in px. */
 	const OPTION_GAP = 6;
 	/** Narrower than this and a third column stops being worth reading. */
 	const MIN_OPTION_WIDTH = 150;
 
-	// Two columns is the default: wider targets, easier to read. A third only
-	// appears when two would overflow the drawer and the screen is wide enough
-	// to take it — mostly expert difficulty on a tablet or a phone in
-	// landscape.
+	// Two columns is the default: wider targets, easier to read. Fewer if the
+	// drawer is too narrow to hold two (the side panel), more only when the
+	// preferred count would overflow the height available — mostly expert
+	// difficulty on a short viewport.
 	let optionsBox = $state<HTMLElement>();
 	let optionColumns = $state(2);
 	$effect(() => {
-		// Re-measure whenever the option count, the drawer's budget or the
-		// viewport width changes.
-		void [activeOptions.length, drawerMax, viewportWidth, drawerOpen];
+		// Re-measure whenever the option count, the drawer's shape or the
+		// viewport changes.
+		void [activeOptions.length, drawerMax, viewportWidth, drawerOpen, sideDrawer];
 		const box = optionsBox;
-		if (!box || drawerMax === null) return;
+		if (!box) return;
 		const cells = [...box.querySelectorAll<HTMLElement>('button')];
 		if (cells.length === 0) return;
 		// Grid rows are as tall as their tallest cell, so a wrapped name sets
 		// the height for its whole row. Taking the tallest biases the estimate
-		// toward granting the third column, which is the harmless direction:
-		// three columns never needs more height than two.
+		// toward granting an extra column, which is the harmless direction:
+		// more columns never needs more height than fewer.
 		const rowHeight = Math.max(...cells.map((cell) => cell.offsetHeight));
 		const padding = parseFloat(getComputedStyle(box).paddingBottom) || 0;
-		// The drawer's whole allowance, less the handle above the grid and the
-		// grid's own bottom padding. Measured from the budget rather than the
-		// box's current height, which only reports how tall the content
-		// happens to be when it fits.
-		const available = drawerMax - box.offsetTop - padding;
+		// The bottom drawer's whole allowance, less the handle above the grid
+		// and the grid's own bottom padding — measured from the budget rather
+		// than the box, which only reports how tall the content happens to be
+		// when it fits. The side panel is stretched by its flex row, so there
+		// its own height already is the space available.
+		const available = drawerMax === null ? box.clientHeight : drawerMax - box.offsetTop - padding;
 		if (rowHeight <= 0 || available <= 0) return;
 		const rowsThatFit = Math.max(
 			1,
 			Math.floor((available + OPTION_GAP) / (rowHeight + OPTION_GAP))
 		);
-		const widthAllows = Math.floor(
-			(box.clientWidth + OPTION_GAP) / (MIN_OPTION_WIDTH + OPTION_GAP)
+		const widthAllows = Math.min(
+			3,
+			Math.max(1, Math.floor((box.clientWidth + OPTION_GAP) / (MIN_OPTION_WIDTH + OPTION_GAP)))
 		);
-		optionColumns = cells.length > rowsThatFit * 2 ? Math.min(3, Math.max(2, widthAllows)) : 2;
+		const preferred = Math.min(2, widthAllows);
+		optionColumns = cells.length > rowsThatFit * preferred ? widthAllows : preferred;
 	});
 
 	// The resolved card mounts still showing its number, then flips a frame
@@ -271,16 +307,33 @@
 	/>
 </NavSlot>
 
-<div class="flex-1 bg-gray-900 text-white">
-	<GameHeader {name} color={colors?.primary} />
+<div class="flex flex-1 flex-col bg-gray-900 text-white">
+	<!-- In the side-panel layout the title moves down into the card column
+	     instead of spanning the width, so the panel gets the full height under
+	     the nav to work with. -->
+	{#if !sideDrawer}
+		<GameHeader {name} color={colors?.primary} />
+	{/if}
 
-	<!-- The mobile padding only matters when the page is forced to scroll (a
-	     short landscape viewport): enough to pull the progress line clear of
-	     the drawer, not a full reservation — the drawer sizes itself to the
-	     space under the cards instead. -->
-	<main class="mx-auto max-w-6xl px-4 pb-40 lg:pb-12">
+	<!-- Two arrangements of the same pieces: a column with the drawer fixed
+	     across the bottom, or — when the viewport is too short for that — a row
+	     with the drawer as a full-height panel on the right. The bottom
+	     padding is only for the case where the page is forced to scroll
+	     anyway; the drawer otherwise sizes itself to the space under the
+	     cards. -->
+	<!-- No vertical or right padding in the side layout: the panel is meant to
+	     sit flush against the nav and the screen edges, so the breathing room
+	     goes on the card column instead. -->
+	<main
+		class="mx-auto flex w-full max-w-6xl flex-1 {sideDrawer
+			? 'min-h-0 flex-row gap-4 pl-4'
+			: 'flex-col px-4 pb-40 lg:pb-12'}"
+	>
 		{#snippet playerGrid(group: typeof roster)}
-			<div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+			<!-- Columns follow the container, not the viewport: this grid renders
+			     at three very different widths (the desktop roster column, the
+			     full-width bottom drawer, and the narrow side panel). -->
+			<div class="grid grid-cols-1 gap-1.5 @min-[20rem]:grid-cols-2 @min-[30rem]:grid-cols-3">
 				{#each group as player (player.id)}
 					{@const identified = game.identified.includes(player.id)}
 					{@const selectable = game.current?.optionIds.includes(player.id) ?? false}
@@ -347,7 +400,15 @@
 			</div>
 		{/snippet}
 
-		<div class="flex flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center">
+		<div
+			class="flex min-w-0 flex-1 flex-col items-center lg:flex-row lg:items-start lg:justify-center {sideDrawer
+				? 'gap-3 py-3'
+				: 'gap-8'}"
+		>
+			{#if sideDrawer}
+				<GameHeader {name} color={colors?.primary} compact />
+			{/if}
+
 			<!-- The card table: draw deck on the left, guessed pile on the right.
 			     One row at every breakpoint — the cards scale down instead of
 			     re-stacking, which also keeps the fly-to-pile animation a constant
@@ -358,7 +419,7 @@
 			>
 				<div class="flex w-full items-start justify-center gap-4">
 					<!-- Draw deck -->
-					<div class="relative aspect-[3/4] w-full max-w-72 flex-1">
+					<div class="card-slot">
 						{#if game.current}
 							{@const backs = Math.min(game.deck.length, 3)}
 							{#each { length: backs }, i}
@@ -407,7 +468,7 @@
 					</div>
 
 					<!-- Guessed pile -->
-					<div class="relative aspect-[3/4] w-full max-w-72 flex-1">
+					<div class="card-slot">
 						<!-- The empty slot, visible until the first card lands. -->
 						<div
 							class="absolute inset-0 rounded-2xl border-2 border-dashed border-white/10"
@@ -451,7 +512,7 @@
 			</div>
 
 			<!-- Full Roster — desktop only -->
-			<div class="hidden w-full max-w-lg lg:block">
+			<div class="@container hidden w-full max-w-lg lg:block">
 				<h3 class="mb-3 text-center text-lg font-semibold text-gray-500">
 					{i18n.m.game.roster}
 				</h3>
@@ -459,12 +520,15 @@
 			</div>
 		</div>
 
-		<!-- Mobile bottom drawer; gone once the piles are empty and there is
-		     nothing left to guess. -->
+		<!-- The options drawer; gone once the piles are empty and there is
+		     nothing left to guess. Across the bottom normally, a full-height
+		     panel on the right when the viewport is too short for that. -->
 		{#if game.current}
 			<div
-				class="drawer fixed right-0 bottom-0 left-0 z-40 flex flex-col rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl lg:hidden"
-				class:drawer--open={drawerOpen}
+				bind:this={drawerEl}
+				class="flex min-h-0 flex-col overflow-hidden border-white/10 bg-gray-900 {sideDrawer
+					? 'w-72 shrink-0 self-stretch rounded-l-2xl border-l'
+					: 'fixed right-0 bottom-0 left-0 z-40 rounded-t-2xl border-t shadow-2xl lg:hidden'}"
 				style:max-height={drawerMax === null ? undefined : `${drawerMax}px`}
 			>
 				<!-- Handle / toggle -->
@@ -481,19 +545,15 @@
 
 				{#if drawerOpen}
 					<!-- Expanded: full roster, scrolling only once the drawer has
-					     taken all the space below the cards -->
-					<div class="min-h-0 overflow-y-auto px-4 pb-8">
-						<p
-							class="mb-3 text-center text-4xl font-black"
-							style="color: {colors?.primary ?? '#fff'};"
-						>
-							#{game.current.player.sweaterNumber}
-						</p>
+					     taken all the space available to it. The number being asked
+					     about isn't repeated here — the drawer no longer covers the
+					     card that shows it. -->
+					<div class="@container min-h-0 flex-1 overflow-y-auto px-4 pb-8">
 						{@render rosterGroups()}
 					</div>
 				{:else}
 					<!-- Collapsed: active options only -->
-					<div class="min-h-0 overflow-y-auto px-4 pb-4" bind:this={optionsBox}>
+					<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4" bind:this={optionsBox}>
 						<div
 							class="grid gap-1.5"
 							style="grid-template-columns: repeat({optionColumns}, minmax(0, 1fr));"
@@ -518,6 +578,20 @@
 </div>
 
 <style>
+	/* The two card zones, always side by side and always equal. */
+	.card-slot {
+		position: relative;
+		flex: 1 1 0;
+		min-width: 0;
+		aspect-ratio: 3 / 4;
+		/* Width normally leads, capped at 18rem. When the viewport is short the
+		   cap follows the height instead, so a phone in landscape shrinks the
+		   cards rather than running them off the bottom: 11rem covers the nav,
+		   header, progress line and the padding around them, and 0.75 converts
+		   that height back into a width at the card's 3:4 aspect. */
+		max-width: min(18rem, calc((100dvh - 11rem) * 0.75));
+	}
+
 	/* A drawn card lifts off the stack into place. */
 	.card-draw {
 		animation: draw-in 200ms ease-out;
