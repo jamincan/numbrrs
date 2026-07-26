@@ -8,9 +8,14 @@
 	import NumbrrsIcon from '$lib/components/NumbrrsIcon.svelte';
 	import { localizePath } from '$lib/i18n';
 	import { createI18n } from '$lib/i18n/state.svelte';
+	import { createNavSlot } from '$lib/nav-slot.svelte';
 	import { SITE_ORIGIN } from '$lib/site';
 
 	let { children, data } = $props();
+
+	// Pages can claim a spot in the nav for their own controls (the game page's
+	// difficulty menu) via the <NavSlot> component.
+	const navSlot = createNavSlot();
 
 	// The URL owns the locale — hooks.server.ts resolves it from the /fr prefix
 	// and the layout data carries it here, so switching language is just a
@@ -59,6 +64,9 @@
 			Numbrrs
 		</a>
 		<div class="flex items-center gap-3">
+			{#if navSlot.content}
+				{@render navSlot.content()}
+			{/if}
 			<LocaleToggle />
 			<a
 				href="https://github.com/jamincan/numbrrs"

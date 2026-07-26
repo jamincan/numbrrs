@@ -42,7 +42,6 @@ export const fr: Messages = {
 		// would need the team's grammatical gender for the article.
 		description: (team) =>
 			`${team} — devinez qui porte chaque numéro et complétez l'alignement, une carte à la fois.`,
-		back: 'Retour',
 		difficultyLabel: 'Difficulté',
 		difficulty: {
 			easy: 'Facile',

@@ -2,6 +2,8 @@
 	import { browser } from '$app/environment';
 	import CardBack from '$lib/components/CardBack.svelte';
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
+	import NavSlot from '$lib/components/NavSlot.svelte';
+	import DifficultyMenu from './DifficultyMenu.svelte';
 	import GameHeader from './GameHeader.svelte';
 	import type { Player, Team } from '$lib/types';
 	import { buildDeck, cardOptions, drawCard, preIdentifiedIds } from '$lib/game';
@@ -201,30 +203,30 @@
 
 <svelte:window onresize={measureDrawerSpace} onscroll={measureDrawerSpace} />
 
+<!-- The difficulty menu rides in the site nav rather than a header of its own,
+     keeping the play area clear. -->
+<NavSlot>
+	<DifficultyMenu
+		options={DIFFICULTY_OPTIONS}
+		value={difficulty}
+		onselect={(value) => {
+			difficulty = value;
+			if (!game.current) return;
+			// Same card, refreshed options: the drawn number stays the question,
+			// only how many candidates surround it changes.
+			game = {
+				...game,
+				current: {
+					...game.current,
+					optionIds: cardOptions(roster, game.identified, game.current.player, difficulty)
+				}
+			};
+		}}
+	/>
+</NavSlot>
+
 <div class="flex-1 bg-gray-900 text-white">
-	<GameHeader {name} color={colors?.primary}>
-		<select
-			bind:value={difficulty}
-			aria-label={i18n.m.game.difficultyLabel}
-			onchange={() => {
-				if (!game.current) return;
-				// Same card, refreshed options: the drawn number stays the question,
-				// only how many candidates surround it changes.
-				game = {
-					...game,
-					current: {
-						...game.current,
-						optionIds: cardOptions(roster, game.identified, game.current.player, difficulty)
-					}
-				};
-			}}
-			class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400"
-		>
-			{#each DIFFICULTY_OPTIONS as opt (opt.key)}
-				<option value={opt.value}>{i18n.m.game.difficulty[opt.key]}</option>
-			{/each}
-		</select>
-	</GameHeader>
+	<GameHeader {name} color={colors?.primary} />
 
 	<!-- The mobile padding only matters when the page is forced to scroll (a
 	     short landscape viewport): enough to pull the progress line clear of
