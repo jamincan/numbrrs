@@ -85,6 +85,7 @@
 	function preIdentifiedIds(): number[] {
 		return roster.filter((p) => p.sweaterNumber == null).map((p) => p.id);
 	}
+
 	const guessableCount = $derived(roster.length - preIdentifiedIds().length);
 
 	let gameState = $state<GameState>({
@@ -122,12 +123,23 @@
 		if (gameState.phase !== 'guessing') return;
 		drawerOpen = false;
 		gameState.guesses += 1;
-		if (playerId === gameState.question.player.id) {
-			gameState.correctGuesses.push(playerId);
+		const guessed = roster.find((p) => p.id === playerId);
+		const answer = gameState.question.player.sweaterNumber;
+		// Teams regularly carry two players on one number over a season — someone
+		// departs and their replacement takes the sweater. The card only shows a
+		// number, so every player wearing it is a right answer; picking the one the
+		// question wasn't built from isn't a mistake. Only the player actually
+		// picked is identified though, so the other still has to be found later.
+		if (guessed && answer != null && guessed.sweaterNumber === answer) {
+			gameState.correctGuesses.push(guessed.id);
 			gameState = {
 				...gameState,
 				phase: 'revealed',
-				correct: true
+				correct: true,
+				// Reveal whoever was picked, not whichever player the question
+				// happened to be built from — showing the other one reads as a
+				// correction when the answer was accepted.
+				question: { ...gameState.question, player: guessed }
 			};
 		} else {
 			gameState = {
