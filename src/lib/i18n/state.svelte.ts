@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte';
 import { browser } from '$app/environment';
+import { rememberCookie } from '$lib/cookies';
 import { en } from './en';
 import { fr } from './fr';
 import { LOCALE_COOKIE, LOCALE_MAX_AGE, type Locale } from './index';
@@ -45,7 +46,7 @@ class I18n {
 	 */
 	remember(locale: Locale) {
 		if (!browser) return;
-		document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${LOCALE_MAX_AGE}; samesite=lax`;
+		rememberCookie(LOCALE_COOKIE, locale, LOCALE_MAX_AGE);
 	}
 
 	/** `0.85` to "85%" / "85 %" — French wants a narrow no-break space first. */

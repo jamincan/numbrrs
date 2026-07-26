@@ -43,5 +43,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (localized && !lang) {
 		response.headers.append('vary', 'Accept-Language');
 	}
+
+	// The CSP itself comes from kit.csp in svelte.config.js, which lets
+	// SvelteKit hash its own inline scripts.
+	response.headers.set('X-Content-Type-Options', 'nosniff');
+	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+	// Fly already forces HTTPS; this tells browsers to stop asking. Ignored
+	// over plain http, so it doesn't get in the way of local dev.
+	response.headers.set('Strict-Transport-Security', 'max-age=31536000');
+
 	return response;
 };

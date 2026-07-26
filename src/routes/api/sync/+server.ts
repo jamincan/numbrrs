@@ -1,7 +1,19 @@
+import { timingSafeEqual } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { error, json } from '@sveltejs/kit';
 import { syncRostersOnce } from '$lib/server/leagues';
 import type { RequestHandler } from './$types';
+
+/**
+ * Constant-time comparison, so response timing doesn't leak how much of a
+ * guessed token matched. Lengths must match for timingSafeEqual; comparing
+ * them first leaks only the token's length, which isn't a secret worth keeping.
+ */
+function tokenMatches(provided: string, expected: string): boolean {
+	const a = Buffer.from(provided);
+	const b = Buffer.from(expected);
+	return a.length === b.length && timingSafeEqual(a, b);
+}
 
 /**
  * Force a full refresh of every league, ignoring the TTLs that normally keep
@@ -20,8 +32,8 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		throw error(503, 'Sync endpoint is not configured (SYNC_TOKEN unset)');
 	}
 
-	const auth = request.headers.get('authorization');
-	if (auth !== `Bearer ${token}`) {
+	const auth = request.headers.get('authorization') ?? '';
+	if (!tokenMatches(auth, `Bearer ${token}`)) {
 		throw error(401, 'Unauthorized');
 	}
 

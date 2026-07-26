@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { rememberCookie } from '$lib/cookies';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { LEAGUES, LEAGUE_COOKIE, LEAGUE_MAX_AGE, type LeagueId } from '$lib/leagues';
 	import { teamLogo } from '$lib/logos';
@@ -22,7 +23,7 @@
 
 	function chooseLeague(id: LeagueId) {
 		league = id;
-		document.cookie = `${LEAGUE_COOKIE}=${id}; path=/; max-age=${LEAGUE_MAX_AGE}; samesite=lax`;
+		rememberCookie(LEAGUE_COOKIE, id, LEAGUE_MAX_AGE);
 	}
 
 	const leagueTeams = $derived(teams.filter((t) => t.league === league));
