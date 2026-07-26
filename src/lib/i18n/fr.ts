@@ -56,7 +56,6 @@ export const fr: Messages = {
 				: 'Vous avez identifié tous les joueurs de cette équipe!',
 		accuracy: (percent) => `Précision${NBSP}: ${percent}`,
 		playAgain: 'Rejouer',
-		roster: 'Alignement',
 		loadingRoster: "Chargement de l'alignement",
 		noRoster: 'Aucun alignement disponible pour le moment. Actualisez dans un instant.',
 		identified: (found, total, gender) =>

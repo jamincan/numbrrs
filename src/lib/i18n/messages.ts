@@ -46,7 +46,6 @@ export interface Messages {
 		/** `percent` arrives already formatted for the locale. */
 		accuracy: (percent: string) => string;
 		playAgain: string;
-		roster: string;
 		loadingRoster: string;
 		noRoster: string;
 		identified: (found: number, total: number, gender: Gender) => string;

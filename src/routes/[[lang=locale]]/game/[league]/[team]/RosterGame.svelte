@@ -55,8 +55,6 @@
 		localStorage.setItem(DIFFICULTY_KEY, String(difficulty));
 	});
 
-	let drawerOpen = $state(false);
-
 	// The quiz is a physical deck. A card is drawn from the pile and shows its
 	// number; a guess flips it and sends it to the guessed pile, where it stays
 	// readable while the next card is already up — so there is no reveal phase
@@ -135,7 +133,6 @@
 	function guessPlayer(playerId: number) {
 		const card = game.current;
 		if (!card) return;
-		drawerOpen = false;
 		const guessed = roster.find((p) => p.id === playerId);
 		const answer = card.player.sweaterNumber;
 		// Teams regularly carry two players on one number over a season — someone
@@ -168,15 +165,15 @@
 		};
 	}
 
-	// A short, wide viewport — a phone in landscape — has no vertical room to
-	// put anything under the cards. There the drawer moves to the right edge
-	// as a full-height panel and stops being height-budgeted at all.
-	let sideDrawer = $state(false);
+	// The roster lives in one place — this drawer — at every size; only which
+	// edge it comes from changes. Landscape has width to spare and no height
+	// to spare, so there it becomes a full-height panel down the right side;
+	// portrait gets the bottom. That covers desktop too, which is just a wide
+	// landscape viewport.
+	let rightDrawer = $state(false);
 	$effect(() => {
-		const query = window.matchMedia(
-			'(min-width: 600px) and (max-width: 1023px) and (max-height: 620px)'
-		);
-		const sync = () => (sideDrawer = query.matches);
+		const query = window.matchMedia('(min-width: 600px) and (orientation: landscape)');
+		const sync = () => (rightDrawer = query.matches);
 		sync();
 		query.addEventListener('change', sync);
 		return () => query.removeEventListener('change', sync);
@@ -192,11 +189,20 @@
 	let drawerEl = $state<HTMLElement>();
 	let drawerMax = $state<number | null>(null);
 	let viewportWidth = $state(0);
+
+	// Whether the drawer shows the whole roster or just the current options.
+	// Left to the layout until the player says otherwise: a right-hand panel
+	// has the height to show everything, which is what the old desktop layout
+	// did, while a bottom drawer starts on the options alone so it stays out of
+	// the way. An explicit toggle wins from then on.
+	let drawerChoice = $state<boolean | null>(null);
+	const drawerOpen = $derived(drawerChoice ?? rightDrawer);
+
 	function measureDrawerSpace() {
-		const anchor = sideDrawer ? drawerEl : cardTable;
+		const anchor = rightDrawer ? drawerEl : cardTable;
 		if (!anchor) return;
 		const box = anchor.getBoundingClientRect();
-		const next = Math.max(window.innerHeight - (sideDrawer ? box.top : box.bottom + 8), 96);
+		const next = Math.max(window.innerHeight - (rightDrawer ? box.top : box.bottom + 8), 96);
 		// Only on a real change: the observer below watches the very element
 		// this resizes, so an unconditional write would loop.
 		if (next !== drawerMax) drawerMax = next;
@@ -228,7 +234,7 @@
 	$effect(() => {
 		// Re-measure whenever the option count, the drawer's shape or the
 		// viewport changes.
-		void [activeOptions.length, drawerMax, viewportWidth, drawerOpen, sideDrawer];
+		void [activeOptions.length, drawerMax, viewportWidth, drawerOpen, rightDrawer];
 		const box = optionsBox;
 		if (!box) return;
 		const cells = [...box.querySelectorAll<HTMLElement>('button')];
@@ -307,32 +313,34 @@
 	/>
 </NavSlot>
 
-<div class="flex flex-1 flex-col bg-gray-900 text-white">
-	<!-- In the side-panel layout the title moves down into the card column
+<!-- min-h-0 in the right-hand layout lets this shrink to the height the flex
+     chain gives it rather than to its content, which is what hands the overflow
+     to the drawer's own scroller instead of the page. The bottom layout keeps
+     the default so a page that genuinely outgrows the viewport can still scroll
+     rather than clip. -->
+<div class="flex flex-1 flex-col bg-gray-900 text-white {rightDrawer ? 'min-h-0' : ''}">
+	<!-- With the drawer on the right the title moves down into the card column
 	     instead of spanning the width, so the panel gets the full height under
 	     the nav to work with. -->
-	{#if !sideDrawer}
+	{#if !rightDrawer}
 		<GameHeader {name} color={colors?.primary} />
 	{/if}
 
-	<!-- Two arrangements of the same pieces: a column with the drawer fixed
-	     across the bottom, or — when the viewport is too short for that — a row
-	     with the drawer as a full-height panel on the right. The bottom
-	     padding is only for the case where the page is forced to scroll
-	     anyway; the drawer otherwise sizes itself to the space under the
-	     cards. -->
-	<!-- No vertical or right padding in the side layout: the panel is meant to
-	     sit flush against the nav and the screen edges, so the breathing room
-	     goes on the card column instead. -->
+	<!-- Two arrangements of the same pieces. The right-hand panel is meant to
+	     sit flush against the nav and the screen edge, so that layout takes no
+	     padding or max width of its own — the breathing room and the centring go
+	     on the card column instead. The bottom padding on the other one is only
+	     for the case where the page is forced to scroll anyway; the drawer
+	     otherwise sizes itself to the space under the cards. -->
 	<main
-		class="mx-auto flex w-full max-w-6xl flex-1 {sideDrawer
-			? 'min-h-0 flex-row gap-4 pl-4'
-			: 'flex-col px-4 pb-40 lg:pb-12'}"
+		class="flex w-full flex-1 {rightDrawer
+			? 'min-h-0 flex-row'
+			: 'mx-auto max-w-6xl flex-col px-4 pb-40'}"
 	>
 		{#snippet playerGrid(group: typeof roster)}
-			<!-- Columns follow the container, not the viewport: this grid renders
-			     at three very different widths (the desktop roster column, the
-			     full-width bottom drawer, and the narrow side panel). -->
+			<!-- Columns follow the container, not the viewport: this grid renders at
+			     widths from a narrow landscape-phone panel to a full-width bottom
+			     drawer on a tablet. -->
 			<div class="grid grid-cols-1 gap-1.5 @min-[20rem]:grid-cols-2 @min-[30rem]:grid-cols-3">
 				{#each group as player (player.id)}
 					{@const identified = game.identified.includes(player.id)}
@@ -401,11 +409,11 @@
 		{/snippet}
 
 		<div
-			class="flex min-w-0 flex-1 flex-col items-center lg:flex-row lg:items-start lg:justify-center {sideDrawer
-				? 'gap-3 py-3'
+			class="flex min-w-0 flex-1 flex-col items-center {rightDrawer
+				? 'min-h-0 justify-center gap-3 px-4 py-3'
 				: 'gap-8'}"
 		>
-			{#if sideDrawer}
+			{#if rightDrawer}
 				<GameHeader {name} color={colors?.primary} compact />
 			{/if}
 
@@ -413,10 +421,7 @@
 			     One row at every breakpoint — the cards scale down instead of
 			     re-stacking, which also keeps the fly-to-pile animation a constant
 			     "one zone-width plus the gap". -->
-			<div
-				bind:this={cardTable}
-				class="flex w-full max-w-xl flex-col items-center gap-4 lg:w-[37rem] lg:shrink-0"
-			>
+			<div bind:this={cardTable} class="flex w-full max-w-xl flex-col items-center gap-4">
 				<div class="flex w-full items-start justify-center gap-4">
 					<!-- Draw deck -->
 					<div class="card-slot">
@@ -510,34 +515,28 @@
 					{i18n.m.game.identified(game.identified.length, roster.length, gender)}
 				</p>
 			</div>
-
-			<!-- Full Roster — desktop only -->
-			<div class="@container hidden w-full max-w-lg lg:block">
-				<h3 class="mb-3 text-center text-lg font-semibold text-gray-500">
-					{i18n.m.game.roster}
-				</h3>
-				{@render rosterGroups()}
-			</div>
 		</div>
 
-		<!-- The options drawer; gone once the piles are empty and there is
-		     nothing left to guess. Across the bottom normally, a full-height
-		     panel on the right when the viewport is too short for that. -->
+		<!-- The one roster surface, at every size; gone once the piles are empty
+		     and there is nothing left to guess. -->
 		{#if game.current}
 			<div
 				bind:this={drawerEl}
-				class="flex min-h-0 flex-col overflow-hidden border-white/10 bg-gray-900 {sideDrawer
-					? 'w-72 shrink-0 self-stretch rounded-l-2xl border-l'
-					: 'fixed right-0 bottom-0 left-0 z-40 rounded-t-2xl border-t shadow-2xl lg:hidden'}"
+				class="flex min-h-0 flex-col overflow-hidden bg-gray-900 {rightDrawer
+					? 'drawer-right shrink-0 self-stretch'
+					: 'fixed right-0 bottom-0 left-0 z-40 rounded-t-2xl border-t border-white/10 shadow-2xl'}"
 				style:max-height={drawerMax === null ? undefined : `${drawerMax}px`}
 			>
-				<!-- Handle / toggle -->
+				<!-- Handle / toggle. The grab bar reads as "drag me" on the bottom
+				     sheet; on the side panel the label carries it alone. -->
 				<button
-					onclick={() => (drawerOpen = !drawerOpen)}
+					onclick={() => (drawerChoice = !drawerOpen)}
 					class="flex w-full shrink-0 flex-col items-center gap-1.5 px-4 pt-3 pb-2"
 					aria-label={drawerOpen ? i18n.m.game.collapseRoster : i18n.m.game.expandRoster}
 				>
-					<div class="h-1 w-10 rounded-full bg-white/20"></div>
+					{#if !rightDrawer}
+						<div class="h-1 w-10 rounded-full bg-white/20"></div>
+					{/if}
 					<span class="text-xs text-gray-500">
 						{drawerOpen ? `▼ ${i18n.m.game.hideRoster}` : `▲ ${i18n.m.game.showAll}`}
 					</span>
@@ -578,6 +577,14 @@
 </div>
 
 <style>
+	/* The right-hand panel grows with the window so a desktop gets a roster
+	   several columns wide, but never past 34rem — beyond that it is just
+	   stealing width from the cards. The floor keeps one readable column on a
+	   landscape phone. */
+	.drawer-right {
+		width: clamp(18rem, 40vw, 34rem);
+	}
+
 	/* The two card zones, always side by side and always equal. */
 	.card-slot {
 		position: relative;

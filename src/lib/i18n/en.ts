@@ -34,7 +34,6 @@ export const en: Messages = {
 		allIdentified: () => 'You identified every player on this team!',
 		accuracy: (percent) => `Accuracy: ${percent}`,
 		playAgain: 'Play Again',
-		roster: 'Roster',
 		loadingRoster: 'Loading roster',
 		noRoster: 'No roster available yet. Refresh in a moment.',
 		identified: (found, total) => `${found} / ${total} identified`,
