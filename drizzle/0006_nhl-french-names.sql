@@ -1,0 +1,1 @@
+ALTER TABLE `teams` ADD `name_fr` text;

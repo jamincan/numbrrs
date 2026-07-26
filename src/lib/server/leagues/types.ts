@@ -4,6 +4,8 @@ import type { LeagueId } from '$lib/leagues';
 export interface LeagueTeam {
 	code: string; // short code used in URLs, e.g. "TOR"
 	name: string; // e.g. "Toronto Sceptres"
+	/** French name, when the league's feed publishes one (the NHL does). */
+	nameFr?: string;
 	logoUrl: string;
 	/** Opaque league-specific identifier needed to fetch this team's roster. */
 	externalId?: string;

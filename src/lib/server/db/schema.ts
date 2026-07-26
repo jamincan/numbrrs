@@ -4,6 +4,10 @@ export const teams = sqliteTable('teams', {
 	id: text('id').primaryKey(), // e.g. "nhl:TOR", "pwhl:TOR"
 	league: text('league').notNull(), // e.g. "nhl", "pwhl"
 	name: text('name').notNull(), // e.g. "Toronto Maple Leafs"
+	// French name as reported by the league's own feed (currently only the NHL
+	// publishes one); null when the feed doesn't say. Curated names in
+	// $lib/team-names fill the gaps client-side.
+	nameFr: text('name_fr'),
 	abbreviation: text('abbreviation').notNull(), // e.g. "TOR"
 	logoUrl: text('logo_url').notNull(),
 	// When this team's roster was last fetched (epoch ms); null means never.

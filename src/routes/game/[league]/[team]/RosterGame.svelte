@@ -15,7 +15,7 @@
 	const { team, roster }: { team: Team; roster: Player[] } = $props();
 
 	const colors = $derived(getTeamColors(team.league, team.abbreviation));
-	const name = $derived(teamName(i18n.locale, team.league, team.abbreviation, team.name));
+	const name = $derived(teamName(i18n.locale, team));
 	// French has no gender-neutral word for "players", so which set of nouns to
 	// use is a property of the league — the PWHL takes the feminine forms.
 	const gender = $derived(leagueGender(team.league));

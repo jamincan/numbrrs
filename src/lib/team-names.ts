@@ -127,13 +127,24 @@ const FRENCH_NAMES: Record<string, string> = {
 	'qmjhl:VIC': 'Tigres de Victoriaville'
 };
 
-/** A team's name in the active locale, falling back to the feed's own name. */
-export function teamName(
-	locale: Locale,
-	league: string,
-	abbreviation: string,
-	fallback: string
-): string {
-	if (locale === 'en') return fallback;
-	return FRENCH_NAMES[`${league.toLowerCase()}:${abbreviation.toUpperCase()}`] ?? fallback;
+/** The fields needed to name a team; the DB row satisfies this. */
+export interface TeamNameSource {
+	league: string;
+	abbreviation: string;
+	name: string;
+	nameFr?: string | null;
+}
+
+/**
+ * A team's name in the active locale. For French: what the league's own feed
+ * reported (the NHL publishes French names), then the curated list above, then
+ * the English name rather than nothing.
+ */
+export function teamName(locale: Locale, team: TeamNameSource): string {
+	if (locale === 'en') return team.name;
+	return (
+		team.nameFr ??
+		FRENCH_NAMES[`${team.league.toLowerCase()}:${team.abbreviation.toUpperCase()}`] ??
+		team.name
+	);
 }

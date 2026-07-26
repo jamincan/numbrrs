@@ -87,7 +87,7 @@
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
 					{@const primary = colors?.primary ?? '#555'}
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
-					{@const name = teamName(i18n.locale, team.league, team.abbreviation, team.name)}
+					{@const name = teamName(i18n.locale, team)}
 					<a
 						href={resolve('/game/[league]/[team]', {
 							league: team.league,

@@ -21,7 +21,7 @@
 	let primaryColor = $derived(colors?.primary ?? '#555555');
 	let lightGradient = $derived(colors?.lightGradient ?? [primaryColor, primaryColor]);
 	let darkGradient = $derived(colors?.darkGradient ?? ['#1a1a2e', '#16213e']);
-	let displayTeamName = $derived(teamName(i18n.locale, team.league, team.abbreviation, team.name));
+	let displayTeamName = $derived(teamName(i18n.locale, team));
 	let playerName = $derived(`${player.firstName} ${player.lastName}`);
 	let sweaterNumber = $derived(player.sweaterNumber);
 	let position = $derived(positionName(i18n.m, player.positionCode, leagueGender(team.league)));

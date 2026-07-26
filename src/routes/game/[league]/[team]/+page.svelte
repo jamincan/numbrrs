@@ -11,7 +11,7 @@
 	const { team } = $derived(data);
 
 	const colors = $derived(getTeamColors(team.league, team.abbreviation));
-	const name = $derived(teamName(i18n.locale, team.league, team.abbreviation, team.name));
+	const name = $derived(teamName(i18n.locale, team));
 </script>
 
 <!--

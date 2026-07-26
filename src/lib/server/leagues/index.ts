@@ -98,12 +98,13 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 					id: teamDbId(adapter.id, team.code),
 					league: adapter.id,
 					name: team.name,
+					nameFr: team.nameFr ?? null,
 					abbreviation: team.code,
 					logoUrl: team.logoUrl
 				})
 				.onConflictDoUpdate({
 					target: teams.id,
-					set: { name: team.name, logoUrl: team.logoUrl }
+					set: { name: team.name, nameFr: team.nameFr ?? null, logoUrl: team.logoUrl }
 				})
 				.run();
 		}
@@ -190,7 +191,12 @@ function teamRow(dbId: string) {
 }
 
 function toLeagueTeam(row: NonNullable<ReturnType<typeof teamRow>>): LeagueTeam {
-	return { code: row.abbreviation, name: row.name, logoUrl: row.logoUrl };
+	return {
+		code: row.abbreviation,
+		name: row.name,
+		nameFr: row.nameFr ?? undefined,
+		logoUrl: row.logoUrl
+	};
 }
 
 /**

@@ -3,7 +3,11 @@ import type { LeagueAdapter, LeagueTeam, RosterResult } from './types';
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
 
-export const ACTIVE_TEAMS = [
+// Fallback team list, used when the standings endpoint can't be reached or
+// comes back empty (it can early in the offseason) so a cold database still
+// gets NHL teams. The live list is fetched from the API, which also reports
+// each team's French name.
+const ACTIVE_TEAMS = [
 	'ANA',
 	'BOS',
 	'BUF',
@@ -38,7 +42,7 @@ export const ACTIVE_TEAMS = [
 	'WSH'
 ] as const;
 
-export type TEAM_CODE = (typeof ACTIVE_TEAMS)[number];
+type TEAM_CODE = (typeof ACTIVE_TEAMS)[number];
 
 const TEAM_NAMES: Record<TEAM_CODE, string> = {
 	ANA: 'Anaheim Ducks',
@@ -74,6 +78,14 @@ const TEAM_NAMES: Record<TEAM_CODE, string> = {
 	WPG: 'Winnipeg Jets',
 	WSH: 'Washington Capitals'
 };
+
+interface NHLStandingsResponse {
+	standings: {
+		teamAbbrev: { default: string };
+		teamName: { default: string; fr?: string };
+		teamLogo: string;
+	}[];
+}
 
 interface NHLPlayer {
 	id: number;
@@ -127,13 +139,39 @@ async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
 	};
 }
 
-export const nhlAdapter: LeagueAdapter = {
-	id: 'nhl',
-	fetchTeams: async () =>
-		ACTIVE_TEAMS.map((code) => ({
+const logoUrl = (code: string) => `https://assets.nhle.com/logos/nhl/svg/${code}_light.svg`;
+
+/**
+ * The current teams, from the standings — the NHL has no plain "list of teams"
+ * endpoint, but the standings cover exactly the active franchises and carry
+ * each team's French name. Sorted by code so the home grid doesn't reshuffle
+ * with the day's results.
+ */
+async function fetchTeams(): Promise<LeagueTeam[]> {
+	try {
+		const res = await fetchWithTimeout(`${NHL_API_BASE}/standings/now`);
+		if (!res.ok) throw new Error(`standings returned ${res.status}`);
+		const data: NHLStandingsResponse = await res.json();
+		const teams = data.standings.map((t) => ({
+			code: t.teamAbbrev.default,
+			name: t.teamName.default,
+			nameFr: t.teamName.fr,
+			logoUrl: t.teamLogo || logoUrl(t.teamAbbrev.default)
+		}));
+		if (teams.length === 0) throw new Error('standings returned no teams');
+		return teams.sort((a, b) => a.code.localeCompare(b.code));
+	} catch (err) {
+		console.warn('Falling back to the static NHL team list:', err);
+		return ACTIVE_TEAMS.map((code) => ({
 			code,
 			name: TEAM_NAMES[code] || code,
-			logoUrl: `https://assets.nhle.com/logos/nhl/svg/${code}_light.svg`
-		})),
+			logoUrl: logoUrl(code)
+		}));
+	}
+}
+
+export const nhlAdapter: LeagueAdapter = {
+	id: 'nhl',
+	fetchTeams,
 	fetchRoster
 };
