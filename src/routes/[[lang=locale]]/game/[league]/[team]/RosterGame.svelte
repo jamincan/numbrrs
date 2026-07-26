@@ -174,11 +174,53 @@
 	// scrolling before that.
 	let cardTable = $state<HTMLElement>();
 	let drawerMax = $state<number | null>(null);
+	let viewportWidth = $state(0);
 	function measureDrawerSpace() {
 		if (!cardTable) return;
 		drawerMax = Math.max(window.innerHeight - cardTable.getBoundingClientRect().bottom - 8, 96);
 	}
 	$effect(measureDrawerSpace);
+
+	/** `gap-1.5` between option buttons, in px. */
+	const OPTION_GAP = 6;
+	/** Narrower than this and a third column stops being worth reading. */
+	const MIN_OPTION_WIDTH = 150;
+
+	// Two columns is the default: wider targets, easier to read. A third only
+	// appears when two would overflow the drawer and the screen is wide enough
+	// to take it — mostly expert difficulty on a tablet or a phone in
+	// landscape.
+	let optionsBox = $state<HTMLElement>();
+	let optionColumns = $state(2);
+	$effect(() => {
+		// Re-measure whenever the option count, the drawer's budget or the
+		// viewport width changes.
+		void [activeOptions.length, drawerMax, viewportWidth, drawerOpen];
+		const box = optionsBox;
+		if (!box || drawerMax === null) return;
+		const cells = [...box.querySelectorAll<HTMLElement>('button')];
+		if (cells.length === 0) return;
+		// Grid rows are as tall as their tallest cell, so a wrapped name sets
+		// the height for its whole row. Taking the tallest biases the estimate
+		// toward granting the third column, which is the harmless direction:
+		// three columns never needs more height than two.
+		const rowHeight = Math.max(...cells.map((cell) => cell.offsetHeight));
+		const padding = parseFloat(getComputedStyle(box).paddingBottom) || 0;
+		// The drawer's whole allowance, less the handle above the grid and the
+		// grid's own bottom padding. Measured from the budget rather than the
+		// box's current height, which only reports how tall the content
+		// happens to be when it fits.
+		const available = drawerMax - box.offsetTop - padding;
+		if (rowHeight <= 0 || available <= 0) return;
+		const rowsThatFit = Math.max(
+			1,
+			Math.floor((available + OPTION_GAP) / (rowHeight + OPTION_GAP))
+		);
+		const widthAllows = Math.floor(
+			(box.clientWidth + OPTION_GAP) / (MIN_OPTION_WIDTH + OPTION_GAP)
+		);
+		optionColumns = cells.length > rowsThatFit * 2 ? Math.min(3, Math.max(2, widthAllows)) : 2;
+	});
 
 	// The resolved card mounts still showing its number, then flips a frame
 	// later — a CSS transition can't animate on initial render, and the card
@@ -201,7 +243,11 @@
 	});
 </script>
 
-<svelte:window onresize={measureDrawerSpace} onscroll={measureDrawerSpace} />
+<svelte:window
+	onresize={measureDrawerSpace}
+	onscroll={measureDrawerSpace}
+	bind:innerWidth={viewportWidth}
+/>
 
 <!-- The difficulty menu rides in the site nav rather than a header of its own,
      keeping the play area clear. -->
@@ -447,8 +493,11 @@
 					</div>
 				{:else}
 					<!-- Collapsed: active options only -->
-					<div class="min-h-0 overflow-y-auto px-4 pb-4">
-						<div class="grid grid-cols-2 gap-1.5">
+					<div class="min-h-0 overflow-y-auto px-4 pb-4" bind:this={optionsBox}>
+						<div
+							class="grid gap-1.5"
+							style="grid-template-columns: repeat({optionColumns}, minmax(0, 1fr));"
+						>
 							{#each activeOptions as player (player.id)}
 								<button
 									onclick={() => guessPlayer(player.id)}
