@@ -2,7 +2,10 @@
 // adapter code lives in $lib/server/leagues.
 export const LEAGUES = [
 	{ id: 'nhl', label: 'NHL' },
-	{ id: 'pwhl', label: 'PWHL' }
+	{ id: 'pwhl', label: 'PWHL' },
+	{ id: 'whl', label: 'WHL' },
+	{ id: 'ohl', label: 'OHL' },
+	{ id: 'qmjhl', label: 'QMJHL' }
 ] as const;
 
 export type LeagueId = (typeof LEAGUES)[number]['id'];

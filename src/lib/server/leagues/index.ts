@@ -4,9 +4,10 @@ import { and, eq, notInArray } from 'drizzle-orm';
 import { teamDbId } from '$lib/leagues';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
+import { ohlAdapter, qmjhlAdapter, whlAdapter } from './chl';
 import type { LeagueAdapter } from './types';
 
-const ADAPTERS: LeagueAdapter[] = [nhlAdapter, pwhlAdapter];
+const ADAPTERS: LeagueAdapter[] = [nhlAdapter, pwhlAdapter, whlAdapter, ohlAdapter, qmjhlAdapter];
 
 let inFlight: Promise<void> | null = null;
 

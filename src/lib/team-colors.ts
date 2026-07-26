@@ -267,9 +267,211 @@ const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 	}
 };
 
+// The three CHL leagues have 61 teams between them, so instead of hand-tuning
+// four values each, their palettes are derived from official brand colors
+// (source: trucolor.net) by the same rules the NHL/PWHL maps follow by hand.
+
+type Hsl = { h: number; s: number; l: number };
+
+/** Near-black the cards and page sit on; every palette is built to read on it. */
+const CARD_BLACK = '#0d0d0d';
+
+// Loosest contrast the hand-tuned palettes sit at (Carolina's red is ~3.3), so
+// deriving to this keeps the CHL tiles consistent with the NHL/PWHL ones.
+const MIN_CONTRAST = 3.5;
+
+function hexToHsl(hex: string): Hsl {
+	const n = parseInt(hex.slice(1), 16);
+	const r = ((n >> 16) & 255) / 255;
+	const g = ((n >> 8) & 255) / 255;
+	const b = (n & 255) / 255;
+	const max = Math.max(r, g, b);
+	const min = Math.min(r, g, b);
+	const l = (max + min) / 2;
+	const d = max - min;
+	if (d === 0) return { h: 0, s: 0, l };
+	let h: number;
+	if (max === r) h = (g - b) / d;
+	else if (max === g) h = (b - r) / d + 2;
+	else h = (r - g) / d + 4;
+	h *= 60;
+	if (h < 0) h += 360;
+	return { h, s: d / (1 - Math.abs(2 * l - 1)), l };
+}
+
+function hslToHex({ h, s, l }: Hsl): string {
+	const c = (1 - Math.abs(2 * l - 1)) * s;
+	const hp = (((h % 360) + 360) % 360) / 60;
+	const x = c * (1 - Math.abs((hp % 2) - 1));
+	const rgb =
+		hp < 1
+			? [c, x, 0]
+			: hp < 2
+				? [x, c, 0]
+				: hp < 3
+					? [0, c, x]
+					: hp < 4
+						? [0, x, c]
+						: hp < 5
+							? [x, 0, c]
+							: [c, 0, x];
+	const m = l - c / 2;
+	return (
+		'#' +
+		rgb
+			.map((v) =>
+				Math.round(Math.min(1, Math.max(0, v + m)) * 255)
+					.toString(16)
+					.padStart(2, '0')
+			)
+			.join('')
+	);
+}
+
+function luminance(hex: string): number {
+	const n = parseInt(hex.slice(1), 16);
+	const channel = (v: number) => {
+		const c = v / 255;
+		return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+	};
+	return (
+		0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
+	);
+}
+
+function contrastOnBlack(hex: string): number {
+	const a = luminance(hex);
+	const b = luminance(CARD_BLACK);
+	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/**
+ * Build a full palette from a team's official brand color. `brand` drives every
+ * shade, so it has to be the team's chromatic color — for the many junior teams
+ * whose official first color is black, pass their second color and keep the
+ * black as `secondary`.
+ */
+function brandPalette(brand: string, secondary: string): TeamColors {
+	const hsl = hexToHsl(brand);
+
+	// primary is used as text, borders and glows on near-black, so lift its
+	// lightness until it's legible there. Deep navies move a long way; reds and
+	// golds are already clear and come through untouched. Saturation is capped
+	// while brightening, because a fully saturated navy lifted to a legible
+	// lightness turns electric — the hand-tuned equivalents sit around 0.72.
+	let primary = brand;
+	let l = hsl.l;
+	while (contrastOnBlack(primary) < MIN_CONTRAST && l < 0.75) {
+		l = Math.min(0.75, l + 0.02);
+		primary = hslToHex({ ...hsl, s: Math.min(hsl.s, 0.72), l });
+	}
+
+	return {
+		primary,
+		secondary,
+		// Card front, under the big white number: the brand color itself, lifted
+		// only when it's so dark the number would sit on near-black anyway.
+		lightGradient: [
+			// Vivid brands are used exactly as published; only the dark ones get
+			// lifted, and only those need the saturation cap.
+			hsl.l < 0.38 ? hslToHex({ ...hsl, s: Math.min(hsl.s, 0.85), l: 0.38 }) : brand,
+			hslToHex({ ...hsl, s: Math.min(hsl.s, 0.95), l: 0.07 })
+		],
+		// Card back and team tiles: a muted deep tint falling into the page.
+		darkGradient: [hslToHex({ ...hsl, s: Math.min(hsl.s, 0.8), l: 0.16 }), CARD_BLACK]
+	};
+}
+
+/** [brand, secondary] per team code, keyed the way the league's feed codes them. */
+type BrandPair = [brand: string, secondary: string];
+
+const WHL_BRANDS: Record<string, BrandPair> = {
+	BDN: ['#D9C756', '#010101'], // Brandon Wheat Kings
+	CGY: ['#C8102E', '#010101'], // Calgary Hitmen
+	EDM: ['#A6192E', '#012169'], // Edmonton Oil Kings
+	EVT: ['#154734', '#9E652E'], // Everett Silvertips
+	KAM: ['#041E42', '#CF4520'], // Kamloops Blazers
+	KEL: ['#006271', '#C8102E'], // Kelowna Rockets
+	LET: ['#BA0C2F', '#041E42'], // Lethbridge Hurricanes
+	MH: ['#FF6720', '#010101'], // Medicine Hat Tigers
+	MJ: ['#C8102E', '#010101'], // Moose Jaw Warriors
+	PEN: ['#0C2340', '#8BBEE8'], // Penticton Vees
+	POR: ['#C8102E', '#010101'], // Portland Winterhawks
+	PA: ['#007A33', '#C5B783'], // Prince Albert Raiders
+	PG: ['#D22730', '#BF9474'], // Prince George Cougars
+	RD: ['#862633', '#8D9093'], // Red Deer Rebels
+	REG: ['#001489', '#EF3340'], // Regina Pats
+	SAS: ['#012169', '#FFC72C'], // Saskatoon Blades
+	SEA: ['#00205B', '#00843D'], // Seattle Thunderbirds
+	SPO: ['#001E62', '#A6192E'], // Spokane Chiefs
+	SC: ['#00205B', '#046A38'], // Swift Current Broncos
+	TC: ['#A6192E', '#041E42'], // Tri-City Americans
+	VAN: ['#A6192E', '#010101'], // Vancouver Giants
+	VIC: ['#00205B', '#010101'], // Victoria Royals
+	WEN: ['#003087', '#010101'] // Wenatchee Wild
+};
+
+const OHL_BRANDS: Record<string, BrandPair> = {
+	BAR: ['#002F6C', '#EE2737'], // Barrie Colts
+	BRAM: ['#00205B', '#A2AAAD'], // Brampton Steelheads
+	BFD: ['#FFC72C', '#010101'], // Brantford Bulldogs
+	ER: ['#041E42', '#AB2328'], // Erie Otters
+	FLNT: ['#041E42', '#FF6720'], // Flint Firebirds
+	GUE: ['#862633', '#010101'], // Guelph Storm
+	KGN: ['#B9975B', '#010101'], // Kingston Frontenacs
+	KIT: ['#0032A0', '#C8102E'], // Kitchener Rangers
+	LDN: ['#046A38', '#FFC72C'], // London Knights
+	NIAG: ['#C8102E', '#010101'], // Niagara IceDogs
+	NB: ['#787121', '#FFC72C'], // North Bay Battalion
+	OSH: ['#C8102E', '#041E42'], // Oshawa Generals
+	OTT: ['#A6192E', '#010101'], // Ottawa 67's
+	OS: ['#C8102E', '#010101'], // Owen Sound Attack
+	PBO: ['#6F263D', '#FFFFFF'], // Peterborough Petes
+	SAG: ['#0C2340', '#A6192E'], // Saginaw Spirit
+	SAR: ['#C69214', '#010101'], // Sarnia Sting
+	SOO: ['#C8102E', '#FFFFFF'], // Sault Ste. Marie Greyhounds
+	SBY: ['#00205B', '#A2AAAD'], // Sudbury Wolves
+	WSR: ['#091F2C', '#CB333B'] // Windsor Spitfires
+};
+
+const QMJHL_BRANDS: Record<string, BrandPair> = {
+	BAC: ['#DA291C', '#F1C400'], // Baie-Comeau Drakkar
+	// The Armada's official colors are only black and white; silver stands in so
+	// the tile isn't indistinguishable from the page.
+	BLB: ['#A2AAAD', '#010101'], // Blainville-Boisbriand Armada
+	CAP: ['#FFB81C', '#25282A'], // Cape Breton Eagles
+	CHA: ['#8C714C', '#010101'], // Charlottetown Islanders
+	CHI: ['#0C2340', '#62B5E5'], // Chicoutimi Saguenéens
+	DRU: ['#DA291C', '#010101'], // Drummondville Voltigeurs
+	GAT: ['#888B8D', '#010101'], // Gatineau Olympiques
+	HAL: ['#154734', '#C8102E'], // Halifax Mooseheads
+	MON: ['#BA0C2F', '#003087'], // Moncton Wildcats
+	NFL: ['#0C2340', '#862633'], // Newfoundland Regiment
+	QUE: ['#C8102E', '#010101'], // Québec Remparts
+	RIM: ['#221C35', '#98A4AE'], // Rimouski Océanic
+	ROU: ['#DA291C', '#7C878E'], // Rouyn-Noranda Huskies
+	SNB: ['#003087', '#010101'], // Saint John Sea Dogs
+	SHA: ['#041E42', '#FFC72C'], // Shawinigan Cataractes
+	SHE: ['#041E42', '#6CACE4'], // Sherbrooke Phœnix
+	VDO: ['#046A38', '#8C714C'], // Val-d'Or Foreurs
+	VIC: ['#FFC72C', '#010101'] // Victoriaville Tigres
+};
+
+function derivePalettes(brands: Record<string, BrandPair>): Record<string, TeamColors> {
+	return Object.fromEntries(
+		Object.entries(brands).map(([code, [brand, secondary]]) => [
+			code,
+			brandPalette(brand, secondary)
+		])
+	);
+}
+
 export const TEAM_COLORS: Record<string, Record<string, TeamColors>> = {
 	nhl: NHL_TEAM_COLORS,
-	pwhl: PWHL_TEAM_COLORS
+	pwhl: PWHL_TEAM_COLORS,
+	whl: derivePalettes(WHL_BRANDS),
+	ohl: derivePalettes(OHL_BRANDS),
+	qmjhl: derivePalettes(QMJHL_BRANDS)
 };
 
 export function getTeamColors(league: string, abbreviation: string): TeamColors | undefined {

@@ -36,7 +36,7 @@
 	<main class="mx-auto max-w-5xl px-4 pb-12">
 		<div class="mb-6 flex justify-center">
 			<div
-				class="flex rounded-lg border border-white/10 bg-white/5 p-1"
+				class="flex flex-wrap justify-center rounded-lg border border-white/10 bg-white/5 p-1"
 				role="tablist"
 				aria-label="League"
 			>
@@ -45,7 +45,7 @@
 						role="tab"
 						aria-selected={league === option.id}
 						onclick={() => (league = option.id)}
-						class="font-condensed rounded-md px-6 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors {league ===
+						class="font-condensed rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
 							: 'text-gray-500 hover:text-gray-300'}"
