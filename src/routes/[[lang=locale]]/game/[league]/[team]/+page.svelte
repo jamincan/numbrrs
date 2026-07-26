@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { getTeamColors } from '$lib/team-colors';
 	import { teamName } from '$lib/team-names';
@@ -23,7 +22,7 @@
 {#await data.roster}
 	<div class="min-h-screen bg-gray-900 text-white">
 		<header class="flex items-center justify-between px-6 py-4">
-			<a href={resolve('/')} class="text-sm text-gray-400 hover:text-white"
+			<a href={i18n.href('/')} class="text-sm text-gray-400 hover:text-white"
 				>&larr; {i18n.m.game.back}</a
 			>
 			<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
@@ -45,7 +44,7 @@
 	{#if roster.length === 0}
 		<div class="min-h-screen bg-gray-900 text-white">
 			<header class="flex items-center justify-between px-6 py-4">
-				<a href={resolve('/')} class="text-sm text-gray-400 hover:text-white"
+				<a href={i18n.href('/')} class="text-sm text-gray-400 hover:text-white"
 					>&larr; {i18n.m.game.back}</a
 				>
 				<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">

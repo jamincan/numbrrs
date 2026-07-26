@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { resolve } from '$app/paths';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { LEAGUES, type LeagueId } from '$lib/leagues';
 	import { teamLogo } from '$lib/logos';
@@ -89,10 +88,7 @@
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
 					{@const name = teamName(i18n.locale, team)}
 					<a
-						href={resolve('/game/[league]/[team]', {
-							league: team.league,
-							team: team.abbreviation
-						})}
+						href={i18n.href(`/game/${team.league}/${team.abbreviation}`)}
 						class="group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
 						style="border-color: {primary}44; background: linear-gradient(160deg, {colors
 							?.darkGradient[0] ?? '#1a1a2e'}, {colors?.darkGradient[1] ??

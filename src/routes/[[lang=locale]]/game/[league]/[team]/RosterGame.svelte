@@ -7,7 +7,6 @@
 	import { leagueGender } from '$lib/leagues';
 	import { getTeamColors } from '$lib/team-colors';
 	import { teamName } from '$lib/team-names';
-	import { resolve } from '$app/paths';
 
 	const i18n = getI18n();
 
@@ -209,7 +208,7 @@
 
 <div class="min-h-screen bg-gray-900 text-white">
 	<header class="flex items-center justify-between px-6 py-4">
-		<a href={resolve('/')} class="text-sm text-gray-400 hover:text-white"
+		<a href={i18n.href('/')} class="text-sm text-gray-400 hover:text-white"
 			>&larr; {i18n.m.game.back}</a
 		>
 		<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">

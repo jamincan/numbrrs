@@ -1,32 +1,48 @@
 <script lang="ts">
 	import '../app.css';
-	import { resolve } from '$app/paths';
+	import { browser } from '$app/environment';
+	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import LocaleToggle from '$lib/components/LocaleToggle.svelte';
 	import NumbrrsIcon from '$lib/components/NumbrrsIcon.svelte';
-	import { untrack } from 'svelte';
+	import { localizePath } from '$lib/i18n';
 	import { createI18n } from '$lib/i18n/state.svelte';
+	import { SITE_ORIGIN } from '$lib/site';
 
 	let { children, data } = $props();
 
-	// Seeded from the server so the first render is already in the right
-	// language, then owned by the client — created here rather than at module
-	// scope so concurrent SSR renders don't share one locale.
-	//
-	// Deliberately untracked: the server's value is a starting point, not a
-	// binding. Re-syncing to it on every navigation would undo the visitor's
-	// choice on the spot if their browser refused the cookie.
-	const i18n = createI18n(untrack(() => data.locale));
+	// The URL owns the locale — hooks.server.ts resolves it from the /fr prefix
+	// and the layout data carries it here, so switching language is just a
+	// navigation. Created per layout instance rather than at module scope so
+	// concurrent SSR renders don't share one locale.
+	const i18n = createI18n(() => data.locale);
+
+	// The server stamps <html lang> on the first render; client-side
+	// navigations between /... and /fr/... have to keep it honest themselves.
+	$effect(() => {
+		if (browser) document.documentElement.lang = i18n.locale;
+	});
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 	<title>{i18n.m.title}</title>
+	<!-- Each language lives at its own URL, so tell search engines how the two
+	     relate — and that either host (numbrrs.ca, numbrrs.fly.dev) canonically
+	     lives at numbrrs.ca. -->
+	<link rel="canonical" href={SITE_ORIGIN + page.url.pathname} />
+	<link rel="alternate" hreflang="en" href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')} />
+	<link rel="alternate" hreflang="fr" href={SITE_ORIGIN + localizePath(page.url.pathname, 'fr')} />
+	<link
+		rel="alternate"
+		hreflang="x-default"
+		href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')}
+	/>
 </svelte:head>
 
 <nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">
 	<a
-		href={resolve('/')}
+		href={i18n.href('/')}
 		class="font-condensed flex items-center gap-2 text-lg font-black text-white"
 	>
 		<NumbrrsIcon class="h-7 w-7" />

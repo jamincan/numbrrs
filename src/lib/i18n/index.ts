@@ -15,6 +15,18 @@ export const DEFAULT_LOCALE: Locale = 'en';
  */
 export type Gender = 'm' | 'f';
 
+/**
+ * The same path in another locale. French URLs carry a /fr prefix; English is
+ * the bare path — search engines need distinct URLs per language to index both
+ * (and for hreflang to mean anything).
+ */
+export function localizePath(pathname: string, locale: Locale): string {
+	const bare =
+		pathname === '/fr' ? '/' : pathname.startsWith('/fr/') ? pathname.slice(3) : pathname;
+	if (locale !== 'fr') return bare;
+	return bare === '/' ? '/fr' : `/fr${bare}`;
+}
+
 export const LOCALE_COOKIE = 'numbrrs_locale';
 
 /** A year. The preference is worth remembering but not worth keeping forever. */
