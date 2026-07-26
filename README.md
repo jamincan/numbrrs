@@ -37,8 +37,8 @@ fly secrets set DATABASE_URL=/data/numbrrs.db
 fly deploy
 ```
 
-| Secret | Description |
-|--------|-------------|
+| Secret         | Description                                                                 |
+| -------------- | --------------------------------------------------------------------------- |
 | `DATABASE_URL` | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume. |
 
 ## License
