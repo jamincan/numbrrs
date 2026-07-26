@@ -1,17 +1,15 @@
 import { error } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { players, teams } from '$lib/server/db/schema';
-import { isLeagueId, teamDbId } from '$lib/leagues';
-import { ensureRoster } from '$lib/server/leagues';
+import { isLeagueId } from '$lib/leagues';
+import { ensureTeam, loadRoster } from '$lib/server/leagues';
 
 export async function load({ params }) {
 	if (!isLeagueId(params.league)) throw error(404, 'League not found');
-	await ensureRoster(params.league, params.team);
 
-	const id = teamDbId(params.league, params.team);
-	const team = db.select().from(teams).where(eq(teams.id, id)).get();
+	const team = await ensureTeam(params.league, params.team);
 	if (!team) throw error(404, 'Team not found');
-	const roster = db.select().from(players).where(eq(players.teamId, id)).all();
-	return { team, roster };
+
+	// Deliberately not awaited: the page renders as soon as the team is known and
+	// SvelteKit streams the roster in when it's ready, refreshing it from the
+	// league first if it's stale.
+	return { team, roster: loadRoster(params.league, params.team) };
 }

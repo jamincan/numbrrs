@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { db, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
 import { and, eq, notInArray } from 'drizzle-orm';
 import { teamDbId, type LeagueId } from '$lib/leagues';
@@ -220,36 +220,47 @@ export async function ensureTeams(): Promise<void> {
 }
 
 /**
- * Make sure a team's roster is present and reasonably current. A team that
- * already has players renders immediately and refreshes in the background; only
- * an empty roster is waited on.
+ * Look up a team, loading the league's teams first if we've never seen it — a
+ * deep link into a cold database, say. Cheap enough to wait on: it's what the
+ * page needs before it can render anything at all.
  */
-export async function ensureRoster(league: LeagueId, code: string): Promise<void> {
+export async function ensureTeam(league: LeagueId, code: string) {
 	const adapter = ADAPTERS_BY_ID.get(league);
-	if (!adapter) return;
+	if (!adapter) return undefined;
 
 	const dbId = teamDbId(league, code);
-	let row = teamRow(dbId);
-	if (!row) {
-		// Deep link to a team we've never listed (a cold database, say) — the
-		// league's teams have to be loaded before the roster means anything.
+	const row = teamRow(dbId);
+	if (row) return row;
+
+	await withTimeout(
+		once(teamListKey(league), () => syncTeamList(adapter)),
+		BLOCKING_TIMEOUT
+	);
+	return teamRow(dbId);
+}
+
+/**
+ * A team's roster, refreshed first if it's gone stale. The page streams this in
+ * rather than waiting on it, so a refresh costs a spinner in the roster area
+ * instead of a blank page — and the game always starts from current data
+ * instead of swapping players out from under someone mid-round.
+ *
+ * If the league can't be reached in time, whatever's in the database is served
+ * instead; the next visit tries again, since only a successful sync is recorded.
+ */
+export async function loadRoster(league: LeagueId, code: string): Promise<Player[]> {
+	const dbId = teamDbId(league, code);
+	const adapter = ADAPTERS_BY_ID.get(league);
+	const row = teamRow(dbId);
+
+	if (adapter && row && !isFresh(row.rosterSyncedAt, ROSTER_TTL)) {
 		await withTimeout(
-			once(teamListKey(league), () => syncTeamList(adapter)),
+			once(rosterKey(dbId), () => syncRoster(adapter, toLeagueTeam(row))),
 			BLOCKING_TIMEOUT
 		);
-		row = teamRow(dbId);
-		if (!row) return;
 	}
 
-	if (isFresh(row.rosterSyncedAt, ROSTER_TTL)) return;
-
-	const job = once(rosterKey(dbId), () => syncRoster(adapter, toLeagueTeam(row)));
-	const hasPlayers = db
-		.select({ id: players.id })
-		.from(players)
-		.where(eq(players.teamId, dbId))
-		.get();
-	if (!hasPlayers) await withTimeout(job, BLOCKING_TIMEOUT);
+	return db.select().from(players).where(eq(players.teamId, dbId)).all();
 }
 
 /** Refresh everything, ignoring TTLs. Used by the manual sync endpoint. */
