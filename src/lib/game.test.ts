@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { nextQuestion, preIdentifiedIds, shuffle, type GamePlayer } from './game';
+import {
+	buildDeck,
+	cardOptions,
+	drawCard,
+	preIdentifiedIds,
+	shuffle,
+	type GamePlayer
+} from './game';
 
 /** Deterministic stand-in for Math.random. */
 function seeded(seed = 1): () => number {
@@ -15,17 +22,6 @@ function player(id: number, sweaterNumber: number | null = id): GamePlayer {
 }
 
 const roster = [player(1), player(2), player(3), player(4), player(5), player(6)];
-
-/** nextQuestion, asserting a question was possible. */
-function mustAsk(
-	correctGuesses: number[],
-	difficulty: number,
-	random: () => number
-): NonNullable<ReturnType<typeof nextQuestion<GamePlayer>>> {
-	const q = nextQuestion(roster, correctGuesses, difficulty, random);
-	expect(q).not.toBeNull();
-	return q!;
-}
 
 describe('shuffle', () => {
 	it('keeps every element', () => {
@@ -50,57 +46,95 @@ describe('preIdentifiedIds', () => {
 	});
 });
 
-describe('nextQuestion', () => {
-	it('asks about a player who has not been identified', () => {
-		for (let seed = 1; seed < 20; seed++) {
-			const q = mustAsk([1, 2, 3], 4, seeded(seed));
-			expect([4, 5, 6]).toContain(q.player.id);
-		}
+describe('buildDeck', () => {
+	it('deals one card per player, shuffled', () => {
+		const deck = buildDeck(roster, seeded());
+		expect(deck.map((p) => p.id).sort()).toEqual([1, 2, 3, 4, 5, 6]);
 	});
 
-	it('includes the asked player among the options', () => {
+	it('deals no cards for numberless players', () => {
+		const mixed = [player(1, 10), player(2, null), player(3, 30)];
+		expect(
+			buildDeck(mixed, seeded())
+				.map((p) => p.id)
+				.sort()
+		).toEqual([1, 3]);
+	});
+
+	it('is empty for a roster with nobody to guess', () => {
+		expect(buildDeck([player(1, null), player(2, null)], seeded())).toEqual([]);
+	});
+});
+
+describe('drawCard', () => {
+	it('draws the top card and leaves the rest', () => {
+		const drawn = drawCard(roster, [], seeded());
+		expect(drawn?.player.id).toBe(1);
+		expect(drawn?.deck.map((p) => p.id)).toEqual([2, 3, 4, 5, 6]);
+		expect(drawn?.recycle).toEqual([]);
+	});
+
+	it('leaves the recycle pile alone while the deck holds cards', () => {
+		const drawn = drawCard([player(1)], [player(2)], seeded());
+		expect(drawn?.player.id).toBe(1);
+		expect(drawn?.recycle.map((p) => p.id)).toEqual([2]);
+	});
+
+	it('shuffles the recycle pile into a fresh deck once the draw pile empties', () => {
+		const recycle = [player(1), player(2), player(3)];
+		const drawn = drawCard([], recycle, seeded());
+		expect(drawn).not.toBeNull();
+		expect(drawn!.recycle).toEqual([]);
+		expect([drawn!.player.id, ...drawn!.deck.map((p) => p.id)].sort()).toEqual([1, 2, 3]);
+	});
+
+	it('returns null when both piles are exhausted', () => {
+		expect(drawCard([], [], seeded())).toBeNull();
+	});
+
+	it('does not mutate its inputs', () => {
+		const deck = [player(1), player(2)];
+		const recycle = [player(3)];
+		drawCard(deck, recycle, seeded());
+		drawCard([], recycle, seeded());
+		expect(deck.map((p) => p.id)).toEqual([1, 2]);
+		expect(recycle.map((p) => p.id)).toEqual([3]);
+	});
+});
+
+describe('cardOptions', () => {
+	it('includes the drawn player', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			const q = mustAsk([], 4, seeded(seed));
-			expect(q.optionIds).toContain(q.player.id);
+			expect(cardOptions(roster, [], roster[2], 4, seeded(seed))).toContain(3);
 		}
 	});
 
 	it('offers as many options as the difficulty allows', () => {
-		const q = mustAsk([], 4, seeded());
-		expect(q.optionIds).toHaveLength(4);
+		expect(cardOptions(roster, [], roster[0], 4, seeded())).toHaveLength(4);
 	});
 
 	it('offers every remaining player on expert difficulty', () => {
-		const q = mustAsk([1], Infinity, seeded());
-		expect([...q.optionIds].sort()).toEqual([2, 3, 4, 5, 6]);
+		expect([...cardOptions(roster, [1], roster[1], Infinity, seeded())].sort()).toEqual([
+			2, 3, 4, 5, 6
+		]);
 	});
 
 	it('caps the options at the remaining player count', () => {
-		const q = mustAsk([1, 2, 3, 4], 8, seeded());
-		expect([...q.optionIds].sort()).toEqual([5, 6]);
+		expect([...cardOptions(roster, [1, 2, 3, 4], roster[4], 8, seeded())].sort()).toEqual([5, 6]);
 	});
 
 	it('never repeats an option', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			const q = mustAsk([], 4, seeded(seed));
-			expect(new Set(q.optionIds).size).toBe(q.optionIds.length);
+			const options = cardOptions(roster, [], roster[0], 4, seeded(seed));
+			expect(new Set(options).size).toBe(options.length);
 		}
 	});
 
 	it('never offers an already-identified player', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			const q = mustAsk([2, 4], 8, seeded(seed));
-			expect(q.optionIds).not.toContain(2);
-			expect(q.optionIds).not.toContain(4);
+			const options = cardOptions(roster, [2, 4], roster[0], 8, seeded(seed));
+			expect(options).not.toContain(2);
+			expect(options).not.toContain(4);
 		}
-	});
-
-	it('returns null once everyone has been identified', () => {
-		expect(nextQuestion(roster, [1, 2, 3, 4, 5, 6], 4, seeded())).toBeNull();
-	});
-
-	it('returns null for a roster with nobody to guess', () => {
-		const numberless = [player(1, null), player(2, null)];
-		expect(nextQuestion(numberless, preIdentifiedIds(numberless), 4, seeded())).toBeNull();
 	});
 });

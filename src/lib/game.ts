@@ -9,11 +9,6 @@ export interface GamePlayer {
 	sweaterNumber: number | null;
 }
 
-export interface Question<P extends GamePlayer> {
-	player: P;
-	optionIds: number[];
-}
-
 /** Fisher–Yates, in place. Returns the array for convenience. */
 export function shuffle<T>(items: T[], random: () => number = Math.random): T[] {
 	for (let i = items.length - 1; i > 0; i--) {
@@ -32,29 +27,55 @@ export function preIdentifiedIds(roster: readonly GamePlayer[]): number[] {
 }
 
 /**
- * Build the next question: a random not-yet-identified player, plus enough
- * other unidentified players to fill out the difficulty's option count.
- * Returns null when everyone has been identified — including the edge case of
- * a roster where nobody has a sweater number, so the whole team starts
- * pre-identified and there's never a question to ask.
+ * A fresh draw pile: one card per player who can be asked about (numberless
+ * players start pre-identified instead of getting a card), in shuffled order.
  */
-export function nextQuestion<P extends GamePlayer>(
+export function buildDeck<P extends GamePlayer>(
 	roster: readonly P[],
-	correctGuesses: readonly number[],
+	random: () => number = Math.random
+): P[] {
+	return shuffle(
+		roster.filter((p) => p.sweaterNumber != null),
+		random
+	);
+}
+
+/**
+ * Draw the top card. When the draw pile is empty, the recycle pile — players
+ * whose cards resolved without them being identified — shuffles over to become
+ * the new deck, matching the rule that a wrongly-guessed player stays in the
+ * pool until found. Returns null when both piles are exhausted: the game is
+ * over. Inputs are not mutated.
+ */
+export function drawCard<P extends GamePlayer>(
+	deck: readonly P[],
+	recycle: readonly P[],
+	random: () => number = Math.random
+): { player: P; deck: P[]; recycle: P[] } | null {
+	if (deck.length === 0) {
+		if (recycle.length === 0) return null;
+		return drawCard(shuffle([...recycle], random), [], random);
+	}
+	const [player, ...rest] = deck;
+	return { player, deck: rest, recycle: [...recycle] };
+}
+
+/**
+ * Answer options for a drawn card: its player plus enough other unidentified
+ * players to fill out the difficulty's option count, shuffled.
+ */
+export function cardOptions<P extends GamePlayer>(
+	roster: readonly P[],
+	identified: readonly number[],
+	player: P,
 	difficulty: number,
 	random: () => number = Math.random
-): Question<P> | null {
-	const remaining = roster.filter((p) => !correctGuesses.includes(p.id));
-	if (remaining.length === 0) return null;
-	const player = remaining[Math.floor(random() * remaining.length)];
+): number[] {
+	const remaining = roster.filter((p) => !identified.includes(p.id));
 	const others = shuffle(
 		remaining.filter((p) => p.id !== player.id),
 		random
 	);
 	const numOptions = Math.min(difficulty, remaining.length);
-	const optionIds = shuffle(
-		[player.id, ...others.slice(0, numOptions - 1).map((p) => p.id)],
-		random
-	);
-	return { player, optionIds };
+	return shuffle([player.id, ...others.slice(0, numOptions - 1).map((p) => p.id)], random);
 }

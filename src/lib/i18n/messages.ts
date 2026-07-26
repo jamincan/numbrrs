@@ -42,7 +42,6 @@ export interface Messages {
 			hard: string;
 			expert: string;
 		};
-		autoAdvance: string;
 		congratulations: string;
 		allIdentified: (gender: Gender) => string;
 		/** `percent` arrives already formatted for the locale. */
@@ -52,7 +51,6 @@ export interface Messages {
 		loadingRoster: string;
 		noRoster: string;
 		identified: (found: number, total: number, gender: Gender) => string;
-		nextPlayer: (gender: Gender) => string;
 		collapseRoster: string;
 		expandRoster: string;
 		hideRoster: string;

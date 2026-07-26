@@ -30,7 +30,7 @@
 	swapping players out from under whoever's already playing.
 -->
 {#await data.roster}
-	<div class="min-h-screen bg-gray-900 text-white">
+	<div class="flex-1 bg-gray-900 text-white">
 		<GameHeader {name} color={colors?.primary} />
 		<main class="mx-auto max-w-6xl px-4 py-24 text-center">
 			<div
@@ -44,7 +44,7 @@
 	</div>
 {:then roster}
 	{#if roster.length === 0}
-		<div class="min-h-screen bg-gray-900 text-white">
+		<div class="flex-1 bg-gray-900 text-white">
 			<GameHeader {name} color={colors?.primary} />
 			<main class="mx-auto max-w-6xl px-4 py-24 text-center">
 				<!-- The team name is already in the heading above, so this doesn't

@@ -50,7 +50,6 @@ export const fr: Messages = {
 			hard: 'Difficile',
 			expert: 'Expert'
 		},
-		autoAdvance: 'Passage automatique',
 		congratulations: 'Félicitations!',
 		allIdentified: (gender) =>
 			gender === 'f'
@@ -63,7 +62,6 @@ export const fr: Messages = {
 		noRoster: 'Aucun alignement disponible pour le moment. Actualisez dans un instant.',
 		identified: (found, total, gender) =>
 			`${found} / ${total} ${gender === 'f' ? 'identifiées' : 'identifiés'}`,
-		nextPlayer: (gender) => (gender === 'f' ? 'Joueuse suivante' : 'Joueur suivant'),
 		collapseRoster: "Réduire l'alignement",
 		expandRoster: "Afficher l'alignement",
 		hideRoster: "masquer l'alignement",

@@ -31,7 +31,6 @@ export const en: Messages = {
 			hard: 'Hard',
 			expert: 'Expert'
 		},
-		autoAdvance: 'Auto-advance',
 		congratulations: 'Congratulations!',
 		allIdentified: () => 'You identified every player on this team!',
 		accuracy: (percent) => `Accuracy: ${percent}`,
@@ -40,7 +39,6 @@ export const en: Messages = {
 		loadingRoster: 'Loading roster',
 		noRoster: 'No roster available yet. Refresh in a moment.',
 		identified: (found, total) => `${found} / ${total} identified`,
-		nextPlayer: () => 'Next Player',
 		collapseRoster: 'Collapse roster',
 		expandRoster: 'Expand roster',
 		hideRoster: 'hide roster',

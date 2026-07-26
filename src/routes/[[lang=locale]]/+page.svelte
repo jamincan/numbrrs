@@ -36,7 +36,7 @@
 	<meta property="og:description" content={i18n.m.description} />
 </svelte:head>
 
-<div class="min-h-screen bg-gray-950 text-white">
+<div class="flex-1 bg-gray-950 text-white">
 	<header class="py-10 text-center">
 		<h1 class="font-condensed text-6xl font-black tracking-tight">Numbrrs</h1>
 		<p class="mt-2 text-lg text-gray-400">{i18n.m.tagline}</p>

@@ -33,93 +33,106 @@
 	let watermarkUrl = $derived(logo.opaque ? null : logo.url);
 </script>
 
-<div class="group mx-auto h-96 w-72 bg-transparent perspective-midrange">
-	<div
-		class="relative h-full w-full transition-transform duration-500 transform-3d data-[flipped=true]:rotate-y-180"
-		data-flipped={flipped}
-	>
-		<section
-			class="absolute inset-0 h-full w-full overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
-			style="border-color: {primaryColor}66; box-shadow: 0 0 24px 4px {primaryColor}33; background: linear-gradient(160deg, {lightGradient[0]}, {lightGradient[1]});"
+<!-- Sized by the parent: the card fills its container's width at a 3:4 aspect
+     and every internal measurement is in cqw, so two cards can share a phone
+     screen. The @container sits on its own wrapper rather than the perspective
+     element — containment on an ancestor of the 3D chain risks flattening the
+     flip. -->
+<div class="@container aspect-[3/4] w-full">
+	<div class="group h-full w-full bg-transparent perspective-midrange">
+		<div
+			class="relative h-full w-full transition-transform duration-500 transform-3d data-[flipped=true]:rotate-y-180 motion-reduce:transition-none"
+			data-flipped={flipped}
 		>
-			<!-- Watermark logo -->
-			{#if watermarkUrl}
-				<img
-					src={watermarkUrl}
-					alt=""
-					aria-hidden="true"
-					class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
-				/>
-			{/if}
-
-			<!-- Content -->
-			<div class="relative flex h-full flex-col items-center justify-center p-6">
-				<span class="font-condensed text-xs font-bold tracking-widest text-white/70 uppercase">
-					{displayTeamName}
-				</span>
-				<span
-					class="font-condensed mt-2 text-[clamp(5rem,20vw,7rem)] leading-none font-black text-white drop-shadow-lg"
-				>
-					#{sweaterNumber}
-				</span>
-				<span
-					class="font-condensed mt-4 text-xs font-semibold tracking-widest text-white/50 uppercase"
-				>
-					{i18n.m.card.prompt}
-				</span>
-			</div>
-		</section>
-		<section
-			class="absolute h-full w-full rotate-y-180 overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
-			style="border-color: {correct === true
-				? '#22c55e'
-				: correct === false
-					? '#ef4444'
-					: primaryColor}66; box-shadow: 0 0 24px 4px {correct === true
-				? '#22c55e'
-				: correct === false
-					? '#ef4444'
-					: primaryColor}33; background: linear-gradient(160deg, {darkGradient[0]}, {darkGradient[1]});"
-		>
-			<!-- Back -->
-			<!-- Watermark logo -->
-			{#if watermarkUrl}
-				<img
-					src={watermarkUrl}
-					alt=""
-					aria-hidden="true"
-					class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
-				/>
-			{/if}
-
-			<div class="relative flex h-full flex-col items-center justify-center gap-1 p-6">
-				{#if headshotUrl}
+			<section
+				class="absolute inset-0 h-full w-full overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
+				style="border-color: {primaryColor}66; box-shadow: 0 0 24px 4px {primaryColor}33; background: linear-gradient(160deg, {lightGradient[0]}, {lightGradient[1]});"
+			>
+				<!-- Watermark logo -->
+				{#if watermarkUrl}
 					<img
-						src={headshotUrl}
-						alt={playerName}
-						class="h-28 w-28 rounded-full border-2 object-cover shadow-lg"
-						style="border-color: {primaryColor};"
+						src={watermarkUrl}
+						alt=""
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-[8cqw] opacity-[0.07]"
 					/>
 				{/if}
-				<span class="font-condensed mt-3 text-2xl font-bold text-white">{playerName}</span>
-				<span class="font-condensed text-4xl font-black" style="color: {primaryColor};"
-					>#{sweaterNumber}</span
-				>
-				<span class="text-sm text-gray-400">{position}</span>
-				{#if correct === true}
+
+				<!-- Content -->
+				<div class="relative flex h-full flex-col items-center justify-center p-[8cqw]">
 					<span
-						class="font-condensed mt-2 rounded-full bg-green-600 px-4 py-1 text-sm font-bold text-white"
+						class="font-condensed text-[4.5cqw] font-bold tracking-widest text-white/70 uppercase"
 					>
-						{i18n.m.card.correct}
+						{displayTeamName}
 					</span>
-				{:else if correct === false}
 					<span
-						class="font-condensed mt-2 rounded-full bg-red-600 px-4 py-1 text-sm font-bold text-white"
+						class="font-condensed mt-[3cqw] text-[34cqw] leading-none font-black text-white drop-shadow-lg"
 					>
-						{i18n.m.card.wrong}
+						#{sweaterNumber}
 					</span>
+					<span
+						class="font-condensed mt-[5cqw] text-[4.5cqw] font-semibold tracking-widest text-white/50 uppercase"
+					>
+						{i18n.m.card.prompt}
+					</span>
+				</div>
+			</section>
+			<section
+				class="absolute h-full w-full rotate-y-180 overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
+				style="border-color: {correct === true
+					? '#22c55e'
+					: correct === false
+						? '#ef4444'
+						: primaryColor}66; box-shadow: 0 0 24px 4px {correct === true
+					? '#22c55e'
+					: correct === false
+						? '#ef4444'
+						: primaryColor}33; background: linear-gradient(160deg, {darkGradient[0]}, {darkGradient[1]});"
+			>
+				<!-- Back -->
+				<!-- Watermark logo -->
+				{#if watermarkUrl}
+					<img
+						src={watermarkUrl}
+						alt=""
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-[8cqw] opacity-[0.07]"
+					/>
 				{/if}
-			</div>
-		</section>
+
+				<div
+					class="relative flex h-full flex-col items-center justify-center gap-[1.5cqw] p-[8cqw]"
+				>
+					{#if headshotUrl}
+						<img
+							src={headshotUrl}
+							alt={playerName}
+							class="h-[38cqw] w-[38cqw] rounded-full border-2 object-cover shadow-lg"
+							style="border-color: {primaryColor};"
+						/>
+					{/if}
+					<span class="font-condensed mt-[3cqw] text-[8.5cqw] font-bold text-white"
+						>{playerName}</span
+					>
+					<span class="font-condensed text-[12.5cqw] font-black" style="color: {primaryColor};"
+						>#{sweaterNumber}</span
+					>
+					<span class="text-[5cqw] text-gray-400">{position}</span>
+					{#if correct === true}
+						<span
+							class="font-condensed mt-[2cqw] rounded-full bg-green-600 px-[5.5cqw] py-[1.5cqw] text-[5cqw] font-bold text-white"
+						>
+							{i18n.m.card.correct}
+						</span>
+					{:else if correct === false}
+						<span
+							class="font-condensed mt-[2cqw] rounded-full bg-red-600 px-[5.5cqw] py-[1.5cqw] text-[5cqw] font-bold text-white"
+						>
+							{i18n.m.card.wrong}
+						</span>
+					{/if}
+				</div>
+			</section>
+		</div>
 	</div>
 </div>
