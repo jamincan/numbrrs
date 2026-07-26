@@ -16,7 +16,6 @@
 	"devDependencies": {
 		"@eslint/compat": "^2.0.4",
 		"@eslint/js": "^10.0.1",
-		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@types/better-sqlite3": "^7.6.13",
@@ -37,7 +36,6 @@
 	"dependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@tailwindcss/vite": "^4.2.2",
-		"better-auth": "^1.6.2",
 		"better-sqlite3": "^12.8.0",
 		"drizzle-orm": "^0.45.2",
 		"tailwindcss": "^4.2.2"
