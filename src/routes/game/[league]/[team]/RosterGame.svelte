@@ -1,6 +1,7 @@
 <script lang="ts">
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
 	import type { Player, Team } from '$lib/server/db';
+	import { nextQuestion, preIdentifiedIds, type Question } from '$lib/game';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { leagueGender } from '$lib/leagues';
 	import { getTeamColors } from '$lib/team-colors';
@@ -68,42 +69,36 @@
 	let drawerOpen = $state(false);
 
 	// Explicit game state
-	type Question = {
-		player: Player;
-		optionIds: number[];
-	};
-
 	type GameState =
 		| {
 				phase: 'guessing';
-				question: Question;
+				question: Question<Player>;
 				correct: null;
 				guesses: number;
 				correctGuesses: number[];
 		  }
 		| {
 				phase: 'revealed';
-				question: Question;
+				question: Question<Player>;
 				correct: boolean;
 				guesses: number;
 				correctGuesses: number[];
 		  };
 
-	// Players without a sweater number can't be guessed by number, so they
-	// start already-identified (shown green/unselectable with "--").
-	function preIdentifiedIds(): number[] {
-		return roster.filter((p) => p.sweaterNumber == null).map((p) => p.id);
+	const guessableCount = $derived(roster.length - preIdentifiedIds(roster).length);
+
+	/** A fresh game: nothing guessed yet beyond the numberless players. */
+	function initialState(): GameState {
+		return {
+			phase: 'guessing',
+			question: nextQuestion(roster, preIdentifiedIds(roster), difficulty),
+			correct: null,
+			guesses: 0,
+			correctGuesses: preIdentifiedIds(roster)
+		};
 	}
 
-	const guessableCount = $derived(roster.length - preIdentifiedIds().length);
-
-	let gameState = $state<GameState>({
-		phase: 'guessing',
-		question: getNextQuestion(preIdentifiedIds()),
-		correct: null,
-		guesses: 0,
-		correctGuesses: preIdentifiedIds()
-	});
+	let gameState = $state<GameState>(initialState());
 
 	let activeOptions = $derived(
 		roster.filter((player) => gameState.question.optionIds.includes(player.id))
@@ -172,26 +167,9 @@
 				...gameState,
 				phase: 'guessing',
 				correct: null,
-				question: getNextQuestion(gameState.correctGuesses)
+				question: nextQuestion(roster, gameState.correctGuesses, difficulty)
 			};
 		}, 300);
-	}
-
-	function getNextQuestion(correctGuesses: number[]): Question {
-		const remaining = roster.filter((p) => !correctGuesses.includes(p.id));
-		const player = remaining[Math.floor(Math.random() * remaining.length)];
-		const others = remaining.filter((p) => p.id !== player.id);
-		for (let i = others.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[others[i], others[j]] = [others[j], others[i]];
-		}
-		const numOptions = Math.min(difficulty, remaining.length);
-		const optionIds = [player.id, ...others.slice(0, numOptions - 1).map((p) => p.id)];
-		for (let i = optionIds.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[optionIds[i], optionIds[j]] = [optionIds[j], optionIds[i]];
-		}
-		return { player, optionIds };
 	}
 </script>
 
@@ -210,7 +188,7 @@
 					gameState = {
 						...gameState,
 						phase: 'guessing',
-						question: getNextQuestion(gameState.correctGuesses),
+						question: nextQuestion(roster, gameState.correctGuesses, difficulty),
 						correct: null
 					};
 				}}
@@ -248,13 +226,7 @@
 				</p>
 				<button
 					onclick={() => {
-						gameState = {
-							phase: 'guessing',
-							question: getNextQuestion(preIdentifiedIds()),
-							correct: null,
-							guesses: 0,
-							correctGuesses: preIdentifiedIds()
-						};
+						gameState = initialState();
 					}}
 					class="mt-6 inline-block rounded-lg bg-white/10 px-6 py-3 font-semibold hover:bg-white/20"
 				>

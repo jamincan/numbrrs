@@ -20,7 +20,7 @@ const POSITION_MAP: Record<string, string> = {
 	RW: 'R'
 };
 
-interface HockeyTechSeason {
+export interface HockeyTechSeason {
 	season_id: string;
 	season_name: string;
 	career: string; // "1" for seasons that count (regular season / playoffs)
@@ -39,7 +39,7 @@ export interface HockeyTechTeam {
 	team_logo_url: string;
 }
 
-interface HockeyTechRosterEntry {
+export interface HockeyTechRosterEntry {
 	player_id?: string;
 	first_name?: string;
 	last_name?: string;
@@ -47,6 +47,59 @@ interface HockeyTechRosterEntry {
 	position?: string;
 	player_image?: string;
 	active?: string; // "1" while the player is still on the roster
+}
+
+/**
+ * The most recent regular season that has started, or undefined if none has.
+ * Used because HockeyTech has no "current roster" endpoint — every request is
+ * scoped to a season — and during the offseason/preseason users should see
+ * last season's rosters (mirroring how the NHL side behaves).
+ */
+export function pickCurrentSeason(
+	seasons: HockeyTechSeason[],
+	today: string
+): HockeyTechSeason | undefined {
+	return seasons
+		.filter((s) => s.career === '1' && s.playoff !== '1' && s.start_date <= today)
+		.sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
+}
+
+/**
+ * A season's roster feed lists everyone who appeared for the team, not just the
+ * current squad, so a departed player and whoever inherited their sweater both
+ * come back — which is why numbers looked duplicated. `active` marks who is
+ * still on the roster. If a feed reports nobody active, treat that as a glitch
+ * (reported via `onNobodyActive`) and keep the full list rather than empty the
+ * team.
+ */
+export function parseRosterEntries(
+	entries: HockeyTechRosterEntry[],
+	onNobodyActive?: () => void
+): LeaguePlayer[] {
+	const active = entries.filter((e) => e?.active === '1');
+	if (active.length === 0 && entries.length > 0) {
+		onNobodyActive?.();
+	}
+
+	const players: LeaguePlayer[] = [];
+	for (const entry of active.length > 0 ? active : entries) {
+		// The feed sometimes appends junk entries with no player data, and the
+		// CHL feeds end with a nested array of coaching staff.
+		const id = parseInt(entry.player_id ?? '', 10);
+		if (isNaN(id) || !entry.last_name) continue;
+
+		const sweaterNumber = parseInt(entry.tp_jersey_number ?? '', 10);
+		const position = entry.position ?? '';
+		players.push({
+			id,
+			firstName: entry.first_name ?? '',
+			lastName: entry.last_name,
+			sweaterNumber: isNaN(sweaterNumber) ? null : sweaterNumber,
+			positionCode: POSITION_MAP[position] ?? position,
+			headshotUrl: entry.player_image ?? ''
+		});
+	}
+	return players;
 }
 
 export interface HockeyTechConfig {
@@ -89,18 +142,9 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		return value as T;
 	}
 
-	/**
-	 * Unlike the NHL API, HockeyTech has no "current roster" endpoint — every
-	 * request is scoped to a season. Use the most recent regular season that has
-	 * started, so during the offseason/preseason users see last season's rosters
-	 * (mirroring how the NHL side behaves).
-	 */
 	async function currentSeasonId(): Promise<string> {
 		const seasons = await fetchFeed<HockeyTechSeason[]>({ view: 'seasons' }, 'Seasons');
-		const today = new Date().toISOString().slice(0, 10);
-		const current = seasons
-			.filter((s) => s.career === '1' && s.playoff !== '1' && s.start_date <= today)
-			.sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
+		const current = pickCurrentSeason(seasons, new Date().toISOString().slice(0, 10));
 		if (!current) {
 			throw new Error(`${label} feed returned no started regular seasons`);
 		}
@@ -167,34 +211,9 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			return { ok: false, notFound: true };
 		}
 
-		// A season's roster feed lists everyone who appeared for the team, not just
-		// the current squad, so a departed player and whoever inherited their
-		// sweater both come back — which is why numbers looked duplicated. `active`
-		// marks who is still on the roster. If a feed reports nobody active, treat
-		// that as a glitch and keep the full list rather than empty the team.
-		const active = entries.filter((e) => e?.active === '1');
-		if (active.length === 0 && entries.length > 0) {
-			console.warn(`${label} roster for ${team.code} reports nobody active; keeping all entries`);
-		}
-
-		const players: LeaguePlayer[] = [];
-		for (const entry of active.length > 0 ? active : entries) {
-			// The feed sometimes appends junk entries with no player data, and the
-			// CHL feeds end with a nested array of coaching staff.
-			const id = parseInt(entry.player_id ?? '', 10);
-			if (isNaN(id) || !entry.last_name) continue;
-
-			const sweaterNumber = parseInt(entry.tp_jersey_number ?? '', 10);
-			const position = entry.position ?? '';
-			players.push({
-				id,
-				firstName: entry.first_name ?? '',
-				lastName: entry.last_name,
-				sweaterNumber: isNaN(sweaterNumber) ? null : sweaterNumber,
-				positionCode: POSITION_MAP[position] ?? position,
-				headshotUrl: entry.player_image ?? ''
-			});
-		}
+		const players = parseRosterEntries(entries, () =>
+			console.warn(`${label} roster for ${team.code} reports nobody active; keeping all entries`)
+		);
 		return { ok: true, players };
 	}
 
