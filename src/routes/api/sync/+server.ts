@@ -1,6 +1,6 @@
 import { env } from "$env/dynamic/private";
 import { error, json } from "@sveltejs/kit";
-import { syncRostersOnce } from "$lib/server/nhl";
+import { syncRostersOnce } from "$lib/server/leagues";
 import type { RequestHandler } from "./$types";
 
 /**

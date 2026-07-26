@@ -1,6 +1,6 @@
 # NumBrrs
 
-**NumBrrs** is a flashcard-style game for learning NHL player jersey numbers. Pick a team, guess who wears each number, and work your way through the full roster.
+**NumBrrs** is a flashcard-style game for learning hockey player jersey numbers, covering the NHL and the PWHL. Pick a league and a team, guess who wears each number, and work your way through the full roster.
 
 ## How it works
 
@@ -13,7 +13,7 @@ You're shown a hockey card with a team and jersey number. Guess the player from 
 
 Correctly identified players are marked in the roster and won't appear as options again, so the game gets progressively easier as you learn the team.
 
-Roster data is pulled from the NHL API and refreshed daily, so it stays up to date as trades and signings happen.
+Roster data is pulled from the league APIs (the NHL API and the PWHL's HockeyTech feed) and refreshed regularly, so it stays up to date as trades and signings happen. Each league is wired up through a small adapter (`src/lib/server/leagues/`), so adding another league mostly means writing a new adapter.
 
 ## Contributing
 

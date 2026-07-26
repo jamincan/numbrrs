@@ -1,17 +1,17 @@
 <script lang="ts">
     import HockeyCard from "$lib/components/HockeyCard.svelte";
     import type { Player } from "$lib/server/db";
-    import { TEAM_COLORS } from "$lib/team-colors";
+    import { getTeamColors } from "$lib/team-colors";
     import { resolve } from "$app/paths";
 
     const { data } = $props();
     const { team, roster } = $derived(data);
 
-    const colors = $derived(TEAM_COLORS[team.abbreviation]);
+    const colors = $derived(getTeamColors(team.league, team.abbreviation));
 
     const forwards = $derived(
         roster.filter((player) =>
-            ["L", "C", "R"].includes(player.positionCode),
+            ["L", "C", "R", "F"].includes(player.positionCode),
         ),
     );
     const defensemen = $derived(
@@ -23,7 +23,7 @@
     const other = $derived(
         roster.filter(
             (player) =>
-                !["L", "C", "R", "D", "G"].includes(player.positionCode),
+                !["L", "C", "R", "F", "D", "G"].includes(player.positionCode),
         ),
     );
 

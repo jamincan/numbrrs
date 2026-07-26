@@ -1,11 +1,12 @@
 <script lang="ts">
     import type { Player, Team } from "$lib/server/db";
-    import { TEAM_COLORS } from "$lib/team-colors";
+    import { getTeamColors } from "$lib/team-colors";
 
     const positionNames: Record<string, string> = {
         C: "Center",
         L: "Left Wing",
         R: "Right Wing",
+        F: "Forward",
         D: "Defenseman",
         G: "Goalie",
     };
@@ -18,7 +19,7 @@
 
     let { player, team, correct = null }: Props = $props();
 
-    let colors = $derived(TEAM_COLORS[team.abbreviation]);
+    let colors = $derived(getTeamColors(team.league, team.abbreviation));
     let primaryColor = $derived(colors?.primary ?? "#555555");
     let lightGradient = $derived(
         colors?.lightGradient ?? [primaryColor, primaryColor],
@@ -32,9 +33,7 @@
     );
     let headshotUrl = $derived(player.headshotUrl);
     let flipped = $derived(correct !== null);
-    let logoUrl = $derived(
-        `https://assets.nhle.com/logos/nhl/svg/${team.abbreviation}_light.svg`,
-    );
+    let logoUrl = $derived(team.logoUrl);
 </script>
 
 <div class="group w-72 h-96 bg-transparent perspective-midrange mx-auto">

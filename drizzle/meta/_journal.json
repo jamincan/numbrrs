@@ -29,6 +29,13 @@
       "when": 1783036519400,
       "tag": "0003_whole_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785076444135,
+      "tag": "0004_regular_giant_girl",
+      "breakpoints": true
     }
   ]
 }

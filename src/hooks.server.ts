@@ -1,4 +1,4 @@
-import { syncRostersOnce } from "$lib/server/nhl";
+import { syncRostersOnce } from "$lib/server/leagues";
 
 let lastCheckAt = 0;
 const ONE_HOUR = 60 * 60 * 1000;

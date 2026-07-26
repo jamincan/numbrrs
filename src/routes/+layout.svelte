@@ -9,7 +9,7 @@
 
 <svelte:head>
     <link rel="icon" href={favicon} />
-    <title>Numbrrs - Learn NHL Jersey Numbers</title>
+    <title>Numbrrs - Learn Hockey Jersey Numbers</title>
 </svelte:head>
 
 <nav
