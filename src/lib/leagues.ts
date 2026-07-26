@@ -30,6 +30,19 @@ export function leagueGender(league: string): Gender {
 
 export const LEAGUE_IDS = LEAGUES.map((l) => l.id);
 
+/**
+ * Remembered league tab for the home page. A cookie rather than localStorage
+ * so the server can render the right grid on the first byte — with
+ * localStorage the grid couldn't be server-rendered at all, which also meant
+ * crawlers saw a loading message instead of any links to team pages.
+ */
+export const LEAGUE_COOKIE = 'numbrrs_league';
+
+/** A year: worth remembering, not worth keeping forever. */
+export const LEAGUE_MAX_AGE = 60 * 60 * 24 * 365;
+
+export const DEFAULT_LEAGUE: LeagueId = 'nhl';
+
 export function isLeagueId(value: string): value is LeagueId {
 	return (LEAGUE_IDS as string[]).includes(value);
 }

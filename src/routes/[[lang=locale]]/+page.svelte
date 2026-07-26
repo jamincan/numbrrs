@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { resolve } from '$app/paths';
 	import { getI18n } from '$lib/i18n/state.svelte';
-	import { LEAGUES, type LeagueId } from '$lib/leagues';
+	import { LEAGUES, LEAGUE_COOKIE, LEAGUE_MAX_AGE, type LeagueId } from '$lib/leagues';
 	import { teamLogo } from '$lib/logos';
 	import { getTeamColors } from '$lib/team-colors';
 	import { teamName } from '$lib/team-names';
@@ -11,22 +11,19 @@
 	let { data } = $props();
 	let { teams } = $derived(data);
 
-	const LEAGUE_KEY = 'numbrrs_league';
-
-	function savedLeague(): LeagueId {
-		const stored = localStorage.getItem(LEAGUE_KEY);
-		return LEAGUES.some((l) => l.id === stored) ? (stored as LeagueId) : 'nhl';
+	// The remembered league arrives from the server (cookie-resolved), so the
+	// grid is in the SSR payload — links and all — with no flash of the wrong
+	// tab. After that the choice lives here, written back to the cookie for the
+	// next visit.
+	function initialLeague(): LeagueId {
+		return data.initialLeague;
 	}
+	let league = $state<LeagueId>(initialLeague());
 
-	// localStorage is only readable on the client, so the grid isn't
-	// server-rendered: league stays null during SSR and is read synchronously
-	// during client-side init, so the first client render already shows the
-	// remembered league (no flash of the wrong one).
-	let league = $state<LeagueId | null>(browser ? savedLeague() : null);
-
-	$effect(() => {
-		if (league) localStorage.setItem(LEAGUE_KEY, league);
-	});
+	function chooseLeague(id: LeagueId) {
+		league = id;
+		document.cookie = `${LEAGUE_COOKIE}=${id}; path=/; max-age=${LEAGUE_MAX_AGE}; samesite=lax`;
+	}
 
 	const leagueTeams = $derived(teams.filter((t) => t.league === league));
 </script>
@@ -48,7 +45,7 @@
 					<button
 						role="tab"
 						aria-selected={league === option.id}
-						onclick={() => (league = option.id)}
+						onclick={() => chooseLeague(option.id)}
 						class="font-condensed rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
@@ -66,11 +63,7 @@
 			{i18n.m.home.chooseTeam}
 		</h2>
 
-		{#if league === null}
-			<!-- SSR / pre-hydration placeholder; replaced as soon as the
-                 remembered league is read from localStorage on the client. -->
-			<p class="text-center text-gray-400">{i18n.m.home.loadingTeams}</p>
-		{:else if leagueTeams.length === 0}
+		{#if leagueTeams.length === 0}
 			<!-- The team list is synced before this page renders, but that wait is
 			     capped, so a league can still be filling in server-side. -->
 			<p class="text-center text-gray-400">{i18n.m.home.teamsSyncing}</p>
@@ -88,7 +81,11 @@
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
 					{@const name = teamName(i18n.locale, team)}
 					<a
-						href={i18n.href(`/game/${team.league}/${team.abbreviation}`)}
+						href={resolve('/[[lang=locale]]/game/[league]/[team]', {
+							lang: i18n.lang,
+							league: team.league,
+							team: team.abbreviation
+						})}
 						class="group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
 						style="border-color: {primary}44; background: linear-gradient(160deg, {colors
 							?.darkGradient[0] ?? '#1a1a2e'}, {colors?.darkGradient[1] ??

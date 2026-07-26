@@ -9,7 +9,6 @@ export const en: Messages = {
 	home: {
 		league: 'League',
 		chooseTeam: 'Choose a Team',
-		loadingTeams: 'Loading teams...',
 		teamsSyncing: 'Teams are still syncing from the league. Refresh in a moment.'
 	},
 

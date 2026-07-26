@@ -2,7 +2,7 @@ import { getContext, setContext } from 'svelte';
 import { browser } from '$app/environment';
 import { en } from './en';
 import { fr } from './fr';
-import { LOCALE_COOKIE, LOCALE_MAX_AGE, localizePath, type Locale } from './index';
+import { LOCALE_COOKIE, LOCALE_MAX_AGE, type Locale } from './index';
 import type { Messages } from './messages';
 
 const CATALOGUES: Record<Locale, Messages> = { en, fr };
@@ -28,9 +28,13 @@ class I18n {
 		return CATALOGUES[this.locale];
 	}
 
-	/** The given app path, prefixed for the active locale. */
-	href(path: string): string {
-		return localizePath(path, this.locale);
+	/**
+	 * The active locale as the [[lang=locale]] route parameter: only non-default
+	 * locales appear in URLs, so English is no parameter at all. Spread into
+	 * resolve() calls — `resolve('/[[lang=locale]]', { lang: i18n.lang })`.
+	 */
+	get lang(): 'fr' | undefined {
+		return this.locale === 'fr' ? 'fr' : undefined;
 	}
 
 	/**

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { browser } from '$app/environment';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import LocaleToggle from '$lib/components/LocaleToggle.svelte';
@@ -42,7 +43,7 @@
 
 <nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">
 	<a
-		href={i18n.href('/')}
+		href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
 		class="font-condensed flex items-center gap-2 text-lg font-black text-white"
 	>
 		<NumbrrsIcon class="h-7 w-7" />

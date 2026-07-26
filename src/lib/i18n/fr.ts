@@ -26,7 +26,6 @@ export const fr: Messages = {
 	home: {
 		league: 'Ligue',
 		chooseTeam: 'Choisissez une équipe',
-		loadingTeams: 'Chargement des équipes...',
 		teamsSyncing: 'Les équipes se synchronisent avec la ligue. Actualisez dans un instant.'
 	},
 

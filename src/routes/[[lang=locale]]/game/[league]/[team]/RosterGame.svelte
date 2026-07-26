@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { resolve } from '$app/paths';
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
 	import type { Player, Team } from '$lib/server/db';
 	import { nextQuestion, preIdentifiedIds, type Question } from '$lib/game';
@@ -208,8 +209,9 @@
 
 <div class="min-h-screen bg-gray-900 text-white">
 	<header class="flex items-center justify-between px-6 py-4">
-		<a href={i18n.href('/')} class="text-sm text-gray-400 hover:text-white"
-			>&larr; {i18n.m.game.back}</a
+		<a
+			href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
+			class="text-sm text-gray-400 hover:text-white">&larr; {i18n.m.game.back}</a
 		>
 		<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
 			{name}

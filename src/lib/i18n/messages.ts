@@ -19,7 +19,6 @@ export interface Messages {
 	home: {
 		league: string;
 		chooseTeam: string;
-		loadingTeams: string;
 		teamsSyncing: string;
 	};
 
