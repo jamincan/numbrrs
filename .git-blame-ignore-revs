@@ -1,0 +1,7 @@
+# Commits that only reformat code, skipped by `git blame`.
+# Locally this needs one-time setup:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub honours this file automatically.
+
+# Fix prettier config and reformat repo to match
+1019ce77ba53c6fe5dad20060e44a4faab6dd53a
