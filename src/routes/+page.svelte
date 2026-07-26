@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
 	import { LEAGUES, type LeagueId } from '$lib/leagues';
+	import { teamLogo } from '$lib/logos';
 	import { getTeamColors } from '$lib/team-colors';
 
 	let { data } = $props();
@@ -75,6 +76,7 @@
 				{#each leagueTeams as team (team.id)}
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
 					{@const primary = colors?.primary ?? '#555'}
+					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
 					<a
 						href={resolve('/game/[league]/[team]', {
 							league: team.league,
@@ -89,9 +91,11 @@
 						onmouseleave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = 'none')}
 					>
 						<img
-							src={team.logoUrl}
+							src={logo.url}
 							alt={team.name}
-							class="h-14 w-14 object-contain drop-shadow-lg"
+							class="h-14 w-14 object-contain drop-shadow-lg {logo.opaque
+								? 'rounded-lg bg-white/95 p-1'
+								: ''}"
 						/>
 						<span
 							class="font-condensed text-center text-sm font-bold tracking-wide text-gray-300 uppercase"

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Player, Team } from '$lib/server/db';
+	import { teamLogo } from '$lib/logos';
 	import { getTeamColors } from '$lib/team-colors';
 
 	const positionNames: Record<string, string> = {
@@ -29,7 +30,10 @@
 	let position = $derived(positionNames[player.positionCode] || player.positionCode);
 	let headshotUrl = $derived(player.headshotUrl);
 	let flipped = $derived(correct !== null);
-	let logoUrl = $derived(team.logoUrl);
+	// A logo with a baked-in background can't be used as a watermark — it shows
+	// up as a pale square over the card instead of the logo's shape.
+	let logo = $derived(teamLogo(team.league, team.abbreviation, team.logoUrl));
+	let watermarkUrl = $derived(logo.opaque ? null : logo.url);
 </script>
 
 <div class="group mx-auto h-96 w-72 bg-transparent perspective-midrange">
@@ -42,12 +46,14 @@
 			style="border-color: {primaryColor}66; box-shadow: 0 0 24px 4px {primaryColor}33; background: linear-gradient(160deg, {lightGradient[0]}, {lightGradient[1]});"
 		>
 			<!-- Watermark logo -->
-			<img
-				src={logoUrl}
-				alt=""
-				aria-hidden="true"
-				class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
-			/>
+			{#if watermarkUrl}
+				<img
+					src={watermarkUrl}
+					alt=""
+					aria-hidden="true"
+					class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
+				/>
+			{/if}
 
 			<!-- Content -->
 			<div class="relative flex h-full flex-col items-center justify-center p-6">
@@ -80,12 +86,14 @@
 		>
 			<!-- Back -->
 			<!-- Watermark logo -->
-			<img
-				src={logoUrl}
-				alt=""
-				aria-hidden="true"
-				class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
-			/>
+			{#if watermarkUrl}
+				<img
+					src={watermarkUrl}
+					alt=""
+					aria-hidden="true"
+					class="pointer-events-none absolute inset-0 h-full w-full rounded-[inherit] object-contain p-6 opacity-[0.07]"
+				/>
+			{/if}
 
 			<div class="relative flex h-full flex-col items-center justify-center gap-1 p-6">
 				{#if headshotUrl}
