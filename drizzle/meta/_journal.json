@@ -36,6 +36,13 @@
       "when": 1785076444135,
       "tag": "0004_regular_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785081757516,
+      "tag": "0005_cooing_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

@@ -106,12 +106,11 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		return current.season_id;
 	}
 
-	// team_id/season_id needed for roster requests, keyed by team code. Rebuilt on
-	// every fetchTeams() call, which the sync layer always makes first. Held per
+	// team_id/season_id needed for roster requests, keyed by team code. Held per
 	// adapter, so leagues sharing this factory don't overwrite each other.
 	let rosterParams = new Map<string, { seasonId: string; teamId: string }>();
 
-	async function fetchTeams(): Promise<LeagueTeam[]> {
+	async function loadTeams(): Promise<LeagueTeam[]> {
 		const seasonId = await currentSeasonId();
 		const teams = await fetchFeed<HockeyTechTeam[]>(
 			{ view: 'teamsbyseason', season_id: seasonId },
@@ -126,8 +125,31 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		}));
 	}
 
+	// Coalesces concurrent callers, so a burst of roster syncs that all need the
+	// params doesn't refetch the teams feed once per team.
+	let teamsInFlight: Promise<LeagueTeam[]> | null = null;
+
+	function fetchTeams(): Promise<LeagueTeam[]> {
+		teamsInFlight ??= loadTeams().finally(() => {
+			teamsInFlight = null;
+		});
+		return teamsInFlight;
+	}
+
 	async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
-		const params = rosterParams.get(team.code);
+		let params = rosterParams.get(team.code);
+		if (!params) {
+			// A roster request needs the season and team IDs from the teams feed.
+			// Rosters are synced one team at a time on demand, so after a restart
+			// this map is empty even though the team is known from the database.
+			try {
+				await fetchTeams();
+			} catch (err) {
+				console.error(`Failed to load ${label} roster params:`, err);
+				return { ok: false, notFound: true };
+			}
+			params = rosterParams.get(team.code);
+		}
 		if (!params) {
 			console.error(`No roster params for ${label} team ${team.code}`);
 			return { ok: false, notFound: true };

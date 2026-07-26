@@ -72,7 +72,13 @@
 				Loading teams... Roster data is syncing from the league API. Refresh in a moment.
 			</p>
 		{:else}
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+			<!-- Opening a team syncs its roster, so preload on tap rather than the
+			     app-wide hover: sweeping the cursor over the grid would otherwise
+			     kick off a fetch for every tile the pointer crossed. -->
+			<div
+				class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+				data-sveltekit-preload-data="tap"
+			>
 				{#each leagueTeams as team (team.id)}
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
 					{@const primary = colors?.primary ?? '#555'}

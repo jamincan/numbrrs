@@ -4,7 +4,9 @@ import { syncRostersOnce } from '$lib/server/leagues';
 import type { RequestHandler } from './$types';
 
 /**
- * Manually trigger a roster sync against the NHL API.
+ * Force a full refresh of every league, ignoring the TTLs that normally keep
+ * on-demand syncing cheap. Nothing calls this on a schedule — it's here for
+ * pushing new data out immediately.
  *
  *   POST /api/sync            -> starts a sync and returns immediately (202)
  *   POST /api/sync?wait=true  -> waits for the sync to finish before responding
@@ -35,7 +37,10 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		return json({ status: 'completed' });
 	}
 
-	// Fire-and-forget: a full sync takes ~15s, so don't block the request on it.
+	// Fire-and-forget: a full sync walks every team in every league and takes a
+	// couple of minutes, so don't block the request on it. Prefer ?wait=true when
+	// the caller can stay connected — on Fly the machine can be stopped for
+	// idleness once this request returns.
 	done.catch((err) => console.error('Manual roster sync failed:', err));
 	return json({ status: started ? 'started' : 'already-running' }, { status: 202 });
 };

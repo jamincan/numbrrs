@@ -3,9 +3,12 @@ import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { players, teams } from '$lib/server/db/schema';
 import { isLeagueId, teamDbId } from '$lib/leagues';
+import { ensureRoster } from '$lib/server/leagues';
 
-export function load({ params }) {
+export async function load({ params }) {
 	if (!isLeagueId(params.league)) throw error(404, 'League not found');
+	await ensureRoster(params.league, params.team);
+
 	const id = teamDbId(params.league, params.team);
 	const team = db.select().from(teams).where(eq(teams.id, id)).get();
 	if (!team) throw error(404, 'Team not found');
