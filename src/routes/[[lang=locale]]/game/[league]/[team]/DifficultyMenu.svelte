@@ -15,6 +15,8 @@
 
 	let open = $state(false);
 	let root = $state<HTMLElement>();
+
+	const current = $derived(options.find((o) => o.value === value));
 </script>
 
 <!-- Close on any click outside the menu, or on Escape. -->
@@ -33,7 +35,7 @@
 		aria-label={i18n.m.game.difficultyLabel}
 		aria-haspopup="menu"
 		aria-expanded={open}
-		class="flex items-center rounded-md border border-white/10 bg-white/5 p-1 text-gray-400 transition-colors hover:text-white"
+		class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 p-1 text-gray-400 transition-colors hover:text-white sm:pr-2"
 		class:text-white={open}
 	>
 		<!-- Lucide "gauge" (ISC), inlined like the GitHub mark in the nav. -->
@@ -51,6 +53,18 @@
 			<path d="m12 14 4-4" />
 			<path d="M3.34 19a10 10 0 1 1 17.32 0" />
 		</svg>
+		<!-- Room permitting, name the setting instead of making the gauge carry
+		     the whole meaning. Hidden from screen readers either way: the
+		     button's aria-label already says what it is, and the menu reports
+		     the selection through aria-checked. -->
+		{#if current}
+			<span
+				class="font-condensed hidden text-xs font-bold tracking-widest uppercase sm:inline"
+				aria-hidden="true"
+			>
+				{i18n.m.game.difficulty[current.key]}
+			</span>
+		{/if}
 	</button>
 
 	{#if open}
