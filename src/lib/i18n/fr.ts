@@ -43,6 +43,7 @@ export const fr: Messages = {
 		description: (team) =>
 			`${team} — devinez qui porte chaque numéro et complétez l'alignement, une carte à la fois.`,
 		back: 'Retour',
+		difficultyLabel: 'Difficulté',
 		difficulty: {
 			easy: 'Facile',
 			medium: 'Moyen',

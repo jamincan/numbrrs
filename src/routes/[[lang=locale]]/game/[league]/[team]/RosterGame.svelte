@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { resolve } from '$app/paths';
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
-	import type { Player, Team } from '$lib/server/db';
+	import GameHeader from './GameHeader.svelte';
+	import type { Player, Team } from '$lib/types';
 	import { nextQuestion, preIdentifiedIds, type Question } from '$lib/game';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { leagueGender } from '$lib/leagues';
@@ -208,17 +208,11 @@
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white">
-	<header class="flex items-center justify-between px-6 py-4">
-		<a
-			href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
-			class="text-sm text-gray-400 hover:text-white">&larr; {i18n.m.game.back}</a
-		>
-		<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
-			{name}
-		</h1>
+	<GameHeader {name} color={colors?.primary}>
 		<div class="flex items-center gap-3">
 			<select
 				bind:value={difficulty}
+				aria-label={i18n.m.game.difficultyLabel}
 				onchange={() => {
 					cancelAutoTimer();
 					if (gameState.phase === 'complete') return;
@@ -246,7 +240,7 @@
 				{i18n.m.game.autoAdvance}
 			</label>
 		</div>
-	</header>
+	</GameHeader>
 
 	<main class="mx-auto max-w-6xl px-4 pb-64 lg:pb-12">
 		{#if gameState.phase === 'complete'}
@@ -350,6 +344,16 @@
 						player={gameState.question.player}
 						correct={gameState.phase === 'revealed' ? gameState.correct : null}
 					/>
+
+					<!-- The visual verdict is the card flip; this announces it to
+					     screen readers. -->
+					<p class="sr-only" role="status">
+						{#if gameState.phase === 'revealed'}
+							{gameState.correct ? i18n.m.card.correct : i18n.m.card.wrong}
+							{gameState.question.player.firstName}
+							{gameState.question.player.lastName}
+						{/if}
+					</p>
 
 					<!-- Progress -->
 					<p class="text-sm text-gray-400">

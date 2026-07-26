@@ -94,13 +94,9 @@
 							league: team.league,
 							team: team.abbreviation
 						})}
-						class="group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
-						style="border-color: {primary}44; background: linear-gradient(160deg, {colors
-							?.darkGradient[0] ?? '#1a1a2e'}, {colors?.darkGradient[1] ??
-							'#16213e'}); box-shadow: 0 0 0 0 {primary}; transition: box-shadow 0.2s;"
-						onmouseenter={(e) =>
-							((e.currentTarget as HTMLElement).style.boxShadow = `0 0 16px 2px ${primary}44`)}
-						onmouseleave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = 'none')}
+						class="team-tile group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
+						style="--glow: {primary}44; border-color: {primary}44; background: linear-gradient(160deg, {colors
+							?.darkGradient[0] ?? '#1a1a2e'}, {colors?.darkGradient[1] ?? '#16213e'});"
 					>
 						<img
 							src={logo.url}
@@ -120,3 +116,15 @@
 		{/if}
 	</main>
 </div>
+
+<style>
+	/* The glow color is per team, so it arrives via a custom property; the
+	   hover behavior itself is plain CSS rather than event handlers. */
+	.team-tile {
+		transition: box-shadow 0.2s;
+	}
+
+	.team-tile:hover {
+		box-shadow: 0 0 16px 2px var(--glow);
+	}
+</style>

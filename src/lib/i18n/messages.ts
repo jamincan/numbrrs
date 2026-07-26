@@ -34,6 +34,8 @@ export interface Messages {
 		/** Meta description for a team's page; `team` arrives already localized. */
 		description: (team: string) => string;
 		back: string;
+		/** Accessible name for the difficulty selector. */
+		difficultyLabel: string;
 		difficulty: {
 			easy: string;
 			medium: string;

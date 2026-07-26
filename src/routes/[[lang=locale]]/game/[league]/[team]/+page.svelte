@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { getTeamColors } from '$lib/team-colors';
 	import { teamName } from '$lib/team-names';
+	import GameHeader from './GameHeader.svelte';
 	import RosterGame from './RosterGame.svelte';
 
 	const i18n = getI18n();
@@ -31,16 +31,7 @@
 -->
 {#await data.roster}
 	<div class="min-h-screen bg-gray-900 text-white">
-		<header class="flex items-center justify-between px-6 py-4">
-			<a
-				href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
-				class="text-sm text-gray-400 hover:text-white">&larr; {i18n.m.game.back}</a
-			>
-			<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
-				{name}
-			</h1>
-			<div class="w-12"></div>
-		</header>
+		<GameHeader {name} color={colors?.primary} />
 		<main class="mx-auto max-w-6xl px-4 py-24 text-center">
 			<div
 				class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/10"
@@ -54,16 +45,7 @@
 {:then roster}
 	{#if roster.length === 0}
 		<div class="min-h-screen bg-gray-900 text-white">
-			<header class="flex items-center justify-between px-6 py-4">
-				<a
-					href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
-					class="text-sm text-gray-400 hover:text-white">&larr; {i18n.m.game.back}</a
-				>
-				<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
-					{name}
-				</h1>
-				<div class="w-12"></div>
-			</header>
+			<GameHeader {name} color={colors?.primary} />
 			<main class="mx-auto max-w-6xl px-4 py-24 text-center">
 				<!-- The team name is already in the heading above, so this doesn't
 				     repeat it: French would need the team's gender to pick the right

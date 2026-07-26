@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Player, Team } from '$lib/server/db';
+	import type { Player, Team } from '$lib/types';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import { positionName } from '$lib/i18n/messages';
 	import { leagueGender } from '$lib/leagues';

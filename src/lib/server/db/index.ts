@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import type { Player, Team } from '$lib/types';
 import * as schema from './schema';
 
 export let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -15,5 +16,12 @@ if (!building) {
 	migrate(db, { migrationsFolder: resolve('drizzle') });
 }
 
-export type Player = typeof schema.players.$inferSelect;
-export type Team = typeof schema.teams.$inferSelect;
+export type { Player, Team };
+
+// Compile-time proof that the shared types in $lib/types match what the schema
+// actually produces: if either side drifts, Equals resolves to false and the
+// Expect constraint stops the build.
+type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Expect<T extends true> = T;
+export type _PlayerMatchesSchema = Expect<Equals<Player, typeof schema.players.$inferSelect>>;
+export type _TeamMatchesSchema = Expect<Equals<Team, typeof schema.teams.$inferSelect>>;

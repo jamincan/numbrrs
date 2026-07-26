@@ -24,6 +24,7 @@ export const en: Messages = {
 		description: (team) =>
 			`Learn ${team} jersey numbers, one card at a time — guess who wears each number and work through the full roster.`,
 		back: 'Back',
+		difficultyLabel: 'Difficulty',
 		difficulty: {
 			easy: 'Easy',
 			medium: 'Medium',
