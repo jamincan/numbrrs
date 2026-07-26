@@ -34,14 +34,18 @@ export function preIdentifiedIds(roster: readonly GamePlayer[]): number[] {
 /**
  * Build the next question: a random not-yet-identified player, plus enough
  * other unidentified players to fill out the difficulty's option count.
+ * Returns null when everyone has been identified — including the edge case of
+ * a roster where nobody has a sweater number, so the whole team starts
+ * pre-identified and there's never a question to ask.
  */
 export function nextQuestion<P extends GamePlayer>(
 	roster: readonly P[],
 	correctGuesses: readonly number[],
 	difficulty: number,
 	random: () => number = Math.random
-): Question<P> {
+): Question<P> | null {
 	const remaining = roster.filter((p) => !correctGuesses.includes(p.id));
+	if (remaining.length === 0) return null;
 	const player = remaining[Math.floor(random() * remaining.length)];
 	const others = shuffle(
 		remaining.filter((p) => p.id !== player.id),

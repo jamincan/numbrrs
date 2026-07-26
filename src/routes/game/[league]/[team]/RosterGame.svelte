@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
 	import type { Player, Team } from '$lib/server/db';
 	import { nextQuestion, preIdentifiedIds, type Question } from '$lib/game';
@@ -36,14 +37,19 @@
 		{ key: 'hard', value: 8 },
 		{ key: 'expert', value: Infinity }
 	] as const;
-	let difficulty = $state(
-		typeof localStorage !== 'undefined' ? Number(localStorage.getItem(DIFFICULTY_KEY) ?? '2') : 2
-	);
+
+	// Anything unexpected in storage (an old format, a hand-edited value) falls
+	// back to easy — Number(junk) is NaN, and NaN options would break the quiz.
+	function savedDifficulty(): number {
+		if (!browser) return 2;
+		const stored = Number(localStorage.getItem(DIFFICULTY_KEY));
+		return DIFFICULTY_OPTIONS.some((o) => o.value === stored) ? stored : 2;
+	}
+
+	let difficulty = $state(savedDifficulty());
 	const AUTO_ADVANCE_KEY = 'numbrrs_auto_advance';
 	let autoAdvance = $state(
-		typeof localStorage !== 'undefined'
-			? (localStorage.getItem(AUTO_ADVANCE_KEY) ?? 'true') !== 'false'
-			: true
+		browser ? (localStorage.getItem(AUTO_ADVANCE_KEY) ?? 'true') !== 'false' : true
 	);
 
 	$effect(() => {
@@ -68,10 +74,26 @@
 
 	let drawerOpen = $state(false);
 
-	// Explicit game state
+	// Explicit game state; every transition replaces the object rather than
+	// mutating it, so the discriminated union actually guarantees what it says.
 	type GameState =
 		| {
+				phase: 'complete';
+				guesses: number;
+				correctGuesses: number[];
+		  }
+		| {
 				phase: 'guessing';
+				question: Question<Player>;
+				correct: null;
+				guesses: number;
+				correctGuesses: number[];
+		  }
+		// The moment between questions while the card flips back. Guesses are
+		// ignored here so a quick tap can't land on the outgoing question and be
+		// silently clobbered when the new one arrives.
+		| {
+				phase: 'advancing';
 				question: Question<Player>;
 				correct: null;
 				guesses: number;
@@ -87,21 +109,26 @@
 
 	const guessableCount = $derived(roster.length - preIdentifiedIds(roster).length);
 
-	/** A fresh game: nothing guessed yet beyond the numberless players. */
+	/**
+	 * A fresh game: nothing guessed yet beyond the numberless players. A roster
+	 * where nobody has a number starts (and stays) complete instead of crashing
+	 * on a question that can't be built.
+	 */
 	function initialState(): GameState {
-		return {
-			phase: 'guessing',
-			question: nextQuestion(roster, preIdentifiedIds(roster), difficulty),
-			correct: null,
-			guesses: 0,
-			correctGuesses: preIdentifiedIds(roster)
-		};
+		const correctGuesses = preIdentifiedIds(roster);
+		const question = nextQuestion(roster, correctGuesses, difficulty);
+		if (!question) return { phase: 'complete', guesses: 0, correctGuesses };
+		return { phase: 'guessing', question, correct: null, guesses: 0, correctGuesses };
 	}
 
 	let gameState = $state<GameState>(initialState());
 
+	// In the shuffled order the question chose — deriving this by filtering the
+	// roster would quietly re-impose roster order instead.
 	let activeOptions = $derived(
-		roster.filter((player) => gameState.question.optionIds.includes(player.id))
+		gameState.phase === 'complete'
+			? []
+			: gameState.question.optionIds.flatMap((id) => roster.find((p) => p.id === id) ?? [])
 	);
 
 	/// start a timer that will call nextPlayer after 1.5s provided autoAdvance is set
@@ -126,49 +153,56 @@
 	function guessPlayer(playerId: number) {
 		if (gameState.phase !== 'guessing') return;
 		drawerOpen = false;
-		gameState.guesses += 1;
+		const { question, guesses, correctGuesses } = gameState;
 		const guessed = roster.find((p) => p.id === playerId);
-		const answer = gameState.question.player.sweaterNumber;
+		const answer = question.player.sweaterNumber;
 		// Teams regularly carry two players on one number over a season — someone
 		// departs and their replacement takes the sweater. The card only shows a
 		// number, so every player wearing it is a right answer; picking the one the
 		// question wasn't built from isn't a mistake. Only the player actually
 		// picked is identified though, so the other still has to be found later.
 		if (guessed && answer != null && guessed.sweaterNumber === answer) {
-			gameState.correctGuesses.push(guessed.id);
+			const identified = [...correctGuesses, guessed.id];
+			if (identified.length === roster.length) {
+				// That was the last player: straight to the summary, with no
+				// auto-advance timer left running toward a question that can't exist.
+				gameState = { phase: 'complete', guesses: guesses + 1, correctGuesses: identified };
+				return;
+			}
 			gameState = {
-				...gameState,
 				phase: 'revealed',
 				correct: true,
+				guesses: guesses + 1,
+				correctGuesses: identified,
 				// Reveal whoever was picked, not whichever player the question
 				// happened to be built from — showing the other one reads as a
 				// correction when the answer was accepted.
-				question: { ...gameState.question, player: guessed }
+				question: { ...question, player: guessed }
 			};
 		} else {
 			gameState = {
-				...gameState,
 				phase: 'revealed',
-				correct: false
+				correct: false,
+				guesses: guesses + 1,
+				correctGuesses,
+				question
 			};
 		}
 		startAutoTimer();
 	}
 
 	function nextPlayer() {
+		if (gameState.phase !== 'revealed') return;
 		cancelAutoTimer();
-		gameState = {
-			...gameState,
-			phase: 'guessing',
-			correct: null
-		};
+		// Flip the card back first; the new question arrives once the flip is
+		// under way, so the next answer isn't briefly visible mid-flip.
+		gameState = { ...gameState, phase: 'advancing', correct: null };
 		flipTimer = setTimeout(() => {
-			gameState = {
-				...gameState,
-				phase: 'guessing',
-				correct: null,
-				question: nextQuestion(roster, gameState.correctGuesses, difficulty)
-			};
+			if (gameState.phase !== 'advancing') return;
+			const question = nextQuestion(roster, gameState.correctGuesses, difficulty);
+			if (question) {
+				gameState = { ...gameState, phase: 'guessing', correct: null, question };
+			}
 		}, 300);
 	}
 </script>
@@ -185,12 +219,12 @@
 			<select
 				bind:value={difficulty}
 				onchange={() => {
-					gameState = {
-						...gameState,
-						phase: 'guessing',
-						question: nextQuestion(roster, gameState.correctGuesses, difficulty),
-						correct: null
-					};
+					cancelAutoTimer();
+					if (gameState.phase === 'complete') return;
+					const question = nextQuestion(roster, gameState.correctGuesses, difficulty);
+					if (question) {
+						gameState = { ...gameState, phase: 'guessing', correct: null, question };
+					}
 				}}
 				class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400"
 			>
@@ -214,16 +248,20 @@
 	</header>
 
 	<main class="mx-auto max-w-6xl px-4 pb-64 lg:pb-12">
-		{#if gameState.correctGuesses.length === roster.length}
+		{#if gameState.phase === 'complete'}
 			<!-- Game complete -->
 			<div class="mt-12 text-center">
 				<h2 class="text-4xl font-bold text-green-400">{i18n.m.game.congratulations}</h2>
 				<!-- The team name is in the header rather than this sentence: French
 				     would need the team's gender to pick the right article. -->
 				<p class="mt-2 text-gray-400">{i18n.m.game.allIdentified(gender)}</p>
-				<p class="mt-2 text-gray-400">
-					{i18n.m.game.accuracy(i18n.percent(guessableCount / gameState.guesses))}
-				</p>
+				<!-- No accuracy to report when there was nothing to guess (a roster
+				     where nobody has a number starts complete). -->
+				{#if gameState.guesses > 0}
+					<p class="mt-2 text-gray-400">
+						{i18n.m.game.accuracy(i18n.percent(guessableCount / gameState.guesses))}
+					</p>
+				{/if}
 				<button
 					onclick={() => {
 						gameState = initialState();
@@ -238,7 +276,8 @@
 				<div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
 					{#each group as player (player.id)}
 						{@const identified = gameState.correctGuesses.includes(player.id)}
-						{@const selectable = gameState.question.optionIds.includes(player.id)}
+						{@const selectable =
+							gameState.phase !== 'complete' && gameState.question.optionIds.includes(player.id)}
 						{#if identified}
 							<div
 								class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
