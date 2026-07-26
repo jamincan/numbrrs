@@ -46,6 +46,7 @@ interface HockeyTechRosterEntry {
 	tp_jersey_number?: string;
 	position?: string;
 	player_image?: string;
+	active?: string; // "1" while the player is still on the roster
 }
 
 export interface HockeyTechConfig {
@@ -166,8 +167,18 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			return { ok: false, notFound: true };
 		}
 
+		// A season's roster feed lists everyone who appeared for the team, not just
+		// the current squad, so a departed player and whoever inherited their
+		// sweater both come back — which is why numbers looked duplicated. `active`
+		// marks who is still on the roster. If a feed reports nobody active, treat
+		// that as a glitch and keep the full list rather than empty the team.
+		const active = entries.filter((e) => e?.active === '1');
+		if (active.length === 0 && entries.length > 0) {
+			console.warn(`${label} roster for ${team.code} reports nobody active; keeping all entries`);
+		}
+
 		const players: LeaguePlayer[] = [];
-		for (const entry of entries) {
+		for (const entry of active.length > 0 ? active : entries) {
 			// The feed sometimes appends junk entries with no player data, and the
 			// CHL feeds end with a nested array of coaching staff.
 			const id = parseInt(entry.player_id ?? '', 10);
