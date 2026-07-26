@@ -28,6 +28,13 @@
 	const leagueTeams = $derived(teams.filter((t) => t.league === league));
 </script>
 
+<svelte:head>
+	<title>{i18n.m.title}</title>
+	<meta name="description" content={i18n.m.description} />
+	<meta property="og:title" content={i18n.m.title} />
+	<meta property="og:description" content={i18n.m.description} />
+</svelte:head>
+
 <div class="min-h-screen bg-gray-950 text-white">
 	<header class="py-10 text-center">
 		<h1 class="font-condensed text-6xl font-black tracking-tight">Numbrrs</h1>

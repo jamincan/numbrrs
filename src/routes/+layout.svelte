@@ -27,10 +27,9 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>{i18n.m.title}</title>
 	<!-- Each language lives at its own URL, so tell search engines how the two
 	     relate — and that either host (numbrrs.ca, numbrrs.fly.dev) canonically
-	     lives at numbrrs.ca. -->
+	     lives at numbrrs.ca. Titles and descriptions are per page. -->
 	<link rel="canonical" href={SITE_ORIGIN + page.url.pathname} />
 	<link rel="alternate" hreflang="en" href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')} />
 	<link rel="alternate" hreflang="fr" href={SITE_ORIGIN + localizePath(page.url.pathname, 'fr')} />
@@ -39,6 +38,11 @@
 		hreflang="x-default"
 		href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')}
 	/>
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Numbrrs" />
+	<meta property="og:url" content={SITE_ORIGIN + page.url.pathname} />
+	<meta property="og:locale" content={i18n.locale === 'fr' ? 'fr_CA' : 'en_CA'} />
+	<meta name="twitter:card" content="summary" />
 </svelte:head>
 
 <nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">

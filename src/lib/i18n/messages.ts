@@ -11,6 +11,8 @@ export type PositionCode = 'C' | 'L' | 'R' | 'F' | 'D' | 'G';
  */
 export interface Messages {
 	title: string;
+	/** Meta description for the home page (and link previews of it). */
+	description: string;
 	tagline: string;
 	/** Accessible name for the language switcher. */
 	language: string;
@@ -29,6 +31,8 @@ export interface Messages {
 	};
 
 	game: {
+		/** Meta description for a team's page; `team` arrives already localized. */
+		description: (team: string) => string;
 		back: string;
 		difficulty: {
 			easy: string;

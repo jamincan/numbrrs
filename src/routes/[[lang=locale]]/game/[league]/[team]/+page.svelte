@@ -14,6 +14,15 @@
 	const name = $derived(teamName(i18n.locale, team));
 </script>
 
+<svelte:head>
+	<!-- The team pages are the site's long-tail search surface, so each one
+	     titles and describes itself instead of inheriting a generic tag. -->
+	<title>{name} – Numbrrs</title>
+	<meta name="description" content={i18n.m.game.description(name)} />
+	<meta property="og:title" content="{name} – Numbrrs" />
+	<meta property="og:description" content={i18n.m.game.description(name)} />
+</svelte:head>
+
 <!--
 	The team comes from the database and renders straight away; the roster is a
 	promise the server streams in. A roster that's gone stale is refreshed from

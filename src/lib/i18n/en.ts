@@ -2,6 +2,8 @@ import type { Messages } from './messages';
 
 export const en: Messages = {
 	title: 'Numbrrs - Learn Hockey Jersey Numbers',
+	description:
+		'A flashcard game for learning hockey jersey numbers. Pick a team from the NHL, PWHL, WHL, OHL or QMJHL and guess who wears each number.',
 	tagline: 'Learn hockey jersey numbers, one card at a time',
 	language: 'Language',
 	github: 'GitHub',
@@ -19,6 +21,8 @@ export const en: Messages = {
 	},
 
 	game: {
+		description: (team) =>
+			`Learn ${team} jersey numbers, one card at a time — guess who wears each number and work through the full roster.`,
 		back: 'Back',
 		difficulty: {
 			easy: 'Easy',

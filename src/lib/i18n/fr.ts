@@ -19,6 +19,8 @@ const NBSP = String.fromCharCode(0xa0);
 // form and the PWHL is a women's league — see `Gender` in ./index.
 export const fr: Messages = {
 	title: 'Numbrrs - Apprenez les numéros de chandail',
+	description:
+		'Un jeu de cartes pour apprendre les numéros de chandail au hockey. Choisissez une équipe de la LNH, de la LPHF, de la WHL, de la OHL ou de la LHJMQ et devinez qui porte chaque numéro.',
 	tagline: 'Apprenez les numéros de chandail, une carte à la fois',
 	language: 'Langue',
 	github: 'GitHub',
@@ -36,6 +38,10 @@ export const fr: Messages = {
 	},
 
 	game: {
+		// The team name leads the sentence rather than sitting inside it, which
+		// would need the team's grammatical gender for the article.
+		description: (team) =>
+			`${team} — devinez qui porte chaque numéro et complétez l'alignement, une carte à la fois.`,
 		back: 'Retour',
 		difficulty: {
 			easy: 'Facile',
