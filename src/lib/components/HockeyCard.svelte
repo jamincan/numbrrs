@@ -1,16 +1,13 @@
 <script lang="ts">
 	import type { Player, Team } from '$lib/server/db';
+	import { getI18n } from '$lib/i18n/state.svelte';
+	import { positionName } from '$lib/i18n/messages';
+	import { leagueGender } from '$lib/leagues';
 	import { teamLogo } from '$lib/logos';
 	import { getTeamColors } from '$lib/team-colors';
+	import { teamName } from '$lib/team-names';
 
-	const positionNames: Record<string, string> = {
-		C: 'Center',
-		L: 'Left Wing',
-		R: 'Right Wing',
-		F: 'Forward',
-		D: 'Defenseman',
-		G: 'Goalie'
-	};
+	const i18n = getI18n();
 
 	type Props = {
 		player: Player;
@@ -24,10 +21,10 @@
 	let primaryColor = $derived(colors?.primary ?? '#555555');
 	let lightGradient = $derived(colors?.lightGradient ?? [primaryColor, primaryColor]);
 	let darkGradient = $derived(colors?.darkGradient ?? ['#1a1a2e', '#16213e']);
-	let teamName = $derived(team.name);
+	let displayTeamName = $derived(teamName(i18n.locale, team.league, team.abbreviation, team.name));
 	let playerName = $derived(`${player.firstName} ${player.lastName}`);
 	let sweaterNumber = $derived(player.sweaterNumber);
-	let position = $derived(positionNames[player.positionCode] || player.positionCode);
+	let position = $derived(positionName(i18n.m, player.positionCode, leagueGender(team.league)));
 	let headshotUrl = $derived(player.headshotUrl);
 	let flipped = $derived(correct !== null);
 	// A logo with a baked-in background can't be used as a watermark — it shows
@@ -58,7 +55,7 @@
 			<!-- Content -->
 			<div class="relative flex h-full flex-col items-center justify-center p-6">
 				<span class="font-condensed text-xs font-bold tracking-widest text-white/70 uppercase">
-					{teamName}
+					{displayTeamName}
 				</span>
 				<span
 					class="font-condensed mt-2 text-[clamp(5rem,20vw,7rem)] leading-none font-black text-white drop-shadow-lg"
@@ -68,7 +65,7 @@
 				<span
 					class="font-condensed mt-4 text-xs font-semibold tracking-widest text-white/50 uppercase"
 				>
-					Who wears this number?
+					{i18n.m.card.prompt}
 				</span>
 			</div>
 		</section>
@@ -113,13 +110,13 @@
 					<span
 						class="font-condensed mt-2 rounded-full bg-green-600 px-4 py-1 text-sm font-bold text-white"
 					>
-						Correct!
+						{i18n.m.card.correct}
 					</span>
 				{:else if correct === false}
 					<span
 						class="font-condensed mt-2 rounded-full bg-red-600 px-4 py-1 text-sm font-bold text-white"
 					>
-						Wrong
+						{i18n.m.card.wrong}
 					</span>
 				{/if}
 			</div>

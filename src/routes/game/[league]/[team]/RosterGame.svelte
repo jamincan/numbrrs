@@ -1,14 +1,23 @@
 <script lang="ts">
 	import HockeyCard from '$lib/components/HockeyCard.svelte';
 	import type { Player, Team } from '$lib/server/db';
+	import { getI18n } from '$lib/i18n/state.svelte';
+	import { leagueGender } from '$lib/leagues';
 	import { getTeamColors } from '$lib/team-colors';
+	import { teamName } from '$lib/team-names';
 	import { resolve } from '$app/paths';
+
+	const i18n = getI18n();
 
 	// Only mounted once the roster has arrived and is non-empty, so the game can
 	// assume it has players to ask about.
 	const { team, roster }: { team: Team; roster: Player[] } = $props();
 
 	const colors = $derived(getTeamColors(team.league, team.abbreviation));
+	const name = $derived(teamName(i18n.locale, team.league, team.abbreviation, team.name));
+	// French has no gender-neutral word for "players", so which set of nouns to
+	// use is a property of the league — the PWHL takes the feminine forms.
+	const gender = $derived(leagueGender(team.league));
 
 	const forwards = $derived(
 		roster.filter((player) => ['L', 'C', 'R', 'F'].includes(player.positionCode))
@@ -21,10 +30,10 @@
 
 	const DIFFICULTY_KEY = 'numbrrs_difficulty';
 	const DIFFICULTY_OPTIONS = [
-		{ label: 'Easy', value: 2 },
-		{ label: 'Medium', value: 4 },
-		{ label: 'Hard', value: 8 },
-		{ label: 'Expert', value: Infinity }
+		{ key: 'easy', value: 2 },
+		{ key: 'medium', value: 4 },
+		{ key: 'hard', value: 8 },
+		{ key: 'expert', value: Infinity }
 	] as const;
 	let difficulty = $state(
 		typeof localStorage !== 'undefined' ? Number(localStorage.getItem(DIFFICULTY_KEY) ?? '2') : 2
@@ -188,9 +197,11 @@
 
 <div class="min-h-screen bg-gray-900 text-white">
 	<header class="flex items-center justify-between px-6 py-4">
-		<a href={resolve('/')} class="text-sm text-gray-400 hover:text-white">&larr; Back</a>
+		<a href={resolve('/')} class="text-sm text-gray-400 hover:text-white"
+			>&larr; {i18n.m.game.back}</a
+		>
 		<h1 class="text-xl font-bold" style="color: {colors?.primary ?? '#fff'};">
-			{team.name}
+			{name}
 		</h1>
 		<div class="flex items-center gap-3">
 			<select
@@ -205,8 +216,8 @@
 				}}
 				class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400"
 			>
-				{#each DIFFICULTY_OPTIONS as opt (opt.label)}
-					<option value={opt.value}>{opt.label}</option>
+				{#each DIFFICULTY_OPTIONS as opt (opt.key)}
+					<option value={opt.value}>{i18n.m.game.difficulty[opt.key]}</option>
 				{/each}
 			</select>
 			<label class="flex items-center gap-1.5 text-xs text-gray-400">
@@ -219,7 +230,7 @@
 					}}
 					class="rounded"
 				/>
-				Auto-advance
+				{i18n.m.game.autoAdvance}
 			</label>
 		</div>
 	</header>
@@ -228,12 +239,12 @@
 		{#if gameState.correctGuesses.length === roster.length}
 			<!-- Game complete -->
 			<div class="mt-12 text-center">
-				<h2 class="text-4xl font-bold text-green-400">Congratulations!</h2>
+				<h2 class="text-4xl font-bold text-green-400">{i18n.m.game.congratulations}</h2>
+				<!-- The team name is in the header rather than this sentence: French
+				     would need the team's gender to pick the right article. -->
+				<p class="mt-2 text-gray-400">{i18n.m.game.allIdentified(gender)}</p>
 				<p class="mt-2 text-gray-400">
-					You identified every player on the {team.name} roster!
-				</p>
-				<p class="mt-2 text-gray-400">
-					Accuracy: {Math.round((100 * guessableCount) / gameState.guesses)}%
+					{i18n.m.game.accuracy(i18n.percent(guessableCount / gameState.guesses))}
 				</p>
 				<button
 					onclick={() => {
@@ -247,7 +258,7 @@
 					}}
 					class="mt-6 inline-block rounded-lg bg-white/10 px-6 py-3 font-semibold hover:bg-white/20"
 				>
-					Play Again
+					{i18n.m.game.playAgain}
 				</button>
 			</div>
 		{:else}
@@ -292,26 +303,26 @@
 				<div class="flex flex-col gap-4">
 					<div>
 						<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-							Forwards
+							{i18n.m.game.groups.forwards(gender)}
 						</p>
 						{@render playerGrid(forwards)}
 					</div>
 					<div>
 						<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-							Defense
+							{i18n.m.game.groups.defense(gender)}
 						</p>
 						{@render playerGrid(defensemen)}
 					</div>
 					<div>
 						<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-							Goalies
+							{i18n.m.game.groups.goalies(gender)}
 						</p>
 						{@render playerGrid(goalies)}
 					</div>
 					{#if other.length > 0}
 						<div>
 							<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-								Other
+								{i18n.m.game.groups.other}
 							</p>
 							{@render playerGrid(other)}
 						</div>
@@ -330,7 +341,7 @@
 
 					<!-- Progress -->
 					<p class="text-sm text-gray-400">
-						{gameState.correctGuesses.length} / {roster.length} identified
+						{i18n.m.game.identified(gameState.correctGuesses.length, roster.length, gender)}
 					</p>
 
 					{#if gameState.phase === 'revealed'}
@@ -341,14 +352,16 @@
 							{#if timerRunning}
 								<span class="timer-bar"></span>
 							{/if}
-							Next Player &rarr;
+							{i18n.m.game.nextPlayer(gender)} &rarr;
 						</button>
 					{/if}
 				</div>
 
 				<!-- Full Roster — desktop only -->
 				<div class="hidden w-full max-w-lg lg:block">
-					<h3 class="mb-3 text-center text-lg font-semibold text-gray-500">Roster</h3>
+					<h3 class="mb-3 text-center text-lg font-semibold text-gray-500">
+						{i18n.m.game.roster}
+					</h3>
 					{@render rosterGroups()}
 				</div>
 			</div>
@@ -362,11 +375,11 @@
 				<button
 					onclick={() => (drawerOpen = !drawerOpen)}
 					class="flex w-full flex-col items-center gap-1.5 px-4 pt-3 pb-2"
-					aria-label={drawerOpen ? 'Collapse roster' : 'Expand roster'}
+					aria-label={drawerOpen ? i18n.m.game.collapseRoster : i18n.m.game.expandRoster}
 				>
 					<div class="h-1 w-10 rounded-full bg-white/20"></div>
 					<span class="text-xs text-gray-500">
-						{drawerOpen ? '▼ hide roster' : '▲ show all'}
+						{drawerOpen ? `▼ ${i18n.m.game.hideRoster}` : `▲ ${i18n.m.game.showAll}`}
 					</span>
 				</button>
 

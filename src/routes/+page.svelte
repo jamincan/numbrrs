@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
+	import { getI18n } from '$lib/i18n/state.svelte';
 	import { LEAGUES, type LeagueId } from '$lib/leagues';
 	import { teamLogo } from '$lib/logos';
 	import { getTeamColors } from '$lib/team-colors';
+	import { teamName } from '$lib/team-names';
+
+	const i18n = getI18n();
 
 	let { data } = $props();
 	let { teams } = $derived(data);
@@ -31,7 +35,7 @@
 <div class="min-h-screen bg-gray-950 text-white">
 	<header class="py-10 text-center">
 		<h1 class="font-condensed text-6xl font-black tracking-tight">Numbrrs</h1>
-		<p class="mt-2 text-lg text-gray-400">Learn hockey jersey numbers, one card at a time</p>
+		<p class="mt-2 text-lg text-gray-400">{i18n.m.tagline}</p>
 	</header>
 
 	<main class="mx-auto max-w-5xl px-4 pb-12">
@@ -39,7 +43,7 @@
 			<div
 				class="flex flex-wrap justify-center rounded-lg border border-white/10 bg-white/5 p-1"
 				role="tablist"
-				aria-label="League"
+				aria-label={i18n.m.home.league}
 			>
 				{#each LEAGUES as option (option.id)}
 					<button
@@ -51,7 +55,7 @@
 							? 'bg-white/15 text-white'
 							: 'text-gray-500 hover:text-gray-300'}"
 					>
-						{option.label}
+						{option.label[i18n.locale]}
 					</button>
 				{/each}
 			</div>
@@ -60,17 +64,17 @@
 		<h2
 			class="font-condensed mb-6 text-center text-2xl font-bold tracking-widest text-gray-400 uppercase"
 		>
-			Choose a Team
+			{i18n.m.home.chooseTeam}
 		</h2>
 
 		{#if league === null}
 			<!-- SSR / pre-hydration placeholder; replaced as soon as the
                  remembered league is read from localStorage on the client. -->
-			<p class="text-center text-gray-400">Loading teams...</p>
+			<p class="text-center text-gray-400">{i18n.m.home.loadingTeams}</p>
 		{:else if leagueTeams.length === 0}
-			<p class="text-center text-gray-400">
-				Loading teams... Roster data is syncing from the league API. Refresh in a moment.
-			</p>
+			<!-- The team list is synced before this page renders, but that wait is
+			     capped, so a league can still be filling in server-side. -->
+			<p class="text-center text-gray-400">{i18n.m.home.teamsSyncing}</p>
 		{:else}
 			<!-- Opening a team syncs its roster, so preload on tap rather than the
 			     app-wide hover: sweeping the cursor over the grid would otherwise
@@ -83,6 +87,7 @@
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
 					{@const primary = colors?.primary ?? '#555'}
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
+					{@const name = teamName(i18n.locale, team.league, team.abbreviation, team.name)}
 					<a
 						href={resolve('/game/[league]/[team]', {
 							league: team.league,
@@ -98,7 +103,7 @@
 					>
 						<img
 							src={logo.url}
-							alt={team.name}
+							alt={name}
 							class="h-14 w-14 object-contain drop-shadow-lg {logo.opaque
 								? 'rounded-lg bg-white/95 p-1'
 								: ''}"
@@ -106,7 +111,7 @@
 						<span
 							class="font-condensed text-center text-sm font-bold tracking-wide text-gray-300 uppercase"
 						>
-							{team.name}
+							{name}
 						</span>
 					</a>
 				{/each}
