@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './http';
 import type { LeagueAdapter, LeagueTeam, RosterResult } from './types';
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
@@ -90,24 +91,35 @@ interface NHLRosterResponse {
 }
 
 async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
-	const res = await fetch(`${NHL_API_BASE}/roster/${team.code}/current`);
-	if (res.status === 429) {
-		const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);
-		console.warn(`429 for ${team.code}, retry after ${retryAfter}s`);
-		return { ok: false, notFound: false, retryAfter: retryAfter * 1000 };
+	let res: Response;
+	let data: NHLRosterResponse;
+	try {
+		res = await fetchWithTimeout(`${NHL_API_BASE}/roster/${team.code}/current`);
+		if (res.status === 429) {
+			const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);
+			console.warn(`429 for ${team.code}, retry after ${retryAfter}s`);
+			return { ok: false, reason: 'transient', retryAfter: retryAfter * 1000 };
+		}
+		if (res.status === 404) {
+			console.error(`No NHL roster for ${team.code}`);
+			return { ok: false, reason: 'not-found' };
+		}
+		if (!res.ok) {
+			console.error(`Failed to fetch roster for ${team.code}: ${res.status}`);
+			return { ok: false, reason: 'transient' };
+		}
+		data = await res.json();
+	} catch (err) {
+		console.error(`Failed to fetch roster for ${team.code}:`, err);
+		return { ok: false, reason: 'transient' };
 	}
-	if (!res.ok) {
-		console.error(`Failed to fetch roster for ${team.code}: ${res.status}`);
-		return { ok: false, notFound: true };
-	}
-	const data: NHLRosterResponse = await res.json();
 	const players = [...data.defensemen, ...data.forwards, ...data.goalies];
 	return {
 		ok: true,
 		players: players.map((p) => ({
 			id: p.id,
 			firstName: p.firstName.default,
-			lastName: p.lastName.default ?? p.lastName,
+			lastName: p.lastName.default,
 			sweaterNumber: p.sweaterNumber ?? null,
 			positionCode: p.positionCode,
 			headshotUrl: p.headshot

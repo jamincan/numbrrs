@@ -25,12 +25,16 @@ export interface LeaguePlayer {
 
 export type RosterResult =
 	| { ok: true; players: LeaguePlayer[] }
-	| { ok: false; notFound: true }
-	| { ok: false; notFound: false; retryAfter: number };
+	// The league says the team has no roster — retrying won't change that.
+	| { ok: false; reason: 'not-found' }
+	// Network error, timeout, 5xx, rate limit... worth one retry. When the
+	// league said how long to back off (a 429's Retry-After), it's passed on.
+	| { ok: false; reason: 'transient'; retryAfter?: number };
 
 export interface LeagueAdapter {
 	id: LeagueId;
 	/** The full set of active teams. Throw on failure — the sync layer skips the league. */
 	fetchTeams(): Promise<LeagueTeam[]>;
+	/** Never throws: failures are reported through the result. */
 	fetchRoster(team: LeagueTeam): Promise<RosterResult>;
 }

@@ -29,6 +29,15 @@ const BLOCKING_TIMEOUT = 8000;
 /** Delay between roster requests during a full sync, to stay polite. */
 const FULL_SYNC_DELAY = 400;
 
+/**
+ * Backoff before retrying a transient roster failure, and the most a league's
+ * Retry-After can stretch it. An upstream asking for an hour would otherwise
+ * hold the in-flight slot (and, on Fly, the machine) that whole time — better
+ * to give up and let the next visit try again.
+ */
+const RETRY_DELAY = 1000;
+const MAX_RETRY_DELAY = 15_000;
+
 const teamListKey = (league: string) => `teams:${league}`;
 const rosterKey = (dbId: string) => `roster:${dbId}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -118,9 +127,10 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 	const dbId = teamDbId(adapter.id, team.code);
 
 	let result = await adapter.fetchRoster(team);
-	if (!result.ok && !result.notFound) {
-		// Rate limited — wait out the league's retry delay and try once more.
-		await sleep(result.retryAfter);
+	if (!result.ok && result.reason === 'transient') {
+		// Worth one more attempt — waiting out the league's own retry delay when
+		// it gave one, within reason.
+		await sleep(Math.min(result.retryAfter ?? RETRY_DELAY, MAX_RETRY_DELAY));
 		result = await adapter.fetchRoster(team);
 	}
 	if (!result.ok) {

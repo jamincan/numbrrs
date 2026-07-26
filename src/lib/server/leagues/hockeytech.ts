@@ -1,4 +1,5 @@
 import type { LeagueId } from '$lib/leagues';
+import { fetchWithTimeout } from './http';
 import type { LeagueAdapter, LeaguePlayer, LeagueTeam, RosterResult } from './types';
 
 // HockeyTech/LeagueStat hosts the feeds for several leagues (PWHL, the three
@@ -130,7 +131,7 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 	}
 
 	async function fetchFeed<T>(params: Record<string, string>, field: string): Promise<T> {
-		const res = await fetch(feedUrl(params));
+		const res = await fetchWithTimeout(feedUrl(params));
 		if (!res.ok) {
 			throw new Error(`${label} feed ${params.view} failed: ${res.status}`);
 		}
@@ -191,13 +192,14 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 				await fetchTeams();
 			} catch (err) {
 				console.error(`Failed to load ${label} roster params:`, err);
-				return { ok: false, notFound: true };
+				return { ok: false, reason: 'transient' };
 			}
 			params = rosterParams.get(team.code);
 		}
 		if (!params) {
+			// The feed answered but doesn't list this team — it really is gone.
 			console.error(`No roster params for ${label} team ${team.code}`);
-			return { ok: false, notFound: true };
+			return { ok: false, reason: 'not-found' };
 		}
 
 		let entries: HockeyTechRosterEntry[];
@@ -208,7 +210,7 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			);
 		} catch (err) {
 			console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
-			return { ok: false, notFound: true };
+			return { ok: false, reason: 'transient' };
 		}
 
 		const players = parseRosterEntries(entries, () =>
