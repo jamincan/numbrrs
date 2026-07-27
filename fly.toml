@@ -5,6 +5,11 @@ primary_region = 'yyz'
 
 [env]
   PORT = '3000'
+  # Fly terminates TLS at its proxy, so the app itself is spoken to over plain
+  # http. Without this the adapter guesses the scheme, and the guess is what
+  # SvelteKit compares the Origin header against when a form is posted — the
+  # /admin login. Fly's proxy sets this header and overwrites any the client sent.
+  PROTOCOL_HEADER = 'x-forwarded-proto'
 
 [http_service]
   internal_port = 3000

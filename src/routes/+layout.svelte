@@ -28,6 +28,11 @@
 	$effect(() => {
 		if (browser) document.documentElement.lang = i18n.locale;
 	});
+
+	// Only pages under the locale route exist in both languages. On the others
+	// (/admin) both toggle options resolve to the same URL, so the control would
+	// sit there looking switchable while doing nothing.
+	const localized = $derived(page.route.id?.startsWith('/[[lang=locale]]') ?? false);
 </script>
 
 <svelte:head>
@@ -67,7 +72,9 @@
 			{#if navSlot.content}
 				{@render navSlot.content()}
 			{/if}
-			<LocaleToggle />
+			{#if localized}
+				<LocaleToggle />
+			{/if}
 			<a
 				href="https://github.com/jamincan/numbrrs"
 				target="_blank"

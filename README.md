@@ -37,9 +37,30 @@ fly secrets set DATABASE_URL=/data/numbrrs.db
 fly deploy
 ```
 
-| Secret         | Description                                                                 |
-| -------------- | --------------------------------------------------------------------------- |
-| `DATABASE_URL` | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume. |
+| Secret              | Description                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`      | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume.                                               |
+| `SYNC_TOKEN`        | Bearer token for `POST /api/sync`. The endpoint returns 503 while unset.                                                  |
+| `ADMIN_TOKEN`       | Password for the `/admin` usage dashboard. Rotating it signs everyone out. `/admin` says it's unconfigured while unset.   |
+| `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset. |
+
+### Usage tracking
+
+`/admin` shows visits per day, top teams, referrers, the language split, and
+recent errors. Everything is first-party: pageviews are recorded server-side in
+`hooks.server.ts`, and a visitor is identified by a hash of a salt that rotates
+daily and is never persisted — so counts are per day and nobody can be followed
+across them. No cookie, no third-party script, nothing leaves the machine.
+
+### Running the production build locally
+
+`vite dev` needs nothing extra, but the built server derives its origin from the
+`Host` header and assumes `https`, so form posts (the `/admin` login) fail the
+cross-site check over plain http. Set `ORIGIN` to match:
+
+```bash
+DATABASE_URL=scratch.db ADMIN_TOKEN=dev ORIGIN=http://localhost:3000 node build
+```
 
 ## License
 
