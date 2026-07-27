@@ -1,6 +1,7 @@
 import { db, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
 import { and, eq, notInArray } from 'drizzle-orm';
+import { reportError } from '../alerts';
 import { teamDbId, type LeagueId } from '$lib/leagues';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
@@ -16,7 +17,7 @@ const ADAPTERS_BY_ID = new Map(ADAPTERS.map((a) => [a.id, a]));
  * actually looked at instead of with the number of leagues. Freshness lives in
  * the database, so a restart doesn't re-fetch everything.
  */
-const ROSTER_TTL = 12 * 60 * 60 * 1000;
+export const ROSTER_TTL = 12 * 60 * 60 * 1000;
 const TEAM_LIST_TTL = 24 * 60 * 60 * 1000;
 
 /**
@@ -47,12 +48,28 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // existing data alone.
 const inFlight = new Map<string, Promise<void>>();
 
+/**
+ * Sync keys are per team (`roster:nhl:TOR`); alerts want per league. When an
+ * upstream goes down every one of its teams fails the same way, and 101
+ * separate alerts is a worse signal than one that says it happened 101 times.
+ */
+function alertScope(key: string): string {
+	return `sync:${key.split(':').slice(0, 2).join(':')}`;
+}
+
 function once(key: string, run: () => Promise<void>): Promise<void> {
 	const existing = inFlight.get(key);
 	if (existing) return existing;
 
 	const job = run()
-		.catch((err) => console.error(`Sync ${key} failed:`, err))
+		.catch((err) =>
+			reportError({
+				source: 'sync',
+				message: `Sync failed: ${err instanceof Error ? err.message : String(err)}`,
+				stack: err instanceof Error ? err.stack : `key: ${key}`,
+				route: alertScope(key)
+			})
+		)
 		.finally(() => inFlight.delete(key));
 	inFlight.set(key, job);
 	return job;
@@ -80,12 +97,21 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	try {
 		leagueTeams = await adapter.fetchTeams();
 	} catch (err) {
-		console.error(`Failed to fetch ${adapter.id} teams:`, err);
+		reportError({
+			source: 'sync',
+			message: `Failed to fetch ${adapter.id} team list`,
+			stack: err instanceof Error ? err.stack : String(err),
+			route: `sync:teams:${adapter.id}`
+		});
 		return;
 	}
 	if (leagueTeams.length === 0) {
 		// Don't wipe the league over a flaky/empty response.
-		console.error(`${adapter.id} returned no teams; skipping sync`);
+		reportError({
+			source: 'sync',
+			message: `${adapter.id} returned no teams; skipping sync`,
+			route: `sync:teams:${adapter.id}`
+		});
 		return;
 	}
 
@@ -135,7 +161,14 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 		result = await adapter.fetchRoster(team);
 	}
 	if (!result.ok) {
-		console.error(`Failed to sync roster for ${dbId}; keeping existing players`);
+		// Scoped to the league rather than the team so an upstream outage reads as
+		// one problem with a high count, not a hundred separate ones.
+		reportError({
+			source: 'sync',
+			message: `Roster sync failed for ${adapter.id} (${result.reason}); keeping existing players`,
+			stack: `team: ${dbId}`,
+			route: `sync:roster:${adapter.id}`
+		});
 		return;
 	}
 
@@ -306,6 +339,16 @@ export async function syncRosters(): Promise<void> {
 }
 
 let fullSync: Promise<void> | null = null;
+let fullSyncStartedAt: number | null = null;
+
+/**
+ * Whether a full sync is in flight, and since when. The admin page uses the
+ * start time to work out how far along it is: a team counts as done once its
+ * `rosterSyncedAt` is newer than the run that's asking.
+ */
+export function fullSyncStatus(): { running: boolean; startedAt: number | null } {
+	return { running: fullSync !== null, startedAt: fullSyncStartedAt };
+}
 
 /**
  * Run a full sync, coalescing concurrent callers onto a single run. Returns
@@ -313,6 +356,7 @@ let fullSync: Promise<void> | null = null;
  */
 export function syncRostersOnce(): { started: boolean; done: Promise<void> } {
 	if (fullSync) return { started: false, done: fullSync };
+	fullSyncStartedAt = Date.now();
 	fullSync = syncRosters().finally(() => {
 		fullSync = null;
 	});

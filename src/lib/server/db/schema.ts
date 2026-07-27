@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 
 export const teams = sqliteTable('teams', {
 	id: text('id').primaryKey(), // e.g. "nhl:TOR", "pwhl:TOR"
@@ -43,4 +43,67 @@ export const players = sqliteTable(
 		headshotUrl: text('headshot_url').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.league, table.id] })]
+);
+
+/**
+ * One row per recorded visit or notable action, written from the request hook.
+ *
+ * Deliberately holds nothing that identifies a person: no IP, no user agent, no
+ * cookie. `visitorHash` is derived from a salt that rotates every day and is
+ * never written down, so it counts distinct visitors *within* a day and becomes
+ * meaningless the moment the day rolls over. That's what makes this
+ * banner-free, and it's also why cross-day retention is not answerable here —
+ * by construction, not by omission.
+ */
+export const events = sqliteTable(
+	'events',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		at: integer('at').notNull(), // epoch ms
+		// Local calendar day (YYYY-MM-DD) the event belongs to. Stored rather than
+		// derived so the daily rollups are a plain GROUP BY, and so a row always
+		// agrees with the salt window its visitorHash was built in.
+		day: text('day').notNull(),
+		name: text('name').notNull(), // 'pageview', and later gameplay events
+		path: text('path').notNull(),
+		// SvelteKit's route id, e.g. '/[[lang=locale]]/game/[league]/[team]'. Lets
+		// the dashboard group every team page together without parsing paths.
+		routeId: text('route_id'),
+		league: text('league'),
+		team: text('team'),
+		locale: text('locale').notNull(),
+		// Host only, never the full URL: enough to tell Discord from Google from
+		// direct, without recording which page someone came from.
+		referrerHost: text('referrer_host'),
+		visitorHash: text('visitor_hash').notNull(),
+		// Free-form JSON for events that carry extra detail. Nothing writes it
+		// yet; it's here so adding gameplay events later needs no migration.
+		props: text('props')
+	},
+	(table) => [index('events_day_idx').on(table.day), index('events_at_idx').on(table.at)]
+);
+
+/**
+ * Errors, folded by fingerprint rather than appended one row per occurrence: a
+ * single broken route can fire hundreds of times, and a table that grows with
+ * the failure is the least useful thing to have during one. `count` and
+ * `lastSeen` carry the volume instead.
+ */
+export const errors = sqliteTable(
+	'errors',
+	{
+		// Hash of source + message + route. Same bug, same row.
+		fingerprint: text('fingerprint').primaryKey(),
+		source: text('source').notNull(), // 'server' | 'client' | 'sync'
+		message: text('message').notNull(),
+		stack: text('stack'),
+		route: text('route'),
+		firstSeen: integer('first_seen').notNull(), // epoch ms
+		lastSeen: integer('last_seen').notNull(), // epoch ms
+		count: integer('count').notNull(),
+		// When this fingerprint was last pushed to Discord, so a flapping error
+		// doesn't turn into a notification flood.
+		notifiedAt: integer('notified_at')
+	},
+	(table) => [index('errors_last_seen_idx').on(table.lastSeen)]
 );

@@ -1,5 +1,7 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, negotiateLocale } from '$lib/i18n';
+import { recordEvent } from '$lib/server/analytics';
+import { reportError } from '$lib/server/alerts';
 
 /**
  * The URL owns the locale: /fr/... renders French, everything else English.
@@ -53,5 +55,36 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// over plain http, so it doesn't get in the way of local dev.
 	response.headers.set('Strict-Transport-Security', 'max-age=31536000');
 
+	// Count the visit once the response is known to be a real page. Client-side
+	// navigations still land here — SvelteKit fetches the next page's data
+	// through the same hook — so moving from the grid into a game is counted
+	// without any browser-side script.
+	if (localized && response.status < 400) {
+		recordEvent(event, { name: 'pageview' });
+	}
+
 	return response;
+};
+
+/**
+ * Every unhandled server error passes through here. SvelteKit already logs to
+ * stdout, but Fly keeps no history and stops the machine when it's idle, so by
+ * the time anyone looks the evidence is gone — hence writing it down.
+ *
+ * The return value is what the error page renders, so it stays generic: the
+ * detail goes to the database and to Discord, not to the visitor.
+ */
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+	// 404s are routine here — crawlers and stale links guessing at team codes —
+	// and alerting on them would bury the errors that matter.
+	if (status === 404) return { message };
+
+	reportError({
+		source: 'server',
+		message: error instanceof Error ? error.message : String(error),
+		stack: error instanceof Error ? error.stack : null,
+		route: event.route.id ?? event.url.pathname
+	});
+
+	return { message };
 };

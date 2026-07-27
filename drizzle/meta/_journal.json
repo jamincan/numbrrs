@@ -50,6 +50,13 @@
       "when": 1785095966380,
       "tag": "0006_nhl-french-names",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785111728749,
+      "tag": "0007_usage-events-and-errors",
+      "breakpoints": true
     }
   ]
 }
