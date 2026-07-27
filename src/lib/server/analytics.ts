@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { lt } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
+import { clientIp } from '$lib/server/client-ip';
 import { db } from '$lib/server/db';
 import { events, errors } from '$lib/server/db/schema';
 import { dayKey, isBot, referrerHost, visitorHash } from '$lib/server/telemetry';
@@ -21,27 +22,6 @@ function saltFor(day: string): Buffer {
 		salt = { day, value: randomBytes(32) };
 	}
 	return salt.value;
-}
-
-/**
- * Fly terminates TLS at its proxy, so the socket address the server sees is the
- * proxy's — the same value for every visitor, which would collapse an entire
- * day into one "unique". `Fly-Client-IP` is the real one. Fly's proxy sets it on
- * every request and overwrites whatever the client sent, so it can't be spoofed
- * from outside.
- */
-function clientIp(event: RequestEvent): string {
-	const flyIp = event.request.headers.get('fly-client-ip');
-	if (flyIp) return flyIp;
-
-	const forwarded = event.request.headers.get('x-forwarded-for');
-	if (forwarded) return forwarded.split(',')[0].trim();
-
-	try {
-		return event.getClientAddress();
-	} catch {
-		return 'unknown';
-	}
 }
 
 /** Keep three months. Long enough to see a trend, short enough that a 256mb machine never notices. */

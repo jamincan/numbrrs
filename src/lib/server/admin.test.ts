@@ -47,6 +47,43 @@ describe('session cookies', () => {
 		expect(verifySession(cookie, SECRET, NOW)).toBe(false);
 	});
 
+	it('rejects a tampered signature on an otherwise valid expiry', () => {
+		const cookie = signSession(NOW + HOUR, SECRET);
+		const [expiry, signature] = cookie.split('.');
+
+		// Flip one character rather than replacing the whole thing, so the length
+		// still matches and the comparison has to do real work to reject it.
+		const flipped = signature[0] === 'a' ? `b${signature.slice(1)}` : `a${signature.slice(1)}`;
+		expect(verifySession(`${expiry}.${flipped}`, SECRET, NOW)).toBe(false);
+
+		// A signature of the wrong length must not throw — timingSafeEqual does,
+		// which is exactly what tokenMatches guards against.
+		expect(() => verifySession(`${expiry}.abc`, SECRET, NOW)).not.toThrow();
+		expect(verifySession(`${expiry}.abc`, SECRET, NOW)).toBe(false);
+	});
+
+	it('rejects a non-finite expiry', () => {
+		// Number('Infinity') is Infinity, which would otherwise sail past a bare
+		// `expiresAt < now` check and never expire.
+		expect(verifySession('Infinity.abc123', SECRET, NOW)).toBe(false);
+		expect(verifySession('1e999.abc123', SECRET, NOW)).toBe(false);
+	});
+
+	it('treats an expiry of exactly now as still valid', () => {
+		const cookie = signSession(NOW, SECRET);
+		expect(verifySession(cookie, SECRET, NOW)).toBe(true);
+		expect(verifySession(cookie, SECRET, NOW + 1)).toBe(false);
+	});
+
+	it('ignores anything trailing a valid cookie', () => {
+		// Documenting rather than complaining: the split takes the first two
+		// fields, so junk on the end changes nothing. Harmless, because forging
+		// the signature is still the hard part — but worth pinning so a future
+		// parser change is a deliberate one.
+		const cookie = signSession(NOW + HOUR, SECRET);
+		expect(verifySession(`${cookie}.extra`, SECRET, NOW)).toBe(true);
+	});
+
 	it('rejects missing and malformed cookies', () => {
 		expect(verifySession(undefined, SECRET, NOW)).toBe(false);
 		expect(verifySession('', SECRET, NOW)).toBe(false);

@@ -130,9 +130,31 @@ Two details worth carrying across:
 Consider extending a looser limit to page routes too, given the upstream work a team-page request
 can trigger (see [ABUSE-2](#abuse-2)).
 
-Pair this with extending `src/lib/server/admin.test.ts` to cover tampered signatures, tampered
-expiries, expired sessions, and malformed cookies. Rate limiting and tests are the two things
-that raise confidence in the hand-rolled session layer; a library was considered and declined.
+Pair this with extending `src/lib/server/admin.test.ts`. Rate limiting and tests are the two
+things that raise confidence in the hand-rolled session layer; a library was considered and
+declined.
+
+> [!NOTE]
+> **Done 2026-07-27.** `src/lib/server/rate-limit.ts` holds the lifted limiter, with time passed
+> in so the tests walk a window forward without sleeping, and `src/lib/server/client-ip.ts` holds
+> the `Fly-Client-IP` extraction now shared by analytics and both limited routes. The login gets
+> 10 attempts per 15 minutes per IP and logs every rejection; `/api/client-error` keeps its
+> previous limits through the same module.
+>
+> Two things worth recording, because they differ from what this finding assumed:
+>
+> - **The limiter gained a hard memory bound.** The original swept only expired keys, so a flood
+>   from many addresses — the case it exists for — left the map growing and re-swept on every
+>   request. It now evicts least-recently-seen down to `maxKeys` when the sweep cannot free
+>   enough.
+> - **`admin.test.ts` was already comprehensive.** It covered tampered expiries, expired sessions,
+>   wrong secrets, rotation, and malformed cookies before this work started. The genuine gaps were
+>   narrower: a tampered _signature_ against a valid expiry, a non-finite expiry (`Infinity`
+>   parses and would never expire), the exact-boundary expiry, and trailing junk after a valid
+>   cookie. Four tests added, 14 total.
+>
+> Verified against the built server: ten failed logins logged, the eleventh rejected, a second IP
+> unaffected, and the correct token still accepted.
 
 ---
 

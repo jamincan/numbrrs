@@ -9,6 +9,8 @@ import {
 	startSession,
 	tokenMatches
 } from '$lib/server/admin';
+import { clientIp } from '$lib/server/client-ip';
+import { createRateLimiter } from '$lib/server/rate-limit';
 import { db } from '$lib/server/db';
 import { errors, events, syncState, teams } from '$lib/server/db/schema';
 import { ROSTER_TTL, fullSyncStatus, syncRostersOnce } from '$lib/server/leagues';
@@ -189,15 +191,35 @@ export async function load({ cookies }) {
 	return { state: 'open' as const, stats: stats(), sync: syncPanel() };
 }
 
+/**
+ * Deliberately per-IP only. A ceiling shared across addresses would let anyone
+ * who found this form spend the budget and lock the real admin out — trading a
+ * brute-force defence for a denial of service, against a token that is 32 random
+ * bytes and was never going to be guessed anyway. The point of limiting here is
+ * to make a scripted attempt cheap to absorb and visible in the logs.
+ */
+const loginLimiter = createRateLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
+
 export const actions = {
-	login: async ({ cookies, request, url }) => {
+	login: async (event) => {
+		const { cookies, request, url } = event;
 		const secret = env.ADMIN_TOKEN;
 		if (!secret) return fail(503, { message: 'ADMIN_TOKEN is not set on this deployment.' });
+
+		const ip = clientIp(event);
+		if (!loginLimiter.allow(ip, Date.now())) {
+			console.warn(`[admin] login rate-limited for ${ip}`);
+			return fail(429, { message: 'Too many attempts. Wait a few minutes and try again.' });
+		}
 
 		const form = await request.formData();
 		const token = form.get('token');
 
 		if (typeof token !== 'string' || !tokenMatches(token, secret)) {
+			// Logged rather than reported: a wrong password is somebody's problem,
+			// not the app's, and routing it through reportError would page Discord
+			// for a typo and bury real faults under a sustained attempt.
+			console.warn(`[admin] failed login from ${ip}`);
 			await loginDelay();
 			return fail(401, { message: 'That token is not right.' });
 		}
