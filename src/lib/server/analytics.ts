@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { lt } from 'drizzle-orm';
+import { desc, inArray, lt, lte, type SQL } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
 import { clientIp } from '$lib/server/client-ip';
 import { db } from '$lib/server/db';
@@ -26,21 +26,100 @@ function saltFor(day: string): Buffer {
 
 /** Keep three months. Long enough to see a trend, short enough that a 256mb machine never notices. */
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * A second bound, on rows rather than time. Ninety days is only a size if you
+ * also know the arrival rate, and the rate is exactly what a link from a large
+ * subreddit changes: at ~175 bytes a row, a front-page day is six figures of
+ * events and over 100mb on a 1gb volume. This is what makes the ceiling a
+ * property of the configuration instead of a property of the traffic.
+ *
+ * Oldest-first, so what a spike costs you is old history rather than the spike
+ * itself — which is the half you'd actually want to look at afterwards.
+ */
+const MAX_EVENTS = 500_000;
+
+/**
+ * Deletes are chunked because better-sqlite3 is synchronous: one statement
+ * removing a spike's worth of rows blocks the event loop, and the request that
+ * happens to trigger it pays the whole bill. A pass that hits its ceiling has
+ * more to do and comes back in a minute rather than sitting on the backlog for
+ * another six hours.
+ */
+const PRUNE_BATCH = 2_000;
+const PRUNE_MAX_ROWS = 20_000;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const PRUNE_CATCHUP_MS = 60 * 1000;
+
 let lastPrune = 0;
+let pruneInterval = PRUNE_INTERVAL_MS;
+
+/** Deletes up to `limit` of the oldest events matching `where`. Returns how many went. */
+function deleteOldestEvents(where: SQL, limit: number): number {
+	const doomed = db
+		.select({ id: events.id })
+		.from(events)
+		.where(where)
+		.orderBy(events.id)
+		.limit(limit)
+		.all()
+		.map((row) => row.id);
+
+	if (doomed.length === 0) return 0;
+	db.delete(events).where(inArray(events.id, doomed)).run();
+	return doomed.length;
+}
+
+function pruneEvents(now: number): number {
+	const cutoff = now - RETENTION_MS;
+	let removed = 0;
+
+	while (removed < PRUNE_MAX_ROWS) {
+		const batch = Math.min(PRUNE_BATCH, PRUNE_MAX_ROWS - removed);
+		const went = deleteOldestEvents(lt(events.at, cutoff), batch);
+		if (went === 0) break;
+		removed += went;
+	}
+
+	// `id` is autoincrementing, so the newest MAX_EVENTS rows are the highest
+	// ids. Anything at or below the row one past that boundary is surplus.
+	while (removed < PRUNE_MAX_ROWS) {
+		const [boundary] = db
+			.select({ id: events.id })
+			.from(events)
+			.orderBy(desc(events.id))
+			.limit(1)
+			.offset(MAX_EVENTS)
+			.all();
+		if (!boundary) break;
+
+		const batch = Math.min(PRUNE_BATCH, PRUNE_MAX_ROWS - removed);
+		const went = deleteOldestEvents(lte(events.id, boundary.id), batch);
+		if (went === 0) break;
+		removed += went;
+	}
+
+	return removed;
+}
 
 /**
  * Pruning rides along on a request rather than running on a timer: the machine
  * stops when idle, so a timer would only ever fire on a busy app — the one case
- * where it isn't needed. Cheap enough to do inline (two indexed deletes, a few
- * times a day).
+ * where it isn't needed.
  */
 function pruneIfDue(now: number): void {
-	if (now - lastPrune < PRUNE_INTERVAL_MS) return;
+	if (now - lastPrune < pruneInterval) return;
 	lastPrune = now;
-	const cutoff = now - RETENTION_MS;
-	db.delete(events).where(lt(events.at, cutoff)).run();
-	db.delete(errors).where(lt(errors.lastSeen, cutoff)).run();
+
+	const removed = pruneEvents(now);
+	pruneInterval = removed >= PRUNE_MAX_ROWS ? PRUNE_CATCHUP_MS : PRUNE_INTERVAL_MS;
+
+	// Errors need no ceiling and no batching: they fold by fingerprint, so the
+	// table is bounded by the number of distinct bugs rather than by how often
+	// they fire.
+	db.delete(errors)
+		.where(lt(errors.lastSeen, now - RETENTION_MS))
+		.run();
 }
 
 export interface EventInput {

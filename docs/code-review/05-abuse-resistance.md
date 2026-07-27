@@ -231,6 +231,33 @@ rows in one statement while a visitor's request waits on it.
 > provider was considered and declined; see [`../hosting.md`](../hosting.md). A retention bound
 > solves the problem for free, and an unbounded table is unbounded on any backend.
 
+### Done 2026-07-27
+
+`MAX_EVENTS = 500_000` (~87 MB) now sits alongside the 90-day cutoff, and deletes run in batches
+of 2,000 up to 20,000 rows per pass. A pass that hits its ceiling reschedules itself a minute
+later instead of leaving the backlog for six hours, so a spike's worth of surplus drains steadily
+rather than in one blocking statement.
+
+Trimming is **oldest-first**, which matters more than it sounds: during a spike the rows at risk
+are old history, not the spike. The half you would actually want to look at afterwards is the
+half that survives.
+
+The errors prune stays unbatched and unbounded on purpose — fingerprint folding means that table
+is bounded by the number of distinct bugs, not by how often they fire.
+
+> [!IMPORTANT]
+> **This is not unit-tested, and cannot be until [TYPE-1](./04-type-safety.md#type-1) lands.**
+> `pruneEvents` reaches the module-scope `db` binding, so there is no way to point it at an
+> in-memory database — the same blocker [TEST-1](./08-testing.md#test-1) documents.
+>
+> The SQL was verified against a real SQLite database with a throwaway script instead, which
+> confirmed the parts that could plausibly have been wrong: `inArray` accepts 2,000 bound
+> parameters without hitting `SQLITE_MAX_VARIABLE_NUMBER`, `.limit(1).offset(MAX_EVENTS)` finds
+> nothing when the table sits at exactly the ceiling and finds the oldest row when it is one over,
+> and oldest-first trimming leaves a simulated spike intact while old history absorbs the loss.
+> **Convert that into a real test when TYPE-1 makes it possible** — the script was deliberate
+> scaffolding, not a substitute.
+
 ---
 
 <a id="abuse-3"></a>

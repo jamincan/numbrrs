@@ -35,7 +35,7 @@ redistributed under a licence that cannot cover them.
 | [ERR-3](./02-error-handling.md#err-3)            | Unguarded `localStorage` breaks the game in Safari private browsing  | S      | ☐   |
 | [SEC-5](./06-security-hardening.md#sec-5)        | Remove `/api/sync` and `SYNC_TOKEN` — a second secret buying nothing | S      | ☑   |
 | [ABUSE-1](./05-abuse-resistance.md#abuse-1)      | No rate limit on the `/admin` login; failed auth unlogged            | S      | ☑   |
-| [ABUSE-4](./05-abuse-resistance.md#abuse-4)      | `events` retention is time-only — a spike writes ~125 MB in a day    | S      | ☐   |
+| [ABUSE-4](./05-abuse-resistance.md#abuse-4)      | `events` retention is time-only — a spike writes ~125 MB in a day    | S      | ☑   |
 | [PERF-1](./07-caching-and-scaling.md#perf-1)     | No page-level `Cache-Control` — every request re-renders             | S      | ☐   |
 | [PRIV-1](./10-privacy-and-telemetry.md#priv-1)   | No privacy policy or data-handling disclosure                        | S      | ☐   |
 | [MAINT-3](./09-maintainability.md#maint-3)       | `README.md` is stale — five leagues, not two                         | S      | ◑   |
@@ -74,7 +74,7 @@ redistributed under a licence that cannot cover them.
 
 ## Sequencing
 
-Most findings are independent. Three pairs are not, and doing them out of order means redoing
+Most findings are independent. Four pairs are not, and doing them out of order means redoing
 work:
 
 1. **TYPE-1 before TEST-1.** The sync-layer tests need to point the module at an in-memory
@@ -83,9 +83,12 @@ work:
    `RosterGame.svelte`. Fix them while it is still one file rather than five.
 3. **VAL-1 before ABUSE-2.** A schema parse failure should feed the same backoff path as a
    network failure. Build the classification first, then the backoff that consumes it.
+4. ~~**SEC-5 before ABUSE-1.**~~ Both done. Recorded because the order mattered: rate-limiting
+   `/api/sync` first would have meant writing a limiter for an endpoint about to be deleted.
 
-4. **SEC-5 before ABUSE-1.** SEC-5 deletes `/api/sync`. Rate-limiting it first means writing a
-   limiter for an endpoint that is about to stop existing.
+TYPE-1 has also picked up a second dependant: the retention bound added by ABUSE-4 cannot be
+unit-tested until the `db` export is injectable, so **TYPE-1 now unblocks both TEST-1 and the
+ABUSE-4 tests**. That raises its value above its P2 slot.
 
 Three more pairings are convenience rather than constraint: **ERR-1 with ERR-2** (the error page
 is where the error ID gets surfaced), **LIC-3 with PRIV-1** (both want the same footer), and
