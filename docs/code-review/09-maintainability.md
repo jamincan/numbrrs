@@ -122,22 +122,39 @@ curious visitor reads, and `README.md:18-23` actively solicits contributions.
   QMJHL (`src/lib/leagues.ts:9-19`).
 - **`:16`** — "(the NHL API and the PWHL's HockeyTech feed)". Four leagues now come through
   HockeyTech (`pwhl.ts`, and all three CHL leagues via `chl.ts`).
-- **`:40-42`** — the secrets table documents only `DATABASE_URL`. It omits **`SYNC_TOKEN`**, the
-  one secret with security consequences, whose absence disables `/api/sync` with a 503
-  (`api/sync/+server.ts:31-33`).
+- ~~**`:40-42`** — the secrets table documents only `DATABASE_URL`. It omits **`SYNC_TOKEN`**.~~
+  **Fixed in `ff92fdf`.** The table now carries both `SYNC_TOKEN` (`:43`) and `ADMIN_TOKEN`
+  (`:44`), each with a note on what breaks while it is unset.
 - No mention of French/English localisation, which is a substantial feature.
 - No mention of `/api/sync` at all.
 
+> [!NOTE]
+> **Updated 2026-07-27.** Partially fixed. The secrets table was brought up to date when the
+> admin dashboard landed, so the one item with security consequences is done. The league count is
+> the visible remainder: `README.md:3` and `:16` still describe a two-league app to every visitor
+> who opens the repository.
+
 ### Action
 
-Update all of the above. Add:
+Update the remaining items. Add:
 
-- The `SYNC_TOKEN` row, with generation guidance (see
-  [ABUSE-3](./05-abuse-resistance.md#abuse-3)).
+- The correct league list at `:3` and the correct data-source sentence at `:16`.
 - A localisation note.
 - The licence and attribution section from [LIC-1](./01-licensing-and-attribution.md#lic-1) and
   [LIC-3](./01-licensing-and-attribution.md#lic-3).
 - The scaling constraint from [PERF-2](./07-caching-and-scaling.md#perf-2).
+- A pointer to `docs/` — neither this review nor [`../hosting.md`](../hosting.md) is discoverable
+  from the README today.
+
+And remove:
+
+- **The `SYNC_TOKEN` row.** [SEC-5](./06-security-hardening.md#sec-5) deletes that endpoint and
+  that secret, leaving `DATABASE_URL` and `ADMIN_TOKEN`. Do this **after** SEC-5, not before.
+- Any `/api/sync` documentation — it should not be written and then deleted.
+
+Generation guidance (`openssl rand -hex 32`) still belongs in the README, but attached to
+`ADMIN_TOKEN`, which becomes the only secret and now also gates the resync capability. This is
+the surviving half of the superseded [ABUSE-3](./05-abuse-resistance.md#abuse-3).
 
 The difficulty table at `:9-12` is still accurate against `RosterGame.svelte:37-42` — leave it.
 

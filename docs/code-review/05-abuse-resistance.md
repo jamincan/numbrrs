@@ -74,14 +74,17 @@ fetch — is correct and its comment explains the reasoning well. It solves a di
 
 <a id="abuse-1"></a>
 
-## ABUSE-1 — `/api/sync` has no rate limit and logs nothing on failed auth
+## ABUSE-1 — No rate limit on the admin login, and failed auth is unlogged
 
 **Priority:** P1 · **Effort:** S
 
+_Originally scoped to `/api/sync`. Retitled 2026-07-27 — `/admin` is the real target, and
+`/api/sync` is being removed by [SEC-5](./06-security-hardening.md#sec-5)._
+
 ### What
 
-`src/routes/api/sync/+server.ts` is the only authenticated endpoint. The token comparison itself
-is correct — see [SEC](./06-security-hardening.md) — but around it:
+`src/routes/api/sync/+server.ts` was, at the time of review, the only authenticated endpoint. The
+token comparison itself is correct — see [SEC](./06-security-hardening.md) — but around it:
 
 - **No rate limiting.** An attacker gets unlimited token guesses at whatever rate the network
   allows.
@@ -91,32 +94,140 @@ is correct — see [SEC](./06-security-hardening.md) — but around it:
   `:52-55` notes takes a couple of minutes. That is an expensive thing to sit behind an
   unmonitored door.
 
+> [!IMPORTANT]
+> **Updated 2026-07-27: `/admin` is now the priority, not `/api/sync`.** The dashboard landed in
+> `ff92fdf` with a password login at `src/routes/admin/+page.server.ts` and nothing in front of it
+> but `loginDelay()` — a 400ms sleep that `admin.ts:70-74` itself describes as "not a real
+> defence". A login form is a far more attractive target than an undocumented bearer endpoint,
+> and the decision to keep the hand-rolled session layer (see
+> [the re-review](./README.md#re-review-resolved-2026-07-27)) rests partly on this landing.
+
 ### Action
 
-Add a small fixed-window in-memory rate limiter, applied in `hooks.server.ts` to `/api/*`, and
-`console.warn` (or the structured logger, if it now exists) on every 401 with the source IP.
+Add a small fixed-window in-memory rate limiter and apply it, in descending order of importance,
+to the `/admin` login POST, then `/api/sync`. Log every rejected attempt with the source IP —
+`reportError` is not the right channel for this (it is not an application fault), so
+`console.warn` plus a counter the dashboard can show.
 
-In-memory is the correct choice given the deployment is a single machine — but note in a comment
-that it becomes per-instance if the app is ever scaled, since
-[PERF-2](./07-caching-and-scaling.md#perf-2) documents that same single-process assumption
-elsewhere.
+**Do not write the limiter from scratch.** One already exists and works:
+`src/routes/api/client-error/+server.ts:20-46` has a per-IP sliding window, a global ceiling, and
+bounded map growth, with the reasoning already in comments. Lift it into
+`src/lib/server/rate-limit.ts`, unit-test it there, and call it from all three places. That turns
+this from "design a limiter" into "move one that is already reviewed", which is most of the
+effort gone.
+
+Two details worth carrying across:
+
+- Take the client IP the way `analytics.ts:31-44` already does — `Fly-Client-IP` first, since
+  behind Fly's proxy `getClientAddress()` is the same value for every visitor and would collapse
+  every attacker into one bucket. Getting this wrong makes the limiter either useless or a
+  global outage.
+- In-memory is the correct choice while the deployment is a single machine — but note in a
+  comment that it becomes per-instance if the app is ever scaled, since
+  [PERF-2](./07-caching-and-scaling.md#perf-2) documents that same single-process assumption
+  elsewhere.
 
 Consider extending a looser limit to page routes too, given the upstream work a team-page request
 can trigger (see [ABUSE-2](#abuse-2)).
 
+Pair this with extending `src/lib/server/admin.test.ts` to cover tampered signatures, tampered
+expiries, expired sessions, and malformed cookies. Rate limiting and tests are the two things
+that raise confidence in the hand-rolled session layer; a library was considered and declined.
+
+---
+
+<a id="abuse-4"></a>
+
+## ABUSE-4 — `events` retention is time-only
+
+**Priority:** P1 · **Effort:** S
+
+### What
+
+Added 2026-07-27. `analytics.ts:45-62` prunes on a 90-day cutoff and nothing else:
+
+```ts
+const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// ...
+db.delete(events).where(lt(events.at, cutoff)).run();
+```
+
+The comment calls 90 days "short enough that a 256mb machine never notices", which is true at the
+traffic the app had when it was written. It is a **time** bound with no **volume** bound, so what
+it actually guarantees depends entirely on the arrival rate.
+
+### The numbers
+
+A row is roughly 115 bytes of column data — the truncated 16-character visitor hash helps a lot
+here — plus about 40 bytes across the `events_day_idx` and `events_at_idx` entries. Call it
+**~175 bytes per page view**.
+
+| Traffic                                 | Events/day | Disk/day | 90 days   |
+| --------------------------------------- | ---------- | -------- | --------- |
+| Today (~51 visitors/day, ~6 pages each) | ~300       | ~54 KB   | **~5 MB** |
+| "Good post" (~40k visitors)             | ~240k      | ~42 MB   | —         |
+| "Big post" (~120k visitors)             | ~720k      | ~126 MB  | —         |
+
+Steady state is nowhere near a problem. A single front-page day is ~12% of a 1 GB volume, which
+is survivable but is not what "never notices" was describing. Scenario sizes are from
+[`../hosting.md`](../hosting.md).
+
+### What breaks if the volume does fill
+
+Partly handled already, which is worth knowing before over-reacting: `recordEvent` is wrapped in
+`try`/`catch` and never throws (`analytics.ts:72-110`), so analytics fail silently rather than
+taking a page down. But roster sync writes are not similarly guarded, and `migrate()` runs at
+module import ([ERR-4](./02-error-handling.md#err-4)) — so a full volume degrades to stale rosters
+and a machine that cannot boot cleanly.
+
+### The second defect
+
+The prune itself is unbounded:
+
+```ts
+db.delete(events).where(lt(events.at, cutoff)).run();
+```
+
+`better-sqlite3` is synchronous, so this blocks the event loop for as long as the delete takes.
+Ninety days after a spike, the first prune to cross that boundary deletes a whole spike's worth of
+rows in one statement while a visitor's request waits on it.
+
+### Action
+
+1. Add a **row-count ceiling** alongside the time cutoff — keep the newest N events (a few hundred
+   thousand is far more than the dashboard needs) and drop the rest. This is what makes the bound
+   independent of traffic.
+2. **Bound each prune pass**, deleting in batches by `rowid` rather than in one statement, so no
+   single request absorbs the whole cost.
+3. Consider rolling events older than a few weeks into daily aggregates and dropping the raw rows.
+   The dashboard's charts are `GROUP BY day` already — `db/schema.ts:60-62` stores `day` precisely
+   so the rollups are a plain group-by — so this loses nothing anyone looks at.
+
 > [!NOTE]
-> When the admin dashboard lands, its login endpoint needs this more than `/api/sync` does. A
-> login form is a far more attractive target than an undocumented bearer endpoint.
+> Fix this rather than changing where the data lives. Moving telemetry to Postgres or a hosted
+> provider was considered and declined; see [`../hosting.md`](../hosting.md). A retention bound
+> solves the problem for free, and an unbounded table is unbounded on any backend.
 
 ---
 
 <a id="abuse-3"></a>
 
-## ABUSE-3 — `SYNC_TOKEN` has no minimum length
+## ~~ABUSE-3 — `SYNC_TOKEN` has no minimum length~~
 
-**Priority:** P3 · **Effort:** S
+**Priority:** P3 · **Effort:** S · **Status:** superseded — do not fix, delete
 
-### What
+> [!IMPORTANT]
+> **Superseded 2026-07-27 by [SEC-5](./06-security-hardening.md#sec-5).** `/api/sync` and
+> `SYNC_TOKEN` are being removed entirely, with the resync capability moving behind the `/admin`
+> session. A secret that no longer exists needs no minimum length.
+>
+> Do not implement the startup validation below. The one part worth carrying forward is the
+> generation guidance, which now applies to `ADMIN_TOKEN` instead — that is the remaining secret,
+> and it is now the only thing standing in front of the resync capability. Fold it into
+> [MAINT-3](./09-maintainability.md#maint-3).
+
+### What (original finding, retained for context)
 
 `api/sync/+server.ts:30-33` only checks that the token is non-empty:
 

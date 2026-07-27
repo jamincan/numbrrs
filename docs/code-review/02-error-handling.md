@@ -60,29 +60,38 @@ Test both shapes, they take different paths:
 
 ## ERR-2 — No `handleError` hook
 
-**Priority:** P1 · **Effort:** S
+**Priority:** P1 · **Effort:** S · **Status:** mostly done as of `ff92fdf`
 
 ### What
 
-`src/hooks.server.ts` exports only `handle`. Without `handleError`, an unexpected server error
-produces a generic 500 with nothing correlating it to anything in the logs. On Fly, with
-`min_machines_running = 0` and machines cycling, "a user reported a 500 yesterday" is
+> [!NOTE]
+> **Updated 2026-07-27.** The hook now exists. `src/hooks.server.ts:77-96` exports `handleError`,
+> routes through `reportError` so the error reaches both SQLite and Discord, deliberately skips
+> 404s (crawler noise would otherwise bury real faults), and returns only `{ message }` — no
+> stack, no internals. That is the substance of this finding and it is satisfied. The comment at
+> `:69-76` explains the reasoning better than this document originally did.
+
+The original finding, for context: without `handleError` an unexpected server error produced a
+generic 500 with nothing correlating it to anything in the logs. On Fly, with
+`min_machines_running = 0` and machines cycling, "a user reported a 500 yesterday" was
 unactionable.
 
-### Action
+### What is left
 
-Add `handleError` to `src/hooks.server.ts`:
+One piece of the original action is still open — the **error ID**:
 
-- Log the error with request context — URL, route ID, method.
-- Generate an error ID, return it in the shape given to the client, and include it in the log
-  line so a user-reported ID maps to a specific log entry.
-- Return only the ID and a generic message to the client. Do not leak stack traces or internals.
+- Generate an ID in the hook, include it in the stored row, and return it in the shape given to
+  the client, so a user saying "I got error a3f9c1" maps to a specific record.
+- Surface it in the `+error.svelte` from [ERR-1](#err-1).
 
-Surface the ID in the `+error.svelte` from [ERR-1](#err-1).
+There is nowhere to display an ID until that error page exists, so **do this as part of ERR-1**
+rather than on its own. `errors.fingerprint` (`db/schema.ts:96`) is not a substitute — it folds
+every occurrence of the same bug into one value, so it identifies the defect but not the visit.
 
-> [!NOTE]
-> If the unpushed structured-logging work has landed, route this through it rather than
-> `console.error`, and check the hook does not log secrets, cookies, or request bodies.
+### Verified clean
+
+The hook logs `error.message`, `error.stack`, and `event.route.id`. It does not touch cookies,
+headers, or the request body, so the "check it does not log secrets" concern is discharged.
 
 ---
 

@@ -4,7 +4,9 @@
 
 Stated up front so nobody spends an afternoon looking for a problem that isn't there.
 
-**The authentication is correct.** `api/sync/+server.ts:12-16`:
+**The authentication is correct.** Quoted below from `api/sync/+server.ts:12-16` as it stood at
+`631b649`. It has since moved to `src/lib/server/admin.ts:15-19` and is now shared by both auth
+paths — the assessment is unchanged, and `/api/sync` is being removed by [SEC-5](#sec-5) anyway:
 
 ```ts
 function tokenMatches(provided: string, expected: string): boolean {
@@ -25,11 +27,15 @@ password storage, and no user-supplied data persisted anywhere. Adding Auth.js o
 introduce a dependency, a session store, and a migration surface in exchange for nothing. The
 one-token model is proportionate.
 
-> [!WARNING]
-> That conclusion is scoped to the reviewed commit. The unpushed admin dashboard introduces
-> sessions and a login form, and a hand-rolled session layer is a substantially harder thing to
-> get right than a single bearer-token comparison. Re-evaluate then — see
-> [the re-review checklist](./README.md#re-review-when-the-admin-dashboard-lands).
+> [!NOTE]
+> **Re-evaluated 2026-07-27 and the conclusion holds — decision recorded.** The dashboard landed
+> with sessions and a login form, which is what this paragraph said would reopen the question. It
+> was reopened and closed the other way: Lucia is no longer a library, Oslo is a primitives
+> package that would wrap `node:crypto` rather than replace it, and `better-auth` and Auth.js both
+> model user accounts this app does not have. `src/lib/server/admin.ts` was reviewed directly and
+> is sound. **Staying hand-rolled.** Full reasoning in
+> [the re-review](./README.md#re-review-resolved-2026-07-27); the two things that raise confidence
+> here are [ABUSE-1](./05-abuse-resistance.md#abuse-1) and extending `admin.test.ts`.
 
 **Other things already done right:** SQL is fully parameterised through Drizzle with no raw
 string interpolation anywhere; `hooks.server.ts:49-54` already sets `X-Content-Type-Options`,
@@ -178,3 +184,83 @@ without encoding is a pattern worth not having in the codebase, and the fix cost
 
 Keep the route itself — the comment at `:3-4` explains it preserves pre-PWHL bookmarks
 (`/game/TOR`), which is worth maintaining.
+
+---
+
+<a id="sec-5"></a>
+
+## SEC-5 — Remove `/api/sync` and `SYNC_TOKEN`
+
+**Priority:** P1 · **Effort:** S
+
+Added 2026-07-27, after the admin dashboard landed.
+
+### What
+
+The app now has two secrets and two authentication paths guarding the same capability. `ADMIN_TOKEN`
+gates `/admin`, which can already see everything. `SYNC_TOKEN` gates `POST /api/sync`, whose only
+function is to force a full roster refresh.
+
+That second path buys nothing:
+
+- **Nothing calls it.** There is no cron in `fly.toml`, no schedule in `.github/workflows/ci.yml`,
+  and no external caller. The endpoint's own comment says so: _"Nothing calls this on a schedule —
+  it's here for pushing new data out immediately."_ Outside `.env`, `README.md`, and these docs,
+  the only reference to `SYNC_TOKEN` in the repository is the endpoint that reads it.
+- **It is not even a separate implementation.** `api/sync/+server.ts:3` imports `tokenMatches`
+  from `$lib/server/admin`. The crypto is already shared; what is duplicated is the _secret_ and
+  the public entry point.
+- **It is the expensive one.** A successful call walks every team in every league and takes one to
+  two minutes of upstream work.
+
+So the surface is a publicly reachable POST that triggers minutes of upstream traffic, guarded by
+a second secret that has to be generated, stored in Fly, rotated, and documented — to serve a
+workflow that happens by hand, a few times a year, by someone who is already able to log into
+`/admin`.
+
+### The `?wait=true` problem
+
+Worth recording, because it is the reason the replacement should not simply be a blocking button.
+
+`?wait=true` is the documented way to use this endpoint, and the comment at `:41-45` explains why:
+without it, _"on Fly the machine can be stopped for idleness once this request returns"_. But
+`?wait=true` transfers **no bytes** until the sync completes, and Fly's proxy closes a connection
+idle for around 60 seconds. A one-to-two-minute sync therefore plausibly gets cut mid-flight — at
+which point the machine can be stopped for idleness anyway, which is the exact failure the flag
+exists to prevent.
+
+This has presumably never been noticed because the endpoint is invoked by hand and a truncated
+response looks like a network hiccup rather than a bug.
+
+### Action
+
+1. Delete `src/routes/api/sync/+server.ts`.
+2. Remove `SYNC_TOKEN` from `.env`, `.env.example`, the `README.md` secrets table, and Fly
+   secrets.
+3. Add a `resync` form action to `src/routes/admin/+page.server.ts` calling `syncRostersOnce()`
+   and returning immediately — the existing 202 path, already written and already latched against
+   concurrent runs.
+4. Have the dashboard **poll rather than block**. Render last-synced times from `sync_state` and
+   `teams.rosterSyncedAt`, both of which already exist for exactly this bookkeeping. The polling
+   is the keep-alive: a request every few seconds holds the machine open far more reliably than
+   one long silent request, and it shows progress instead of a spinner.
+
+CSRF needs no extra work — SvelteKit form actions check the request origin, and the session cookie
+is already `sameSite: 'strict'` (`admin.ts:59`).
+
+### Consequences elsewhere
+
+- **[ABUSE-3](./05-abuse-resistance.md#abuse-3) is superseded.** Do not implement its startup
+  length check; the secret is going away. Its generation guidance moves to `ADMIN_TOKEN`.
+- **[ABUSE-1](./05-abuse-resistance.md#abuse-1) narrows** to a single call site, which makes the
+  rate limiter simpler.
+- **[MAINT-3](./09-maintainability.md#maint-3)**: the README secrets table becomes `DATABASE_URL`
+  and `ADMIN_TOKEN`, and the `/api/sync` documentation comes out rather than being written.
+- **[`../hosting.md`](../hosting.md)** step 4 changes from a `curl` before posting to clicking
+  resync in `/admin`.
+
+### The one thing given up
+
+Scriptability. If scheduled syncing is ever wanted, the answer is a Fly scheduled machine calling
+`syncRostersOnce()` directly, not an HTTP endpoint with its own secret — so even that case does
+not argue for keeping this.
