@@ -232,18 +232,32 @@ exists to prevent.
 This has presumably never been noticed because the endpoint is invoked by hand and a truncated
 response looks like a network hiccup rather than a bug.
 
+### The replacement already exists
+
+> [!IMPORTANT]
+> This finding originally proposed building a resync action on `/admin`. **It is already
+> built** — `ff92fdf` shipped it, and it is the exact shape this finding was going to argue for:
+>
+> - `admin/+page.server.ts:215-227` — a `resync` form action that re-checks `isAuthenticated`
+>   (its comment notes that actions are their own endpoints, so the `load` guard does not cover a
+>   POST), calls `syncRostersOnce()`, and returns immediately rather than hanging the form post.
+> - `admin/+page.svelte:15` — `setInterval(() => invalidateAll(), 4000)`, so the page polls.
+> - `admin/+page.server.ts:26-73` — `syncPanel()`, rendering per-league freshness and progress
+>   from `sync_state` and `teams.rosterSyncedAt`. Its comment explains why progress is measured
+>   against a timestamp rather than a counter: the sync is fire-and-forget and the machine can
+>   restart under it, and a timestamp in the database survives that.
+>
+> The `resync` comment even records the keep-alive reasoning independently — _"that polling is
+> also what keeps Fly from stopping the machine out from under the sync while it runs."_
+>
+> So this finding is **pure deletion**. There is nothing to build.
+
 ### Action
 
-1. Delete `src/routes/api/sync/+server.ts`.
-2. Remove `SYNC_TOKEN` from `.env`, `.env.example`, the `README.md` secrets table, and Fly
-   secrets.
-3. Add a `resync` form action to `src/routes/admin/+page.server.ts` calling `syncRostersOnce()`
-   and returning immediately — the existing 202 path, already written and already latched against
-   concurrent runs.
-4. Have the dashboard **poll rather than block**. Render last-synced times from `sync_state` and
-   `teams.rosterSyncedAt`, both of which already exist for exactly this bookkeeping. The polling
-   is the keep-alive: a request every few seconds holds the machine open far more reliably than
-   one long silent request, and it shows progress instead of a spinner.
+1. Delete `src/routes/api/sync/+server.ts` and its directory.
+2. Remove `SYNC_TOKEN` from `.env.example`, the local `.env`, and the `README.md` secrets table.
+3. Unset the Fly secret: `flyctl secrets unset SYNC_TOKEN`. This restarts the machine, so do it
+   with the deploy rather than on its own.
 
 CSRF needs no extra work — SvelteKit form actions check the request origin, and the session cookie
 is already `sameSite: 'strict'` (`admin.ts:59`).

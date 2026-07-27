@@ -25,9 +25,8 @@ function sign(payload: string, secret: string): string {
 /**
  * The session cookie carries an expiry and a signature over it — never the
  * token itself. If the cookie ever leaks it grants access until it expires and
- * nothing more; it can't be replayed against `/api/sync` or turned back into
- * the secret. Rotating ADMIN_TOKEN invalidates every outstanding session, which
- * is the logout-everywhere lever.
+ * nothing more; it can't be turned back into the secret. Rotating ADMIN_TOKEN
+ * invalidates every outstanding session, which is the logout-everywhere lever.
  */
 export function signSession(expiresAt: number, secret: string): string {
 	return `${expiresAt}.${sign(`admin:${expiresAt}`, secret)}`;

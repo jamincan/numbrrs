@@ -37,12 +37,16 @@ fly secrets set DATABASE_URL=/data/numbrrs.db
 fly deploy
 ```
 
-| Secret              | Description                                                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`      | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume.                                               |
-| `SYNC_TOKEN`        | Bearer token for `POST /api/sync`. The endpoint returns 503 while unset.                                                  |
-| `ADMIN_TOKEN`       | Password for the `/admin` usage dashboard. Rotating it signs everyone out. `/admin` says it's unconfigured while unset.   |
-| `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset. |
+| Secret              | Description                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`      | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume.                                                                               |
+| `ADMIN_TOKEN`       | Password for the `/admin` dashboard, which is also what authorises a manual resync. Rotating it signs everyone out. Generate with `openssl rand -hex 32`. |
+| `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset.                                 |
+
+Rosters refresh on demand — 12 hours per team, 24 hours per team list — so there
+is nothing to schedule. To push new data out immediately, use the resync button on
+`/admin`; it starts a full refresh in the background and the page reports progress
+as it lands.
 
 ### Usage tracking
 
