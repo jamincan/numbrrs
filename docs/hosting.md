@@ -158,11 +158,23 @@ responses carry no `Set-Cookie`. Roughly a day of careful work.
 > mechanism proves itself. Expand the `routes` array once this has run cleanly for a
 > while; the Worker script itself needs no changes to cover more paths.
 >
-> **What actually deploys it is still open:** the Worker exists in the repo and
-> bundles cleanly (`pnpm exec wrangler deploy --dry-run` confirms 2.9 KiB, no
-> errors), but hasn't been pushed to the Cloudflare account yet — that needs either
-> running `pnpm run cf:deploy` from an authenticated `wrangler login` session, or a
-> `CLOUDFLARE_API_TOKEN`.
+> **Deployed and verified 2026-07-28**, via `pnpm run cf:deploy` from an
+> authenticated `wrangler login` session. Against the live site: a second request to
+> `/privacy` returns `cf-cache-status: HIT`; `/fr/privacy` caches independently with
+> the correct `lang="fr"` content; and — the case that actually matters — a
+> French-preferring request (`Accept-Language: fr`, no cookie) redirects to
+> `/fr/privacy` as before, and a plain English request to the same unprefixed
+> `/privacy` URL immediately afterward still returns `lang="en"`, confirming the
+> locale-bucketed cache key does its job rather than leaking one visitor's outcome
+> to another.
+>
+> One detail worth recording: the French redirect response itself is never cached
+> (stays `DYNAMIC` on repeat requests), because `hooks.server.ts` already marks it
+> `private, no-store` — a defensive choice made before this Worker existed ("caches
+> must not serve one visitor's answer to another"). The Worker correctly respects
+> that and skips it. Not a gap: redirects are cheap to regenerate, and the
+> expensive thing worth caching — the full rendered HTML — is exactly what's
+> covered.
 
 ### 2. Pre-scale before posting — cheap insurance, zero code
 
