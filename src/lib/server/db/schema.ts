@@ -17,13 +17,25 @@ export const teams = sqliteTable('teams', {
 });
 
 /**
- * Freshness for things that aren't scoped to a single team — currently each
- * league's list of teams, under the key `teams:<league>`. Kept in the database
- * so it survives restarts; the app used to re-sync everything on every boot.
+ * Freshness and failure state for syncs, under the key `teams:<league>` or
+ * `roster:<league>:<code>`. Kept in the database so it survives restarts.
+ *
+ * Roster *freshness* lives on `teams.roster_synced_at` rather than here — this
+ * table only tracks a roster's failures, so there is still exactly one answer
+ * to "when was this last synced".
  */
 export const syncState = sqliteTable('sync_state', {
 	key: text('key').primaryKey(),
-	syncedAt: integer('synced_at').notNull() // epoch ms
+	// Epoch ms. 0 for a key that has only ever failed: rosters record their
+	// success on the teams table, so a roster row here may never carry a real
+	// timestamp. `isFresh` reads 0 as stale, which is the intent.
+	syncedAt: integer('synced_at').notNull(),
+	// When the most recent consecutive failure happened, and how many there have
+	// been. Together they decide how long to stop asking — without them a league
+	// that is down is indistinguishable from one that has never been synced, and
+	// gets retried on every single request.
+	failedAt: integer('failed_at'),
+	failureCount: integer('failure_count').notNull().default(0)
 });
 
 export const players = sqliteTable(

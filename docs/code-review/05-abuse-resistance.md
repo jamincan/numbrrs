@@ -295,3 +295,46 @@ gives no guidance on what a reasonable value looks like.
 Validate at startup rather than per-request — a minimum length (32 chars) checked once, failing
 loudly at boot. Document the expectation in `.env.example` and `README.md`, with a generation
 command (`openssl rand -hex 32`).
+
+### Done 2026-07-27 — ABUSE-2
+
+`sync_state` gained `failed_at` and `failure_count` (migration `0008`, two additive
+`ALTER TABLE ADD COLUMN` statements — no table recreation). Failures are recorded, cleared on the
+next success, and respected before every upstream attempt: `ensureTeams`, `ensureTeam` and
+`loadRoster` all check the backoff first.
+
+The schedule doubles from one minute and caps at thirty: 1, 2, 4, 8, 16, 30, 30… The cap matters
+as much as the growth — it guarantees a permanently-failing league is still retried twice an hour
+rather than abandoned.
+
+**The blocking-timeout problem is what actually got fixed.** Skipping a backed-off league means no
+job is started, so there is nothing for the request to block on. That is what stops a cold
+database plus a failing upstream from making every home-page request wait the full 8 seconds, and
+it is the reason this mattered on a 256mb machine before it mattered to anyone's patience.
+
+Backoff is keyed per team for rosters and per league for team lists, so one team's roster 404ing
+doesn't stall the other hundred. Alerts stay scoped to the league, as they were.
+
+### Two deviations worth knowing
+
+- **The policy lives in `backoff.ts`, not here.** `index.ts` opens a database at import, so
+  anything defined in it is untestable until [TYPE-1](./04-type-safety.md#type-1). The schedule is
+  pure arithmetic, so it moved to its own module and now has nine tests — including that
+  `2 ** 2000` is `Infinity` and the cap survives it rather than producing `NaN`.
+- **Roster freshness stays on `teams.roster_synced_at`.** `sync_state` tracks only a roster's
+  _failures_, so there is still exactly one answer to "when was this last synced". The cost is
+  that a roster row here carries `synced_at = 0`; the schema comment says so.
+
+### Verification
+
+The migration was tested as an **upgrade**, not just as a fresh create: a database built to 0007,
+populated with real `sync_state` rows, then migrated — existing rows survive, `synced_at` is
+untouched, `failed_at` defaults to null, `failure_count` defaults to 0 rather than null, an insert
+omitting the new column still works, and re-running is a no-op. That last one matters because
+`migrate()` runs on every boot.
+
+> [!NOTE]
+> The backoff _wiring_ — that a failure actually writes a row and that the read path honours it —
+> is still only covered by the type checker. That needs [TYPE-1](./04-type-safety.md#type-1) and
+> belongs with [TEST-1](./08-testing.md#test-1), whose case list should gain "a failing sync backs
+> off and stops re-fetching" alongside the deletion cases.

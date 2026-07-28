@@ -1,11 +1,12 @@
 import { db, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
-import { and, eq, notInArray } from 'drizzle-orm';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
 import { teamDbId, type LeagueId } from '$lib/leagues';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
 import { ohlAdapter, qmjhlAdapter, whlAdapter } from './chl';
+import { inBackoff, type FailureState } from './backoff';
 import type { LeagueAdapter, LeagueTeam } from './types';
 
 const ADAPTERS: LeagueAdapter[] = [nhlAdapter, pwhlAdapter, whlAdapter, ohlAdapter, qmjhlAdapter];
@@ -82,12 +83,49 @@ function withTimeout(work: Promise<void>, ms: number): Promise<void> {
 	return Promise.race([work, sleep(ms).then(() => {})]);
 }
 
+/** Whether a key is still inside the backoff window from its last failure. */
+function backingOff(state: FailureState | undefined): boolean {
+	return inBackoff(state, Date.now());
+}
+
+/** Record a success: refresh the timestamp and forget any failure streak. */
 function markSynced(key: string) {
 	const syncedAt = Date.now();
 	db.insert(syncState)
-		.values({ key, syncedAt })
-		.onConflictDoUpdate({ target: syncState.key, set: { syncedAt } })
+		.values({ key, syncedAt, failedAt: null, failureCount: 0 })
+		.onConflictDoUpdate({
+			target: syncState.key,
+			set: { syncedAt, failedAt: null, failureCount: 0 }
+		})
 		.run();
+}
+
+/**
+ * Record a failure, extending the streak. `syncedAt` is 0 for a key that has
+ * never succeeded — see the schema comment; nothing reads it as a real time.
+ */
+function markFailed(key: string) {
+	const now = Date.now();
+	db.insert(syncState)
+		.values({ key, syncedAt: 0, failedAt: now, failureCount: 1 })
+		.onConflictDoUpdate({
+			target: syncState.key,
+			set: { failedAt: now, failureCount: sql`${syncState.failureCount} + 1` }
+		})
+		.run();
+}
+
+/**
+ * Clear a failure streak without touching `syncedAt` — for rosters, whose
+ * freshness is recorded on the teams table instead. A no-op when the key has
+ * never failed, which is the common case.
+ */
+function clearFailure(key: string) {
+	db.update(syncState).set({ failedAt: null, failureCount: 0 }).where(eq(syncState.key, key)).run();
+}
+
+function failureState(key: string): FailureState | undefined {
+	return db.select().from(syncState).where(eq(syncState.key, key)).get();
 }
 
 function isFresh(syncedAt: number | null | undefined, ttl: number): boolean {
@@ -100,6 +138,7 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	try {
 		leagueTeams = await adapter.fetchTeams();
 	} catch (err) {
+		markFailed(teamListKey(adapter.id));
 		reportError({
 			source: 'sync',
 			message: `Failed to fetch ${adapter.id} team list`,
@@ -110,6 +149,7 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	}
 	if (leagueTeams.length === 0) {
 		// Don't wipe the league over a flaky/empty response.
+		markFailed(teamListKey(adapter.id));
 		reportError({
 			source: 'sync',
 			message: `${adapter.id} returned no teams; skipping sync`,
@@ -164,8 +204,12 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 		result = await adapter.fetchRoster(team);
 	}
 	if (!result.ok) {
-		// Scoped to the league rather than the team so an upstream outage reads as
-		// one problem with a high count, not a hundred separate ones.
+		// Backoff is per team, not per league: one team's roster 404ing shouldn't
+		// stop the other hundred from refreshing.
+		markFailed(rosterKey(dbId));
+		// Alerts, though, are scoped to the league — when an upstream goes down
+		// every one of its teams fails the same way, and an outage reads better as
+		// one problem with a high count than as a hundred separate ones.
 		reportError({
 			source: 'sync',
 			message: `Roster sync failed for ${adapter.id} (${result.reason}); keeping existing players`,
@@ -220,6 +264,10 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 
 		tx.update(teams).set({ rosterSyncedAt: Date.now() }).where(eq(teams.id, dbId)).run();
 	});
+
+	// Outside the transaction: the roster is what mattered, and a failed bit of
+	// bookkeeping shouldn't roll back a successful sync.
+	clearFailure(rosterKey(dbId));
 }
 
 function teamRow(dbId: string) {
@@ -253,14 +301,20 @@ export async function ensureTeams(): Promise<void> {
 			.select()
 			.from(syncState)
 			.all()
-			.map((s) => [s.key, s.syncedAt])
+			.map((s) => [s.key, s])
 	);
 
 	const blocking: Promise<void>[] = [];
 	for (const adapter of ADAPTERS) {
-		if (isFresh(state.get(teamListKey(adapter.id)), TEAM_LIST_TTL)) continue;
+		const key = teamListKey(adapter.id);
+		if (isFresh(state.get(key)?.syncedAt, TEAM_LIST_TTL)) continue;
+		// A league that just failed is left alone until its backoff expires. This
+		// is also what stops a cold database plus a failing upstream from making
+		// every home-page request wait the full blocking timeout: no job is
+		// started, so there is nothing to block on.
+		if (backingOff(state.get(key))) continue;
 
-		const job = once(teamListKey(adapter.id), () => syncTeamList(adapter));
+		const job = once(key, () => syncTeamList(adapter));
 		if (!known.has(adapter.id)) blocking.push(job);
 	}
 
@@ -294,6 +348,9 @@ export async function ensureTeam(league: LeagueId, code: string) {
 		.where(eq(syncState.key, teamListKey(league)))
 		.get();
 	if (isFresh(state?.syncedAt, TEAM_LIST_TTL)) return undefined;
+	// Nor while the league is backing off — otherwise a deep link into a cold
+	// database during an outage waits the full blocking timeout, every time.
+	if (backingOff(state)) return undefined;
 
 	await withTimeout(
 		once(teamListKey(league), () => syncTeamList(adapter)),
@@ -316,7 +373,11 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
 	const adapter = ADAPTERS_BY_ID.get(league);
 	const row = teamRow(dbId);
 
-	if (adapter && row && !isFresh(row.rosterSyncedAt, ROSTER_TTL)) {
+	const stale = adapter && row && !isFresh(row.rosterSyncedAt, ROSTER_TTL);
+	// The most exposed path of the three. Because failures used to go unrecorded,
+	// a team whose roster couldn't be fetched blocked for up to 8s on *every*
+	// visit — and the sitemap invites a crawler to walk every team page in turn.
+	if (stale && !backingOff(failureState(rosterKey(dbId)))) {
 		await withTimeout(
 			once(rosterKey(dbId), () => syncRoster(adapter, toLeagueTeam(row))),
 			BLOCKING_TIMEOUT
