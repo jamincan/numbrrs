@@ -180,6 +180,46 @@ Add Playwright with a focused suite:
 
 Add to `.github/workflows/ci.yml` after the build step.
 
+### Done — landed 2026-07-28
+
+All seven cases, in `e2e/` (`home.spec.ts`, `game.spec.ts`, `locale.spec.ts`, `errors.spec.ts`,
+`drawer.spec.ts`), run against the production build via `@playwright/test`'s `webServer`, wired
+into CI right after the build step as this finding said.
+
+The suite runs against a seeded fixture database (`e2e/seed.ts`), not the real leagues: `DATABASE_URL`
+points `webServer` at `e2e/fixture.db`, pre-populated with one team and eleven players and every
+league's team-list marked freshly synced, so a cold visit never reaches a real league API. Seeding
+is idempotent (open, migrate, clear the three tables, re-insert) rather than delete-then-recreate —
+deleting a database file right after closing it isn't reliably immediate on every filesystem, and
+this sidesteps the question entirely rather than trying to out-wait it.
+
+**This suite found a real bug, not a test-authoring mistake.** The locale toggle's "switch back to
+English from `/fr`" direction silently failed and stayed on `/fr`. Root cause: SvelteKit's
+client-side router intercepts a link click on `document` during the capture phase — which always
+fires before any listener on the link element itself — and immediately fetches the destination
+using whatever cookie is already set. The toggle's own `onclick` (which writes the chosen locale
+into `numbrrs_locale`) runs afterward, too late: the fetch for `/` had already gone out carrying the
+_previous_ click's cookie value, `hooks.server.ts` saw the stale French cookie and told the
+client-side navigation to redirect straight back to `/fr`. Confirmed on the wire — the `__data.json`
+request for `/` carried `Cookie: numbrrs_locale=fr` and got back
+`{"type":"redirect","location":"/fr"}` — before ever suspecting the test. A real visitor toggling
+languages on the home page would hit this identically; it was not a Playwright artifact.
+
+Fixed in `LocaleToggle.svelte` with `data-sveltekit-reload`, forcing a real browser navigation for
+these two links instead of SvelteKit's client router. A full navigation runs the `onclick` as part
+of the same click event, before the browser's default action (following the link) fires, so the
+cookie write always lands before the request that depends on it. The comment at the link explains
+the race for whoever finds this again.
+
+Two smaller test-writing traps worth recording: `HockeyCard` renders both card faces at all times
+(the flip is a CSS transform, not conditional markup), so a locator for "the number on the drawn
+card" needs `.first()` — the back face carries the same text under the player's name once a guess
+resolves. And a Playwright text locator matching by substring means `getByText('Defense')` also
+matches `HockeyCard`'s "Defenseman" position label; the position-group heading needs `{ exact: true
+}`.
+
+133 unit tests and 10 e2e tests pass; lint, check, and build are clean.
+
 ---
 
 <a id="test-3"></a>
