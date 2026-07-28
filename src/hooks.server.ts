@@ -6,8 +6,13 @@ import { reportError } from '$lib/server/alerts';
 import { bootstrap } from '$lib/server/db';
 import { SITE_ORIGIN } from '$lib/site';
 
-/** The domain the app used before moving to SITE_ORIGIN — see site.ts. */
-const OLD_HOSTNAME = 'numbrrs.ca';
+/**
+ * Hosts that fold into SITE_ORIGIN rather than serving their own copy: the
+ * domain the app used before moving there (see site.ts), and the www variant
+ * — search engines and browsers should only ever see one canonical URL per
+ * page.
+ */
+const REDIRECT_HOSTNAMES = new Set(['numbrrs.ca', 'www.numbrrs.app']);
 
 // Runs once, when the server module graph loads. Guarded by `building` so it
 // doesn't fire during `vite build`, which imports this module to prerender
@@ -60,7 +65,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Permanent, unconditional, and ahead of everything else: every path and
 	// query string carries straight over, and nothing downstream (locale,
 	// caching) needs to know this host was ever in play.
-	if (event.url.hostname === OLD_HOSTNAME) {
+	if (REDIRECT_HOSTNAMES.has(event.url.hostname)) {
 		const target = new URL(event.url.pathname + event.url.search, SITE_ORIGIN);
 		return new Response(null, {
 			status: 301,
