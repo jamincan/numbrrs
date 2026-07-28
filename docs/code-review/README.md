@@ -36,7 +36,7 @@ redistributed under a licence that cannot cover them.
 | [SEC-5](./06-security-hardening.md#sec-5)        | Remove `/api/sync` and `SYNC_TOKEN` — a second secret buying nothing | S      | ☑   |
 | [ABUSE-1](./05-abuse-resistance.md#abuse-1)      | No rate limit on the `/admin` login; failed auth unlogged            | S      | ☑   |
 | [ABUSE-4](./05-abuse-resistance.md#abuse-4)      | `events` retention is time-only — a spike writes ~125 MB in a day    | S      | ☑   |
-| [PERF-1](./07-caching-and-scaling.md#perf-1)     | No page-level `Cache-Control` — every request re-renders             | S      | ☐   |
+| [PERF-1](./07-caching-and-scaling.md#perf-1)     | No page-level `Cache-Control` — every request re-renders             | S      | ☑   |
 | [PRIV-1](./10-privacy-and-telemetry.md#priv-1)   | No privacy policy or data-handling disclosure                        | S      | ☑   |
 | [MAINT-3](./09-maintainability.md#maint-3)       | `README.md` is stale — five leagues, not two                         | S      | ☑   |
 | [LIC-3](./01-licensing-and-attribution.md#lic-3) | No non-affiliation disclaimer or data-source attribution             | S      | ☑   |

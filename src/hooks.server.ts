@@ -3,6 +3,37 @@ import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
 
+/** The home page's route id — the one localized page whose HTML varies per visitor. */
+const HOME_ROUTE = '/[[lang=locale]]';
+
+/**
+ * An unprefixed localized URL can answer with either the English page or a
+ * redirect to /fr, and which one depends on **both** the Accept-Language header
+ * and the locale cookie (see `negotiateLocale`). A shared cache therefore has to
+ * key on both, or it will eventually hand a French redirect to someone who
+ * explicitly chose English.
+ *
+ * `Vary: Cookie` is a real cost — every distinct cookie value is its own entry —
+ * but it is cheapest for exactly the visitors a traffic spike brings: arriving
+ * from a link with no cookies at all, they share one entry.
+ */
+const NEGOTIATED_VARY = 'Accept-Language, Cookie';
+
+/**
+ * Shared caches may serve a page for five minutes, and may keep serving a stale
+ * one for an hour while they revalidate behind the visitor's back.
+ *
+ * `max-age=0` deliberately leaves browsers revalidating, so a returning visitor
+ * still sees current data; `s-maxage` is the number a CDN actually uses.
+ * `stale-while-revalidate` matters most here: it means a cache miss never waits
+ * on an origin that might be part-way through an 8s blocking upstream sync.
+ *
+ * Rosters refresh on a 12-hour TTL and team lists on 24, so a team page is
+ * effectively static between syncs. Re-rendering it per request is waste, and
+ * removing that waste is the cheapest protection against a spike there is.
+ */
+const PAGE_CACHE = 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600';
+
 /**
  * The URL owns the locale: /fr/... renders French, everything else English.
  * Giving each language its own URL is what lets search engines index both and
@@ -33,9 +64,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 			const target = `/fr${event.url.pathname === '/' ? '' : event.url.pathname}${event.url.search}`;
 			return new Response(null, {
 				status: 302,
-				// Whether this redirect happens depends on the request headers, so
-				// caches must not serve one visitor's answer to another.
-				headers: { location: target, vary: 'Accept-Language' }
+				headers: {
+					location: target,
+					// Whether this redirect happens depends on the request headers, so
+					// caches must not serve one visitor's answer to another.
+					vary: NEGOTIATED_VARY,
+					// A bare 302 is already uncacheable by default, but saying so beats
+					// relying on every cache in the path agreeing about the default.
+					'cache-control': 'private, no-store'
+				}
 			});
 		}
 	}
@@ -46,7 +83,28 @@ export const handle: Handle = async ({ event, resolve }) => {
 		transformPageChunk: ({ html }) => html.replace('%lang%', locale)
 	});
 	if (localized && !lang) {
-		response.headers.append('vary', 'Accept-Language');
+		response.headers.append('vary', NEGOTIATED_VARY);
+	}
+
+	// Caching, in three cases.
+	//
+	// The home page resolves the remembered league tab server-side so the grid
+	// and its links are in the first byte for crawlers (see its load function).
+	// That is good for SEO and it means the HTML differs per visitor, so it must
+	// not be shared — Vary: Cookie would be correct and would also make the entry
+	// worthless. Team pages are the long tail worth caching and have no such
+	// dependency.
+	//
+	// /admin is behind a session and shows usage data. Never store it anywhere.
+	//
+	// Anything else — the sitemap, the API routes — sets its own policy or is a
+	// POST, so it is left alone rather than given a blanket default.
+	if (event.route.id === '/admin') {
+		response.headers.set('cache-control', 'private, no-store');
+	} else if (event.route.id === HOME_ROUTE) {
+		response.headers.set('cache-control', 'private, no-cache');
+	} else if (localized && !response.headers.has('set-cookie')) {
+		response.headers.set('cache-control', PAGE_CACHE);
 	}
 
 	// The CSP itself comes from kit.csp in svelte.config.js, which lets

@@ -127,3 +127,47 @@ path, turns an upstream outage into a restart loop.
 
 Exclude it from caching ([PERF-1](#perf-1)) and from rate limiting
 ([ABUSE-1](./05-abuse-resistance.md#abuse-1)).
+
+---
+
+## Done 2026-07-27 — PERF-1
+
+Both traps this finding warned about were real, and both are handled.
+
+**The `Vary` was fixed first, not after.** The locale redirect depends on the Accept-Language
+header _and_ the locale cookie, but only declared `Accept-Language`. That was inert while nothing
+cached; it would have become a live bug the moment this finding landed. `Vary` is now
+`Accept-Language, Cookie` on every unprefixed localized response — the redirect and the page
+alike, since both live at the same URL and a cache has to tell them apart.
+
+**The home page is excluded from shared caching**, as this finding recommended. It resolves the
+remembered league tab server-side so the grid and its links are in the first byte for crawlers,
+which is good SEO and also means the HTML differs per visitor.
+
+What each route now sends, verified against the built server:
+
+| Route              | `Cache-Control`                                                | `Vary`                    |
+| ------------------ | -------------------------------------------------------------- | ------------------------- |
+| `/`, `/fr`         | `private, no-cache`                                            | `Accept-Language, Cookie` |
+| `/game/nhl/TOR`    | `public, max-age=0, s-maxage=300, stale-while-revalidate=3600` | `Accept-Language, Cookie` |
+| `/fr/game/nhl/TOR` | same                                                           | none needed               |
+| `/privacy`         | same                                                           | `Accept-Language, Cookie` |
+| `/admin`           | `private, no-store`                                            | —                         |
+| `/sitemap.xml`     | `public, max-age=3600` (its own, untouched)                    | —                         |
+
+Prefixed French URLs carry no `Vary` because no negotiation happens on them — the prefix has
+already decided.
+
+Negotiation itself was tested three ways: a French browser with no cookie gets the 302, a French
+browser that explicitly chose English gets the page, and an English browser gets the page. That
+middle case is the one the missing `Vary` would eventually have broken.
+
+> [!IMPORTANT]
+> **`Vary: Cookie` is honest at the origin but Cloudflare will largely ignore it** — on the free
+> plan Cloudflare only varies on `Accept-Encoding`. Before putting a CDN in front (see
+> [`../hosting.md`](../hosting.md)), decide how unprefixed URLs should be handled there: either
+> exclude them from the edge cache, or move the redirect decision to the edge so the origin stops
+> negotiating. Prefixed `/fr/...` and `/privacy` are safe to cache aggressively today either way.
+>
+> The good news for a spike is that the visitors this costs least for are exactly the ones a
+> Reddit link brings: arriving with no cookies at all, they share one cache entry.
