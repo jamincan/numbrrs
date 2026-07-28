@@ -43,14 +43,14 @@ redistributed under a licence that cannot cover them.
 | [LIC-1](./01-licensing-and-attribution.md#lic-1) | Club logos and marks redistributed under MIT                         | M      | ☑   |
 | [VAL-1](./03-external-api-validation.md#val-1)   | League API responses are `as`-cast with no runtime validation        | M      | ☑   |
 | [ABUSE-2](./05-abuse-resistance.md#abuse-2)      | A failing league API is re-fetched on every home-page load           | M      | ☑   |
-| [TEST-1](./08-testing.md#test-1)                 | The only code that deletes rows has zero tests                       | L      | ☐   |
+| [TEST-1](./08-testing.md#test-1)                 | The only code that deletes rows has zero tests                       | L      | ☑   |
 
 ## P2 — soon
 
 | ID                                               | Finding                                                             | Effort |     |
 | ------------------------------------------------ | ------------------------------------------------------------------- | ------ | --- |
-| [ERR-4](./02-error-handling.md#err-4)            | `migrate()` at module import turns a bad migration into opaque 500s | S      | ☐   |
-| [TYPE-1](./04-type-safety.md#type-1)             | `db` is typed as always-defined but is `undefined` during build     | S      | ☐   |
+| [ERR-4](./02-error-handling.md#err-4)            | `migrate()` at module import turns a bad migration into opaque 500s | S      | ☑   |
+| [TYPE-1](./04-type-safety.md#type-1)             | `db` is typed as always-defined but is `undefined` during build     | S      | ☑   |
 | [SEC-1](./06-security-hardening.md#sec-1)        | `style-src` concession is broader than it needs to be               | S      | ☐   |
 | [PERF-2](./07-caching-and-scaling.md#perf-2)     | The app cannot scale past one machine — undocumented                | S      | ☐   |
 | [PERF-3](./07-caching-and-scaling.md#perf-3)     | No health check endpoint                                            | S      | ☐   |

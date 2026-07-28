@@ -11,7 +11,7 @@ import {
 } from '$lib/server/admin';
 import { clientIp } from '$lib/server/client-ip';
 import { createRateLimiter } from '$lib/server/rate-limit';
-import { db } from '$lib/server/db';
+import { getDb } from '$lib/server/db';
 import { errors, events, syncState, teams } from '$lib/server/db/schema';
 import { ROSTER_TTL, fullSyncStatus, syncRostersOnce } from '$lib/server/leagues';
 import { LEAGUES } from '$lib/leagues';
@@ -26,6 +26,7 @@ const WINDOW_DAYS = 30;
  * a timestamp already in the database survives that where a counter wouldn't.
  */
 function syncPanel() {
+	const db = getDb();
 	const status = fullSyncStatus();
 	const now = Date.now();
 
@@ -83,6 +84,7 @@ function syncPanel() {
  * it as a unique-people count.
  */
 function stats() {
+	const db = getDb();
 	const now = Date.now();
 	const today = dayKey(now);
 	const since = dayKey(now - WINDOW_DAYS * DAY_MS);

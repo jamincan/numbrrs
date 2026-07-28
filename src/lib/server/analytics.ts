@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { desc, inArray, lt, lte, type SQL } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
 import { clientIp } from '$lib/server/client-ip';
-import { db } from '$lib/server/db';
+import { getDb } from '$lib/server/db';
 import { events, errors } from '$lib/server/db/schema';
 import { dayKey, isBot, referrerHost, visitorHash } from '$lib/server/telemetry';
 import { SITE_ORIGIN } from '$lib/site';
@@ -55,7 +55,8 @@ let lastPrune = 0;
 let pruneInterval = PRUNE_INTERVAL_MS;
 
 /** Deletes up to `limit` of the oldest events matching `where`. Returns how many went. */
-function deleteOldestEvents(where: SQL, limit: number): number {
+export function deleteOldestEvents(where: SQL, limit: number): number {
+	const db = getDb();
 	const doomed = db
 		.select({ id: events.id })
 		.from(events)
@@ -70,30 +71,50 @@ function deleteOldestEvents(where: SQL, limit: number): number {
 	return doomed.length;
 }
 
-function pruneEvents(now: number): number {
-	const cutoff = now - RETENTION_MS;
+export interface PruneLimits {
+	retentionMs?: number;
+	maxEvents?: number;
+	pruneBatch?: number;
+	pruneMaxRows?: number;
+}
+
+/**
+ * Thresholds default to the production constants above; tests override them to
+ * exercise the same two-phase logic — age cutoff, then row-count ceiling —
+ * against a few dozen rows instead of the real half-million.
+ */
+export function pruneEvents(
+	now: number,
+	{
+		retentionMs = RETENTION_MS,
+		maxEvents = MAX_EVENTS,
+		pruneBatch = PRUNE_BATCH,
+		pruneMaxRows = PRUNE_MAX_ROWS
+	}: PruneLimits = {}
+): number {
+	const cutoff = now - retentionMs;
 	let removed = 0;
 
-	while (removed < PRUNE_MAX_ROWS) {
-		const batch = Math.min(PRUNE_BATCH, PRUNE_MAX_ROWS - removed);
+	while (removed < pruneMaxRows) {
+		const batch = Math.min(pruneBatch, pruneMaxRows - removed);
 		const went = deleteOldestEvents(lt(events.at, cutoff), batch);
 		if (went === 0) break;
 		removed += went;
 	}
 
-	// `id` is autoincrementing, so the newest MAX_EVENTS rows are the highest
+	// `id` is autoincrementing, so the newest `maxEvents` rows are the highest
 	// ids. Anything at or below the row one past that boundary is surplus.
-	while (removed < PRUNE_MAX_ROWS) {
-		const [boundary] = db
+	while (removed < pruneMaxRows) {
+		const [boundary] = getDb()
 			.select({ id: events.id })
 			.from(events)
 			.orderBy(desc(events.id))
 			.limit(1)
-			.offset(MAX_EVENTS)
+			.offset(maxEvents)
 			.all();
 		if (!boundary) break;
 
-		const batch = Math.min(PRUNE_BATCH, PRUNE_MAX_ROWS - removed);
+		const batch = Math.min(pruneBatch, pruneMaxRows - removed);
 		const went = deleteOldestEvents(lte(events.id, boundary.id), batch);
 		if (went === 0) break;
 		removed += went;
@@ -117,7 +138,8 @@ function pruneIfDue(now: number): void {
 	// Errors need no ceiling and no batching: they fold by fingerprint, so the
 	// table is bounded by the number of distinct bugs rather than by how often
 	// they fire.
-	db.delete(errors)
+	getDb()
+		.delete(errors)
 		.where(lt(errors.lastSeen, now - RETENTION_MS))
 		.run();
 }
@@ -142,6 +164,7 @@ export function recordEvent(event: RequestEvent, input: EventInput): void {
 		const now = Date.now();
 		const day = dayKey(now);
 
+		const db = getDb();
 		db.insert(events)
 			.values({
 				at: now,

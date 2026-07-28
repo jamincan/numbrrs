@@ -95,6 +95,55 @@ schema with real constraints — including the foreign key from `players.teamId`
 (`db/schema.ts:36-38`), which is part of what makes the deletion ordering matter. Fake adapters
 implementing `LeagueAdapter` cover the upstream side with no network.
 
+### Done — landed 2026-07-27
+
+`src/lib/server/leagues/index.test.ts`, 19 tests. All 8 cases above are covered, plus a ninth
+added for [ABUSE-2](./05-abuse-resistance.md#abuse-2): a failing sync backs off and a subsequent
+call does not re-fetch.
+
+One thing this finding didn't anticipate: **`syncTeamList` and `syncRoster` weren't reachable from
+the public API with a fake adapter at all.** `ensureTeams`/`ensureTeam`/`loadRoster` build their
+adapter list (`ADAPTERS`, `ADAPTERS_BY_ID`) from the real `nhlAdapter`/`pwhlAdapter`/etc. imports at
+module scope — there was no seam to hand them a fake `LeagueAdapter` through. Two fixes, used for
+different cases:
+
+- **`syncTeamList`, `syncRoster`, `isFresh`, `once`, and `withTimeout` are now exported.** All five
+  already took their dependencies as parameters or had none, so exporting them was the whole
+  change — the same reasoning `hockeytech.ts` already used for `pickCurrentSeason` and
+  `parseRosterEntries`. Cases 1–5, 7, and 8 call these directly.
+- **`vi.mock('./nhl', ...)` etc. replace the real adapters for the ABUSE-2 case and for exercising
+  `ensureTeam`/`ensureTeams`/`loadRoster` themselves**, since those three are the only place the
+  backoff _gate_ (`backingOff(...)` before `once()` ever runs) lives — `syncTeamList`/`syncRoster`
+  don't know about backoff, they just report failure.
+
+Two timing traps worth recording so they don't get reintroduced:
+
+- `ensureTeams()` only awaits the sync jobs for leagues it doesn't already know about
+  (`if (!known.has(adapter.id)) blocking.push(job)`); a league with existing teams gets a
+  fire-and-forget job. The backoff test for `ensureTeams` deliberately starts from a cold database
+  (nothing seeded) so its first call is guaranteed to await the job — otherwise the assertion
+  right after `await ensureTeams()` would race a promise the test never awaited.
+- The retry-path test (case 8) needs to prove the wait was _capped_, not just that it eventually
+  finished. `vi.useFakeTimers()` plus `vi.advanceTimersByTimeAsync(16_000)` — comfortably past the
+  15s ceiling but nowhere near the 999s `retryAfter` the fake upstream asked for — is what makes
+  that distinction instead of just asserting "resolves eventually."
+
+The module-level `inFlight` map in `leagues/index.ts` is not reset between tests (the module is
+imported once for the whole file). This turned out not to matter: every test in the suite awaits
+whatever sync it triggers to completion, and `once()`'s `.finally()` always releases the key before
+that await resolves — so nothing leaks into the next test. Worth re-checking if a future test ever
+fires a sync and deliberately doesn't wait for it.
+
+[ABUSE-4](./05-abuse-resistance.md#abuse-4)'s retention bound lives in `analytics.ts`, not
+`leagues/index.ts`, so its test is a separate file: `src/lib/server/analytics.test.ts`. Testing it
+against the real thresholds (`MAX_EVENTS = 500_000`) would mean inserting half a million rows
+per test, so `pruneEvents` and `deleteOldestEvents` gained an optional `PruneLimits` override —
+production calls it with no arguments and gets the real constants; the test passes limits in the
+dozens. Same shape as `initDb`/`getDb`: the default path is unchanged, and the seam only exists so
+a test can exercise the real logic at a size that runs in milliseconds. Three cases: the age cutoff
+runs before the row-count ceiling, the row-count phase trims the lowest ids first, and repeated
+calls converge when a single pass can't clear the whole backlog (`pruneMaxRows` chunking).
+
 ---
 
 <a id="test-2"></a>

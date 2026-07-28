@@ -1,4 +1,4 @@
-import { db, type Player } from '../db';
+import { getDb, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
 import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
@@ -58,7 +58,7 @@ function alertScope(key: string): string {
 	return `sync:${key.split(':').slice(0, 2).join(':')}`;
 }
 
-function once(key: string, run: () => Promise<void>): Promise<void> {
+export function once(key: string, run: () => Promise<void>): Promise<void> {
 	const existing = inFlight.get(key);
 	if (existing) return existing;
 
@@ -79,7 +79,7 @@ function once(key: string, run: () => Promise<void>): Promise<void> {
 	return job;
 }
 
-function withTimeout(work: Promise<void>, ms: number): Promise<void> {
+export function withTimeout(work: Promise<void>, ms: number): Promise<void> {
 	return Promise.race([work, sleep(ms).then(() => {})]);
 }
 
@@ -90,6 +90,7 @@ function backingOff(state: FailureState | undefined): boolean {
 
 /** Record a success: refresh the timestamp and forget any failure streak. */
 function markSynced(key: string) {
+	const db = getDb();
 	const syncedAt = Date.now();
 	db.insert(syncState)
 		.values({ key, syncedAt, failedAt: null, failureCount: 0 })
@@ -105,6 +106,7 @@ function markSynced(key: string) {
  * never succeeded — see the schema comment; nothing reads it as a real time.
  */
 function markFailed(key: string) {
+	const db = getDb();
 	const now = Date.now();
 	db.insert(syncState)
 		.values({ key, syncedAt: 0, failedAt: now, failureCount: 1 })
@@ -121,19 +123,23 @@ function markFailed(key: string) {
  * never failed, which is the common case.
  */
 function clearFailure(key: string) {
-	db.update(syncState).set({ failedAt: null, failureCount: 0 }).where(eq(syncState.key, key)).run();
+	getDb()
+		.update(syncState)
+		.set({ failedAt: null, failureCount: 0 })
+		.where(eq(syncState.key, key))
+		.run();
 }
 
 function failureState(key: string): FailureState | undefined {
-	return db.select().from(syncState).where(eq(syncState.key, key)).get();
+	return getDb().select().from(syncState).where(eq(syncState.key, key)).get();
 }
 
-function isFresh(syncedAt: number | null | undefined, ttl: number): boolean {
+export function isFresh(syncedAt: number | null | undefined, ttl: number): boolean {
 	return syncedAt != null && syncedAt > Date.now() - ttl;
 }
 
 /** Refresh a league's teams: names, logos, and which teams still exist. */
-async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
+export async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	let leagueTeams: LeagueTeam[];
 	try {
 		leagueTeams = await adapter.fetchTeams();
@@ -160,7 +166,7 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 
 	const activeIds = leagueTeams.map((t) => teamDbId(adapter.id, t.code));
 
-	db.transaction((tx) => {
+	getDb().transaction((tx) => {
 		for (const team of leagueTeams) {
 			tx.insert(teams)
 				.values({
@@ -193,7 +199,7 @@ async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 }
 
 /** Refresh one team's roster. */
-async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<void> {
+export async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<void> {
 	const dbId = teamDbId(adapter.id, team.code);
 
 	let result = await adapter.fetchRoster(team);
@@ -222,7 +228,7 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 	const rosterPlayers = result.players;
 	const rosterIds = rosterPlayers.map((p) => p.id);
 
-	db.transaction((tx) => {
+	getDb().transaction((tx) => {
 		for (const p of rosterPlayers) {
 			// Players without a sweater number are still stored (with a null
 			// number); the game treats them as already-identified.
@@ -271,7 +277,7 @@ async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Promise<voi
 }
 
 function teamRow(dbId: string) {
-	return db.select().from(teams).where(eq(teams.id, dbId)).get();
+	return getDb().select().from(teams).where(eq(teams.id, dbId)).get();
 }
 
 function toLeagueTeam(row: NonNullable<ReturnType<typeof teamRow>>): LeagueTeam {
@@ -289,6 +295,7 @@ function toLeagueTeam(row: NonNullable<ReturnType<typeof teamRow>>): LeagueTeam 
  * waited on.
  */
 export async function ensureTeams(): Promise<void> {
+	const db = getDb();
 	const known = new Set(
 		db
 			.select({ league: teams.league })
@@ -342,7 +349,7 @@ export async function ensureTeam(league: LeagueId, code: string) {
 	// ask the league again. Without this check every request for a bogus code
 	// (a typo'd link, a scanner) would trigger another round of upstream
 	// fetches; once() only coalesces the concurrent ones.
-	const state = db
+	const state = getDb()
 		.select()
 		.from(syncState)
 		.where(eq(syncState.key, teamListKey(league)))
@@ -384,7 +391,7 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
 		);
 	}
 
-	return db.select().from(players).where(eq(players.teamId, dbId)).all();
+	return getDb().select().from(players).where(eq(players.teamId, dbId)).all();
 }
 
 /** Refresh everything, ignoring TTLs. Used by the manual sync endpoint. */
@@ -393,7 +400,7 @@ export async function syncRosters(): Promise<void> {
 		console.log(`Syncing ${adapter.id.toUpperCase()} rosters...`);
 		await once(teamListKey(adapter.id), () => syncTeamList(adapter));
 
-		const leagueTeams = db.select().from(teams).where(eq(teams.league, adapter.id)).all();
+		const leagueTeams = getDb().select().from(teams).where(eq(teams.league, adapter.id)).all();
 		for (const [i, row] of leagueTeams.entries()) {
 			if (i > 0) await sleep(FULL_SYNC_DELAY);
 			await once(rosterKey(row.id), () => syncRoster(adapter, toLeagueTeam(row)));

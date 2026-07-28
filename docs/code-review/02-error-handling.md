@@ -215,3 +215,11 @@ rather than as scattered 500s.
 Pairs naturally with [TYPE-1](./04-type-safety.md#type-1), which restructures this same
 initialisation, and [PERF-3](./07-caching-and-scaling.md#perf-3), which adds the health check
 that would surface it.
+
+### Done — landed 2026-07-27
+
+Landed together with TYPE-1, as predicted. `db/index.ts`'s `bootstrap()` wraps `initDb(...)` in a
+try/catch, logs `'Database migration failed:'` with the underlying error, and calls
+`process.exit(1)` rather than leaving the database unset for the first request to discover. See
+[TYPE-1's Done section](./04-type-safety.md#type-1) for where that call now lives and why
+(`hooks.server.ts`, not `db/index.ts`'s own module scope).

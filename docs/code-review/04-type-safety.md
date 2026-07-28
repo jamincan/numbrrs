@@ -70,6 +70,41 @@ Update the call sites: `server/leagues/index.ts` (throughout), `routes/[[lang=lo
 Do this together with [ERR-4](./02-error-handling.md#err-4), which restructures the same
 initialisation.
 
+### Done — landed 2026-07-27
+
+`db/index.ts` now exports `initDb(client)` (migrates and sets the module singleton) and
+`getDb()` (throws `'Database accessed before initialization'` if called first). Both suggested
+shapes from this finding — a throwing accessor and an explicit init a test can point at
+`new Database(':memory:')` — turned out to be the same function pair, not a choice between them.
+
+The finding didn't anticipate one thing: **the production bootstrap doesn't live in `db/index.ts`
+at all anymore.** It moved to `hooks.server.ts`, guarded by the same `building` check the original
+code used:
+
+```ts
+if (!building) bootstrap();
+```
+
+Reason: `db/index.ts` is imported by every module under test in
+[TEST-1](./08-testing.md#test-1) (`leagues/index.ts`, `analytics.ts`). If the real-file bootstrap
+had stayed at that module's top level, `building` is `false` under Vitest too — every test run
+would have created and migrated a real `local.db` on disk before the test got a chance to call
+`initDb(':memory:')` over it. Moving the one-time bootstrap to `hooks.server.ts` (which no test
+imports) means the module itself has zero side effects on import; something has to call `initDb`
+or `bootstrap` explicitly, which is exactly the property this finding was after.
+
+`bootstrap()` also does [ERR-4](./02-error-handling.md#err-4)'s job: a failed migration logs
+`'Database migration failed:'` with the underlying error and calls `process.exit(1)` rather than
+leaving `instance` unset for the first request to trip over.
+
+The six call sites all changed the same way: `import { db }` became `import { getDb }`, and each
+function that touches the database now opens with `const db = getDb();` (or inlines the call for
+a single use). No call site needed to change _how_ it uses `db` — only how it obtains it. Verified
+against the built server: `bootstrap()` runs at real startup and `/`, `/sitemap.xml`, and `/admin`
+all serve `200`.
+
+The compile-time `Equals`/`Expect` assertions were left untouched, as instructed.
+
 ---
 
 <a id="type-2"></a>

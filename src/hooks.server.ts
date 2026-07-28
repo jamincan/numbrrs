@@ -1,7 +1,14 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
+import { building } from '$app/environment';
 import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i18n';
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
+import { bootstrap } from '$lib/server/db';
+
+// Runs once, when the server module graph loads. Guarded by `building` so it
+// doesn't fire during `vite build`, which imports this module to prerender
+// pages.
+if (!building) bootstrap();
 
 /** The home page's route id — the one localized page whose HTML varies per visitor. */
 const HOME_ROUTE = '/[[lang=locale]]';

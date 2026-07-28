@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { eq, sql } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { getDb } from '$lib/server/db';
 import { errors } from '$lib/server/db/schema';
 import { MAX_MESSAGE, MAX_STACK, fingerprintOf, truncate } from '$lib/server/telemetry';
 import { SITE_ORIGIN } from '$lib/site';
@@ -60,6 +60,7 @@ export function reportError(report: ErrorReport): string {
 	const fingerprint = fingerprintOf(report.source, report.message, route);
 
 	try {
+		const db = getDb();
 		const [row] = db
 			.insert(errors)
 			.values({

@@ -1,6 +1,6 @@
 import { LOCALES, localizePath } from '$lib/i18n';
 import { SITE_ORIGIN } from '$lib/site';
-import { db } from '$lib/server/db';
+import { getDb } from '$lib/server/db';
 import { teams } from '$lib/server/db/schema';
 import type { RequestHandler } from './$types';
 
@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
  * (and new leagues) show up on their own.
  */
 export const GET: RequestHandler = () => {
-	const rows = db.select().from(teams).all();
+	const rows = getDb().select().from(teams).all();
 	const paths = ['/', '/privacy', ...rows.map((t) => `/game/${t.league}/${t.abbreviation}`)];
 
 	const urls = paths
