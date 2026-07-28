@@ -36,23 +36,49 @@ Add the message keys to the `Messages` interface in `src/lib/i18n/messages.ts` a
 catalogues. The interface is declared explicitly rather than inferred (see the reasoning at
 `messages.ts:6-11`), so TypeScript will flag the missing French entries for you — use that.
 
-### The trap
+### The trap — real, but not quite as described
 
-`+layout.svelte:24` calls `createI18n(() => data.locale)`, and `data.locale` comes from
-`+layout.server.ts`. On an **unmatched** URL no route exists, so that load never runs and
-`data.locale` is `undefined` — every `i18n.m.*` lookup in the layout nav then reads off
-`CATALOGUES[undefined]` and throws, turning your error page into a second error.
+This finding predicted that on an unmatched URL the layout load would not run, leaving
+`data.locale` undefined and every `i18n.m.*` lookup reading off `CATALOGUES[undefined]`.
 
-Guard it: `createI18n(() => data?.locale ?? DEFAULT_LOCALE)`.
+**The load does run.** What it does not get is `params.lang`, because there are no params without
+a matched route — so it returned `DEFAULT_LOCALE` and the page rendered in English. No crash, but
+the exact user-facing bug this finding set out to fix: a French visitor on `/fr/nonexistent`
+getting an English 404.
 
-`LocaleToggle.svelte:22` already anticipates exactly this case for `page.route.id`
+The fix is therefore a locale fallback rather than a null guard, and it belongs in
+`+layout.server.ts` rather than the component:
+
+```ts
+export function load({ params, url }) {
+	return { locale: isLocale(params.lang) ? params.lang : localeFromPath(url.pathname) };
+}
+```
+
+`localeFromPath` was added to `$lib/i18n` as the inverse of `localizePath`, sharing its prefix
+rule so the two cannot drift. `hooks.server.ts` uses it too, so `<html lang>` and the recorded
+analytics locale agree with the rendered page. The `data?.locale ?? …` guard in `+layout.svelte`
+stays as belt and braces.
+
+`LocaleToggle.svelte:22` already anticipates this case for `page.route.id`
 (`page.route.id ?? '/[[lang=locale]]'`, with the comment explaining why) — the same defensive
 reasoning applies one level up.
 
-Test both shapes, they take different paths:
+Both shapes verified against the built server, since they take different paths:
 
-- `/game/nhl/ZZZ` — a matched route that throws a 404. Layout loads **do** run.
-- `/nonexistent` — an unmatched URL. Layout loads do **not** run.
+| URL                   | Status | `<html lang>` | Title            |
+| --------------------- | ------ | ------------- | ---------------- |
+| `/game/nhl/ZZZ`       | 404    | `en`          | Page not found   |
+| `/fr/game/nhl/ZZZ`    | 404    | `fr`          | Page introuvable |
+| `/nonexistent`        | 404    | `en`          | Page not found   |
+| `/fr/nonexistent`     | 404    | `fr`          | Page introuvable |
+| `/fr/some/deep/bogus` | 404    | `fr`          | Page introuvable |
+
+> [!WARNING]
+> The first run of this test reported `/fr/nonexistent` as English **after** the fix was in
+> place. The build had silently failed — a previous smoke server still held the output files
+> open — so the server was running stale code. If a verification result contradicts a change you
+> just made, confirm the build actually succeeded before believing it.
 
 ---
 
@@ -76,17 +102,31 @@ generic 500 with nothing correlating it to anything in the logs. On Fly, with
 `min_machines_running = 0` and machines cycling, "a user reported a 500 yesterday" was
 unactionable.
 
-### What is left
+### The error ID — done, but not the way this finding proposed
 
-One piece of the original action is still open — the **error ID**:
+`reportError` now **returns the fingerprint**, and `handleError` passes it through as
+`{ message, id }`, declared on `App.Error` in `app.d.ts`. The error page renders it as a
+"Reference".
 
-- Generate an ID in the hook, include it in the stored row, and return it in the shape given to
-  the client, so a user saying "I got error a3f9c1" maps to a specific record.
-- Surface it in the `+error.svelte` from [ERR-1](#err-1).
+This document originally said `errors.fingerprint` was "not a substitute" for a per-occurrence
+ID, because it folds every occurrence of the same bug into one value. On reflection that folding
+is the feature, not the obstacle:
 
-There is nowhere to display an ID until that error page exists, so **do this as part of ERR-1**
-rather than on its own. `errors.fingerprint` (`db/schema.ts:96`) is not a substitute — it folds
-every occurrence of the same bug into one value, so it identifies the defect but not the visit.
+- It points at **exactly one row** in the `errors` table, which the dashboard already lists with
+  a count, a first-seen and a last-seen. A random per-occurrence ID would need its own column and
+  would still have to be looked up by hand.
+- Two people reporting the same reference is **information** — it says one bug is hitting several
+  visitors, which a unique-per-visit ID would hide.
+- It is computed before the database write, so it comes back even when the database is the thing
+  that is broken.
+
+What it genuinely does not do is identify a particular visit. If that is ever needed, the count
+and timestamps on the row are the place to look first.
+
+Verified against the built server with a temporary throwing route: the page rendered
+`Référence: c22b4b15d2b7a691` and the log line read
+`[server] /[[lang=locale]]/zzthrowtest (c22b4b15d2b7a691): deliberate smoke-test failure` — the
+same value in both places, which is the whole point.
 
 ### Verified clean
 

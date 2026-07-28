@@ -30,9 +30,9 @@ redistributed under a licence that cannot cover them.
 
 | ID                                               | Finding                                                              | Effort |     |
 | ------------------------------------------------ | -------------------------------------------------------------------- | ------ | --- |
-| [ERR-1](./02-error-handling.md#err-1)            | No `+error.svelte` anywhere — 404s render unstyled and English       | S      | ☐   |
-| [ERR-2](./02-error-handling.md#err-2)            | No `handleError` hook — unexpected errors are untraceable            | S      | ◑   |
-| [ERR-3](./02-error-handling.md#err-3)            | Unguarded `localStorage` breaks the game in Safari private browsing  | S      | ☐   |
+| [ERR-1](./02-error-handling.md#err-1)            | No `+error.svelte` anywhere — 404s render unstyled and English       | S      | ☑   |
+| [ERR-2](./02-error-handling.md#err-2)            | No `handleError` hook — unexpected errors are untraceable            | S      | ☑   |
+| [ERR-3](./02-error-handling.md#err-3)            | Unguarded `localStorage` breaks the game in Safari private browsing  | S      | ☑   |
 | [SEC-5](./06-security-hardening.md#sec-5)        | Remove `/api/sync` and `SYNC_TOKEN` — a second secret buying nothing | S      | ☑   |
 | [ABUSE-1](./05-abuse-resistance.md#abuse-1)      | No rate limit on the `/admin` login; failed auth unlogged            | S      | ☑   |
 | [ABUSE-4](./05-abuse-resistance.md#abuse-4)      | `events` retention is time-only — a spike writes ~125 MB in a day    | S      | ☑   |

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isLocale, localizePath, negotiateLocale, parseAcceptLanguage } from './index';
+import {
+	isLocale,
+	localeFromPath,
+	localizePath,
+	negotiateLocale,
+	parseAcceptLanguage
+} from './index';
 
 describe('isLocale', () => {
 	it('accepts supported locales', () => {
@@ -51,6 +57,33 @@ describe('parseAcceptLanguage', () => {
 		expect(parseAcceptLanguage(',,;q=,')).toBeUndefined();
 		expect(parseAcceptLanguage('fr;q=not-a-number')).toBeUndefined();
 		expect(parseAcceptLanguage('*')).toBeUndefined();
+	});
+});
+
+describe('localeFromPath', () => {
+	it('reads French off the prefix', () => {
+		expect(localeFromPath('/fr')).toBe('fr');
+		expect(localeFromPath('/fr/')).toBe('fr');
+		expect(localeFromPath('/fr/game/nhl/TOR')).toBe('fr');
+		expect(localeFromPath('/fr/nonexistent')).toBe('fr');
+	});
+
+	it('defaults to English everywhere else', () => {
+		expect(localeFromPath('/')).toBe('en');
+		expect(localeFromPath('/game/nhl/TOR')).toBe('en');
+		expect(localeFromPath('/nonexistent')).toBe('en');
+	});
+
+	it('does not mistake look-alike segments for the prefix', () => {
+		expect(localeFromPath('/frost')).toBe('en');
+		expect(localeFromPath('/french')).toBe('en');
+	});
+
+	it('round-trips with localizePath', () => {
+		for (const path of ['/', '/game/nhl/TOR', '/frost']) {
+			expect(localeFromPath(localizePath(path, 'fr'))).toBe('fr');
+			expect(localeFromPath(localizePath(path, 'en'))).toBe('en');
+		}
 	});
 });
 

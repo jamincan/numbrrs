@@ -62,14 +62,17 @@ function once(key: string, run: () => Promise<void>): Promise<void> {
 	if (existing) return existing;
 
 	const job = run()
-		.catch((err) =>
+		.catch((err) => {
+			// Discarding the fingerprint reportError hands back: nothing here has a
+			// visitor to show it to, and the sync failure is already on the
+			// dashboard under it.
 			reportError({
 				source: 'sync',
 				message: `Sync failed: ${err instanceof Error ? err.message : String(err)}`,
 				stack: err instanceof Error ? err.stack : `key: ${key}`,
 				route: alertScope(key)
-			})
-		)
+			});
+		})
 		.finally(() => inFlight.delete(key));
 	inFlight.set(key, job);
 	return job;

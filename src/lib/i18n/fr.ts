@@ -79,5 +79,15 @@ export const fr: Messages = {
 		F: (gender) => (gender === 'f' ? 'Attaquante' : 'Attaquant'),
 		D: (gender) => (gender === 'f' ? 'Défenseure' : 'Défenseur'),
 		G: (gender) => (gender === 'f' ? 'Gardienne' : 'Gardien')
+	},
+
+	error: {
+		notFoundTitle: 'Page introuvable',
+		notFoundBody:
+			"Cette page n'existe pas. Le lien est peut-être périmé, ou une équipe a peut-être changé.",
+		genericTitle: 'Une erreur est survenue',
+		genericBody: 'Désolé, cette requête a échoué de notre côté. Réessayer fonctionne souvent.',
+		home: 'Retour aux équipes',
+		reference: 'Référence'
 	}
 };

@@ -6,7 +6,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import LocaleToggle from '$lib/components/LocaleToggle.svelte';
 	import NumbrrsIcon from '$lib/components/NumbrrsIcon.svelte';
-	import { localizePath } from '$lib/i18n';
+	import { localeFromPath, localizePath } from '$lib/i18n';
 	import { createI18n } from '$lib/i18n/state.svelte';
 	import { createNavSlot } from '$lib/nav-slot.svelte';
 	import { SITE_ORIGIN } from '$lib/site';
@@ -21,7 +21,16 @@
 	// and the layout data carries it here, so switching language is just a
 	// navigation. Created per layout instance rather than at module scope so
 	// concurrent SSR renders don't share one locale.
-	const i18n = createI18n(() => data.locale);
+	//
+	// The fallback is what keeps the error page from erroring: an unmatched URL
+	// matches no route, so the layout load never runs and `data` arrives empty.
+	// Every i18n.m lookup would then read off CATALOGUES[undefined] and throw,
+	// turning a 404 into a 500. LocaleToggle guards page.route.id for the same
+	// reason.
+	//
+	// Falling back to the URL rather than to English, because /fr/nonexistent is
+	// still a French visitor and deserves a French 404.
+	const i18n = createI18n(() => data?.locale ?? localeFromPath(page.url.pathname));
 
 	// The server stamps <html lang> on the first render; client-side
 	// navigations between /... and /fr/... have to keep it honest themselves.

@@ -43,14 +43,23 @@ const recentNotifications: number[] = [];
  *
  * Never throws: this runs inside error handlers, and an error reporter that
  * fails loudly turns one broken request into two.
+ *
+ * Returns the fingerprint, which doubles as the reference a visitor can quote
+ * back off the error page. It identifies the *fault* rather than their
+ * particular visit — two people hitting the same bug get the same string — but
+ * that is the more useful of the two: it points at exactly one row in `errors`,
+ * where the count and the timestamps already say how widespread it is. A
+ * per-occurrence id would need its own column and would still have to be looked
+ * up by hand. Computed before the write, so it comes back even if the database
+ * is the thing that's broken.
  */
-export function reportError(report: ErrorReport): void {
-	try {
-		const now = Date.now();
-		const route = report.route ?? null;
-		const message = truncate(report.message, MAX_MESSAGE);
-		const fingerprint = fingerprintOf(report.source, report.message, route);
+export function reportError(report: ErrorReport): string {
+	const now = Date.now();
+	const route = report.route ?? null;
+	const message = truncate(report.message, MAX_MESSAGE);
+	const fingerprint = fingerprintOf(report.source, report.message, route);
 
+	try {
 		const [row] = db
 			.insert(errors)
 			.values({
@@ -78,22 +87,37 @@ export function reportError(report: ErrorReport): void {
 			.returning({ notifiedAt: errors.notifiedAt, count: errors.count })
 			.all();
 
-		console.error(`[${report.source}] ${route ?? '-'}: ${message}`);
+		console.error(`[${report.source}] ${route ?? '-'} (${fingerprint}): ${message}`);
 
-		if (!row) return;
-		if (row.notifiedAt !== null && now - row.notifiedAt < NOTIFY_COOLDOWN_MS) return;
-
-		while (recentNotifications.length && now - recentNotifications[0] > NOTIFY_COOLDOWN_MS) {
-			recentNotifications.shift();
+		if (row && claimNotificationSlot(row.notifiedAt, now)) {
+			db.update(errors).set({ notifiedAt: now }).where(eq(errors.fingerprint, fingerprint)).run();
+			void notify(report, message, route, row.count);
 		}
-		if (recentNotifications.length >= NOTIFY_BURST_LIMIT) return;
-		recentNotifications.push(now);
-
-		db.update(errors).set({ notifiedAt: now }).where(eq(errors.fingerprint, fingerprint)).run();
-		void notify(report, message, route, row.count);
 	} catch (err) {
 		console.error('Failed to record error report:', err);
 	}
+
+	return fingerprint;
+}
+
+/**
+ * Whether this error has earned a ping, consuming a slot from the burst budget
+ * if so. Two gates: the per-fingerprint cooldown, then the ceiling across all
+ * fingerprints.
+ *
+ * Named for the side effect rather than the question — asking reserves the
+ * slot, so it must not be called anywhere the answer would be discarded.
+ */
+function claimNotificationSlot(notifiedAt: number | null, now: number): boolean {
+	if (notifiedAt !== null && now - notifiedAt < NOTIFY_COOLDOWN_MS) return false;
+
+	while (recentNotifications.length && now - recentNotifications[0] > NOTIFY_COOLDOWN_MS) {
+		recentNotifications.shift();
+	}
+	if (recentNotifications.length >= NOTIFY_BURST_LIMIT) return false;
+
+	recentNotifications.push(now);
+	return true;
 }
 
 function notify(

@@ -1,5 +1,5 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, negotiateLocale } from '$lib/i18n';
+import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i18n';
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
 
@@ -16,7 +16,10 @@ import { reportError } from '$lib/server/alerts';
  */
 export const handle: Handle = async ({ event, resolve }) => {
 	const lang = event.params.lang;
-	const locale = isLocale(lang) ? lang : DEFAULT_LOCALE;
+	// Falls back to the path, not to English: a URL matching no route has no
+	// params, and /fr/nonexistent should still stamp <html lang="fr"> and be
+	// counted as a French visit.
+	const locale = isLocale(lang) ? lang : localeFromPath(event.url.pathname);
 
 	// Only pages participate in localization; API routes and the sitemap don't.
 	const localized = event.route.id?.startsWith('/[[lang=locale]]') ?? false;
@@ -79,12 +82,15 @@ export const handleError: HandleServerError = ({ error, event, status, message }
 	// and alerting on them would bury the errors that matter.
 	if (status === 404) return { message };
 
-	reportError({
+	// The returned id is the error's fingerprint, so a visitor quoting it off the
+	// error page points at exactly one row in the dashboard rather than at a log
+	// line that Fly has since thrown away.
+	const id = reportError({
 		source: 'server',
 		message: error instanceof Error ? error.message : String(error),
 		stack: error instanceof Error ? error.stack : null,
 		route: event.route.id ?? event.url.pathname
 	});
 
-	return { message };
+	return { message, id };
 };

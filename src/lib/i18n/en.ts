@@ -56,5 +56,14 @@ export const en: Messages = {
 		F: () => 'Forward',
 		D: () => 'Defenseman',
 		G: () => 'Goalie'
+	},
+
+	error: {
+		notFoundTitle: 'Page not found',
+		notFoundBody: "That page doesn't exist. The link may be out of date, or a team may have moved.",
+		genericTitle: 'Something went wrong',
+		genericBody: 'Sorry — that request failed on our end. Trying again often works.',
+		home: 'Back to the teams',
+		reference: 'Reference'
 	}
 };

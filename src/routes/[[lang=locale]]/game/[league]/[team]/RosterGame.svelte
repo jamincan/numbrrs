@@ -41,18 +41,36 @@
 		{ key: 'expert', value: Infinity }
 	] as const;
 
+	const DEFAULT_DIFFICULTY = 2;
+
+	// Reading and writing are both wrapped because localStorage throws rather
+	// than degrading when storage is unavailable — Safari private browsing, site
+	// data blocked, iOS under storage pressure. The write below runs inside an
+	// $effect during initialisation, so an unguarded throw wouldn't just lose the
+	// setting, it would take the whole game component down with it. Someone who
+	// can't persist a preference should still be able to play.
+	//
 	// Anything unexpected in storage (an old format, a hand-edited value) falls
 	// back to easy — Number(junk) is NaN, and NaN options would break the quiz.
 	function savedDifficulty(): number {
-		if (!browser) return 2;
-		const stored = Number(localStorage.getItem(DIFFICULTY_KEY));
-		return DIFFICULTY_OPTIONS.some((o) => o.value === stored) ? stored : 2;
+		if (!browser) return DEFAULT_DIFFICULTY;
+		try {
+			const stored = Number(localStorage.getItem(DIFFICULTY_KEY));
+			return DIFFICULTY_OPTIONS.some((o) => o.value === stored) ? stored : DEFAULT_DIFFICULTY;
+		} catch {
+			return DEFAULT_DIFFICULTY;
+		}
 	}
 
 	let difficulty = $state(savedDifficulty());
 
 	$effect(() => {
-		localStorage.setItem(DIFFICULTY_KEY, String(difficulty));
+		try {
+			localStorage.setItem(DIFFICULTY_KEY, String(difficulty));
+		} catch {
+			// Nothing else reads this, so the setting simply stays in memory for
+			// the session rather than surviving a reload.
+		}
 	});
 
 	// The quiz is a physical deck. A card is drawn from the pile and shows its

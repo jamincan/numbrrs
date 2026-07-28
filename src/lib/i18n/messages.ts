@@ -62,6 +62,22 @@ export interface Messages {
 	};
 
 	positions: Record<PositionCode, (gender: Gender) => string>;
+
+	error: {
+		/** A URL that doesn't exist, or a league or team code that doesn't. */
+		notFoundTitle: string;
+		notFoundBody: string;
+		/** Anything else — a thrown server error, rendered without detail. */
+		genericTitle: string;
+		genericBody: string;
+		home: string;
+		/**
+		 * Labels the id a visitor can quote back. It identifies the fault rather
+		 * than their particular visit, which is why it reads as a reference
+		 * rather than as a case number.
+		 */
+		reference: string;
+	};
 }
 
 /** A position's name, falling back to the raw code for anything unmapped. */
