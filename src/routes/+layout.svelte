@@ -76,8 +76,13 @@
      the rest with flex-1 rather than min-h-screen — min-h-screen double-counts
      the nav against the viewport height, leaving every page scrolling by
      exactly that amount (worse on mobile, where 100vh also ignores the browser
-     chrome; dvh doesn't). -->
-<div class="flex min-h-dvh flex-col">
+     chrome; dvh doesn't).
+
+     bg-gray-950 lives here rather than on individual pages: the footer sits
+     outside any page's own background div, and the privacy and error pages
+     never set one at all — their light text was rendering on the browser's
+     default white background until this covered the whole column. -->
+<div class="flex min-h-dvh flex-col bg-gray-950">
 	<nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">
 		<a
 			href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
