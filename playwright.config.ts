@@ -25,7 +25,14 @@ export default defineConfig({
 		env: {
 			DATABASE_URL: FIXTURE_PATH,
 			ORIGIN: `http://localhost:${PORT}`,
-			PORT: String(PORT)
+			PORT: String(PORT),
+			// This runs as a plain `node build/index.js`, not through Vite, so
+			// .env.test (Vite-only) doesn't reach it — adapter-node reads
+			// $env/dynamic/private straight from process.env, with no .env file
+			// loading of its own. Blanked explicitly so this server can never
+			// pick up a real ALERT_WEBHOOK_URL from whatever shell environment
+			// happens to run this command, however that value got there.
+			ALERT_WEBHOOK_URL: ''
 		}
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
