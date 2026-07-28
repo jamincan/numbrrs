@@ -26,6 +26,13 @@ vi.mock('./chl', () => ({
 	qmjhlAdapter: { id: 'qmjhl', fetchTeams: vi.fn().mockResolvedValue([]), fetchRoster: vi.fn() }
 }));
 
+// Several cases below deliberately trigger a sync failure, which the real
+// reportError would forward to Discord if ALERT_WEBHOOK_URL happens to be set
+// in the environment running these tests (it is, in local dev). Mocked out
+// entirely: this file is testing the sync layer's own bookkeeping, not
+// alerting, and a test suite must never be able to reach a real webhook.
+vi.mock('../alerts', () => ({ reportError: vi.fn() }));
+
 const {
 	ensureTeam,
 	ensureTeams,
