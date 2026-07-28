@@ -41,7 +41,7 @@ redistributed under a licence that cannot cover them.
 | [MAINT-3](./09-maintainability.md#maint-3)       | `README.md` is stale — five leagues, not two                         | S      | ☑   |
 | [LIC-3](./01-licensing-and-attribution.md#lic-3) | No non-affiliation disclaimer or data-source attribution             | S      | ☑   |
 | [LIC-1](./01-licensing-and-attribution.md#lic-1) | Club logos and marks redistributed under MIT                         | M      | ☑   |
-| [VAL-1](./03-external-api-validation.md#val-1)   | League API responses are `as`-cast with no runtime validation        | M      | ☐   |
+| [VAL-1](./03-external-api-validation.md#val-1)   | League API responses are `as`-cast with no runtime validation        | M      | ☑   |
 | [ABUSE-2](./05-abuse-resistance.md#abuse-2)      | A failing league API is re-fetched on every home-page load           | M      | ☐   |
 | [TEST-1](./08-testing.md#test-1)                 | The only code that deletes rows has zero tests                       | L      | ☐   |
 

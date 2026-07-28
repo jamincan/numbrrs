@@ -1,4 +1,6 @@
+import { z } from 'zod';
 import { fetchWithTimeout } from './http';
+import { parseFeed } from './validate';
 import type { LeagueAdapter, LeagueTeam, RosterResult } from './types';
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
@@ -79,34 +81,47 @@ const TEAM_NAMES: Record<TEAM_CODE, string> = {
 	WSH: 'Washington Capitals'
 };
 
-interface NHLStandingsResponse {
-	standings: {
-		teamAbbrev: { default: string };
-		teamName: { default: string; fr?: string };
-		teamLogo: string;
-	}[];
-}
+// The NHL wraps display strings in a per-language object rather than returning
+// a bare string, which is the shape most likely to change under us.
+const standingsSchema = z.object({
+	standings: z.array(
+		z.object({
+			teamAbbrev: z.object({ default: z.string() }),
+			teamName: z.object({ default: z.string(), fr: z.string().optional() }),
+			// A constructed URL covers a missing logo, so it isn't worth failing over.
+			teamLogo: z.string().catch('')
+		})
+	)
+});
 
-interface NHLPlayer {
-	id: number;
-	headshot: string;
-	firstName: { default: string };
-	lastName: { default: string };
-	sweaterNumber?: number;
-	positionCode: string;
-}
+const playerSchema = z.object({
+	id: z.number(),
+	headshot: z.string().catch(''),
+	firstName: z.object({ default: z.string() }),
+	lastName: z.object({ default: z.string() }),
+	sweaterNumber: z.number().optional(),
+	positionCode: z.string()
+});
 
-interface NHLRosterResponse {
-	forwards: NHLPlayer[];
-	defensemen: NHLPlayer[];
-	goalies: NHLPlayer[];
-}
+type NHLPlayer = z.infer<typeof playerSchema>;
+
+/**
+ * The position groups have to be arrays — if they aren't, the feed has changed
+ * shape and there is nothing to salvage. Individual players are allowed to fail
+ * and drop out: one malformed row shouldn't cost a visitor the other
+ * twenty-two. Dropped rows are counted and logged, so quiet shrinkage still
+ * leaves a trace.
+ */
+const rosterSchema = z.object({
+	forwards: z.array(playerSchema.nullable().catch(null)),
+	defensemen: z.array(playerSchema.nullable().catch(null)),
+	goalies: z.array(playerSchema.nullable().catch(null))
+});
 
 async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
-	let res: Response;
-	let data: NHLRosterResponse;
+	let payload: unknown;
 	try {
-		res = await fetchWithTimeout(`${NHL_API_BASE}/roster/${team.code}/current`);
+		const res = await fetchWithTimeout(`${NHL_API_BASE}/roster/${team.code}/current`);
 		if (res.status === 429) {
 			const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);
 			console.warn(`429 for ${team.code}, retry after ${retryAfter}s`);
@@ -120,12 +135,32 @@ async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
 			console.error(`Failed to fetch roster for ${team.code}: ${res.status}`);
 			return { ok: false, reason: 'transient' };
 		}
-		data = await res.json();
+		payload = await res.json();
 	} catch (err) {
 		console.error(`Failed to fetch roster for ${team.code}:`, err);
 		return { ok: false, reason: 'transient' };
 	}
-	const players = [...data.defensemen, ...data.forwards, ...data.goalies];
+
+	// Parsing sits outside the fetch's try on purpose: a shape mismatch is not a
+	// transient failure and must not be retried into the same answer twice.
+	let data: z.infer<typeof rosterSchema>;
+	try {
+		data = parseFeed(rosterSchema, payload, `NHL roster ${team.code}`);
+	} catch (err) {
+		// parseFeed is the only thing that throws here, and only for a mismatch.
+		// This function's contract is that it never throws.
+		console.error(err instanceof Error ? err.message : err);
+		return { ok: false, reason: 'invalid' };
+	}
+
+	const rows = [...data.defensemen, ...data.forwards, ...data.goalies];
+	const players = rows.filter((p): p is NHLPlayer => p !== null);
+	if (players.length < rows.length) {
+		console.warn(
+			`NHL roster ${team.code}: skipped ${rows.length - players.length} unreadable entries`
+		);
+	}
+
 	return {
 		ok: true,
 		players: players.map((p) => ({
@@ -151,7 +186,10 @@ async function fetchTeams(): Promise<LeagueTeam[]> {
 	try {
 		const res = await fetchWithTimeout(`${NHL_API_BASE}/standings/now`);
 		if (!res.ok) throw new Error(`standings returned ${res.status}`);
-		const data: NHLStandingsResponse = await res.json();
+		// Parsed inside the try, so a schema change lands on the static-list
+		// fallback below like any other failure — but with a log line naming the
+		// field that moved rather than a TypeError from three lines further on.
+		const data = parseFeed(standingsSchema, await res.json(), 'NHL standings');
 		const teams = data.standings.map((t) => ({
 			code: t.teamAbbrev.default,
 			name: t.teamName.default,

@@ -135,3 +135,54 @@ concern.
 exported for testability, and already covered by `hockeytech.test.ts`. They should keep operating
 on the now-validated types with no behavioural change. The tests should keep passing untouched —
 if they do not, the schemas are too strict.
+
+---
+
+## Done 2026-07-27
+
+**zod 4** (`dependencies`, not dev — the Dockerfile prunes dev deps, and this is server runtime
+code). Schemas live beside each adapter. `parseFeed` in `validate.ts` does the parsing and raises
+a `FeedSchemaError` naming the field that moved:
+
+```
+NHL roster TOR schema mismatch — forwards.0.firstName: invalid type
+```
+
+That distinct error type is what makes the classification work. `syncRoster` needed **no
+changes**: it only retries `'transient'` and interpolates `result.reason` into its report, so the
+new `'invalid'` variant is correctly never retried and shows up as its own class of failure.
+
+Parsing moved inside the guarded paths, closing the specific defect this finding identified — the
+NHL spread at `nhl.ts:128` and the HockeyTech `parseRosterEntries` call at `:216` both used to sit
+outside their `try`.
+
+### Deviations from the plan above
+
+- **`z.looseObject()`, not `.passthrough()`.** The latter is Zod 3; Zod 4 renamed it. Same intent.
+- **Strict envelopes, salvageable contents.** For the NHL the position groups must be arrays, but
+  an individual player is `.nullable().catch(null)` and drops out — one malformed row shouldn't
+  cost a visitor the other twenty-two. Dropped rows are counted and warned about, so quiet
+  shrinkage still leaves a trace. For HockeyTech every entry field is optional and a non-object
+  entry collapses to `{}`, which `parseRosterEntries` then filters exactly as it already filtered
+  the feed's junk.
+- **The doc comments moved as inline comments rather than `.describe()`.** `career: "1" for
+seasons that count`, `active: "1" while the player is still on the roster` and the
+  `teamsbyseason` note all survive; they read better next to the field than wrapped in a call.
+- **`fetchTeams` parses inside its existing `try`**, so a schema change still lands on the static
+  team-list fallback — the shape this finding praised — but now logs the field rather than
+  surfacing a `TypeError` three lines later.
+
+### Verification
+
+`hockeytech.test.ts` passes **untouched**, which was this finding's own stated test for whether
+the schemas are too strict. `validate.test.ts` adds nine cases covering the error-path formatting,
+the issue cap, and the roster leniency — including the nested coaching arrays and junk entries the
+feed really sends.
+
+> [!NOTE]
+> `rosterSchema` is exported purely so its leniency can be tested, following the precedent set by
+> `pickCurrentSeason` and `parseRosterEntries`. A schema that is too strict here would empty a
+> team rather than fail loudly, which is the worst available outcome, so it is worth pinning down.
+
+This unblocks [ABUSE-2](./05-abuse-resistance.md#abuse-2): there is now a failure classification
+for its backoff to consume, and a schema break feeds the same path as a network failure.

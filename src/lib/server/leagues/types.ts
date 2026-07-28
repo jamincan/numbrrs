@@ -31,7 +31,12 @@ export type RosterResult =
 	| { ok: false; reason: 'not-found' }
 	// Network error, timeout, 5xx, rate limit... worth one retry. When the
 	// league said how long to back off (a 429's Retry-After), it's passed on.
-	| { ok: false; reason: 'transient'; retryAfter?: number };
+	| { ok: false; reason: 'transient'; retryAfter?: number }
+	// The feed answered, but not in a shape we recognize — the league changed
+	// their API. Never retried: the next request returns the same thing. Kept
+	// separate from 'transient' so a schema break is visible as itself rather
+	// than as another network blip.
+	| { ok: false; reason: 'invalid' };
 
 export interface LeagueAdapter {
 	id: LeagueId;

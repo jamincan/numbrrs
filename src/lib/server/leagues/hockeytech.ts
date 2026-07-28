@@ -1,5 +1,7 @@
+import { z } from 'zod';
 import type { LeagueId } from '$lib/leagues';
 import { fetchWithTimeout } from './http';
+import { FeedSchemaError, parseFeed } from './validate';
 import type { LeagueAdapter, LeaguePlayer, LeagueTeam, RosterResult } from './types';
 
 // HockeyTech/LeagueStat hosts the feeds for several leagues (PWHL, the three
@@ -21,34 +23,61 @@ const POSITION_MAP: Record<string, string> = {
 	RW: 'R'
 };
 
-export interface HockeyTechSeason {
-	season_id: string;
-	season_name: string;
-	career: string; // "1" for seasons that count (regular season / playoffs)
-	playoff: string; // "1" for playoff "seasons"
-	start_date: string; // "YYYY-MM-DD"
-	end_date: string;
-}
+const seasonSchema = z.object({
+	season_id: z.string(),
+	season_name: z.string(),
+	career: z.string(), // "1" for seasons that count (regular season / playoffs)
+	playoff: z.string(), // "1" for playoff "seasons"
+	start_date: z.string(), // "YYYY-MM-DD"
+	end_date: z.string()
+});
+
+const seasonsSchema = z.array(seasonSchema);
 
 /** A team as the `teamsbyseason` view reports it. */
-export interface HockeyTechTeam {
-	id: string;
-	code: string;
-	name: string;
-	city: string;
-	nickname: string;
-	team_logo_url: string;
-}
+const teamSchema = z.object({
+	id: z.string(),
+	code: z.string(),
+	name: z.string(),
+	city: z.string(),
+	nickname: z.string(),
+	team_logo_url: z.string().catch('')
+});
 
-export interface HockeyTechRosterEntry {
-	player_id?: string;
-	first_name?: string;
-	last_name?: string;
-	tp_jersey_number?: string;
-	position?: string;
-	player_image?: string;
-	active?: string; // "1" while the player is still on the roster
-}
+const teamsSchema = z.array(teamSchema);
+
+/**
+ * Every field is optional and unknown keys are kept, because `parseRosterEntries`
+ * below is what actually decides who counts — and it already copes with the junk
+ * this feed appends. An entry that isn't even an object becomes `{}` rather than
+ * failing the whole roster, which is the same thing that function does with a
+ * row that has no `last_name`.
+ */
+const rosterEntrySchema = z
+	.looseObject({
+		player_id: z.string().optional(),
+		first_name: z.string().optional(),
+		last_name: z.string().optional(),
+		tp_jersey_number: z.string().optional(),
+		position: z.string().optional(),
+		player_image: z.string().optional(),
+		active: z.string().optional() // "1" while the player is still on the roster
+	})
+	.catch({});
+
+/**
+ * The envelope is strict — a roster that isn't a list has changed shape and
+ * there is nothing to salvage — while the entries inside it are not.
+ *
+ * Exported for the same reason `parseRosterEntries` is: the leniency is the
+ * part worth pinning down, since a schema that is too strict here would empty a
+ * team rather than fail loudly.
+ */
+export const rosterSchema = z.array(rosterEntrySchema);
+
+export type HockeyTechSeason = z.infer<typeof seasonSchema>;
+export type HockeyTechTeam = z.infer<typeof teamSchema>;
+export type HockeyTechRosterEntry = z.infer<typeof rosterEntrySchema>;
 
 /**
  * The most recent regular season that has started, or undefined if none has.
@@ -130,7 +159,11 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		return `${FEED_BASE}?${search}`;
 	}
 
-	async function fetchFeed<T>(params: Record<string, string>, field: string): Promise<T> {
+	async function fetchFeed<T>(
+		params: Record<string, string>,
+		field: string,
+		schema: z.ZodType<T>
+	): Promise<T> {
 		const res = await fetchWithTimeout(feedUrl(params));
 		if (!res.ok) {
 			throw new Error(`${label} feed ${params.view} failed: ${res.status}`);
@@ -140,11 +173,13 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		if (value == null) {
 			throw new Error(`${label} feed ${params.view} returned no ${field}`);
 		}
-		return value as T;
+		// Throws FeedSchemaError, which callers separate from a network failure:
+		// one is worth retrying and the other never is.
+		return parseFeed(schema, value, `${label} ${params.view}`);
 	}
 
 	async function currentSeasonId(): Promise<string> {
-		const seasons = await fetchFeed<HockeyTechSeason[]>({ view: 'seasons' }, 'Seasons');
+		const seasons = await fetchFeed({ view: 'seasons' }, 'Seasons', seasonsSchema);
 		const current = pickCurrentSeason(seasons, new Date().toISOString().slice(0, 10));
 		if (!current) {
 			throw new Error(`${label} feed returned no started regular seasons`);
@@ -158,9 +193,10 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 
 	async function loadTeams(): Promise<LeagueTeam[]> {
 		const seasonId = await currentSeasonId();
-		const teams = await fetchFeed<HockeyTechTeam[]>(
+		const teams = await fetchFeed(
 			{ view: 'teamsbyseason', season_id: seasonId },
-			'Teamsbyseason'
+			'Teamsbyseason',
+			teamsSchema
 		);
 		rosterParams = new Map(teams.map((t) => [teamCode(t), { seasonId, teamId: t.id }]));
 		return teams.map((t) => ({
@@ -191,6 +227,10 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			try {
 				await fetchTeams();
 			} catch (err) {
+				if (err instanceof FeedSchemaError) {
+					console.error(err.message);
+					return { ok: false, reason: 'invalid' };
+				}
 				console.error(`Failed to load ${label} roster params:`, err);
 				return { ok: false, reason: 'transient' };
 			}
@@ -204,11 +244,16 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 
 		let entries: HockeyTechRosterEntry[];
 		try {
-			entries = await fetchFeed<HockeyTechRosterEntry[]>(
+			entries = await fetchFeed(
 				{ view: 'roster', season_id: params.seasonId, team_id: params.teamId },
-				'Roster'
+				'Roster',
+				rosterSchema
 			);
 		} catch (err) {
+			if (err instanceof FeedSchemaError) {
+				console.error(err.message);
+				return { ok: false, reason: 'invalid' };
+			}
 			console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
 			return { ok: false, reason: 'transient' };
 		}
