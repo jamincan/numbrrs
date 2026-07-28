@@ -144,6 +144,10 @@ is not instantaneous and a Reddit peak can outrun it.
 
 Removes the cold-start failure mode entirely. ~$1.94/mo.
 
+> [!NOTE]
+> **Done 2026-07-28**, ahead of the CDN and the load test — cheap, reversible, and no reason to
+> wait on either.
+
 ### 4. Warm the roster cache immediately before posting — free
 
 Trigger a full sync right before the post goes up. It takes ~1–2 minutes and guarantees nobody
@@ -168,6 +172,11 @@ arriving from Reddit eats an 8s upstream fetch.
 An `[http_service.concurrency]` block with sane `soft_limit` / `hard_limit` lets Fly
 spread load and shed excess rather than piling requests onto one box until it dies.
 Degraded-but-up beats OOM.
+
+> [!NOTE]
+> **Done 2026-07-28.** `type = 'connections'`, `soft_limit = 20`, `hard_limit = 25` — sized for the
+> current `shared-cpu-1x` / 256MB `[[vm]]`; revisit alongside any machine-size change, and
+> certainly before any pre-scale to `shared-cpu-2x`.
 
 ## In-memory rosters
 
@@ -398,24 +407,28 @@ Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
 > posting, so this is no longer a race against a post date. Step 2 is already done. The ordering
 > below is what remains.
 
-0. **Work the hardening review's P1 list.** Agreed as the gate on posting. The licensing and
-   privacy items in particular get more awkward the more visible the site is, which is an
-   argument for doing them before rather than after.
-1. Set `min_machines_running = 1` in `fly.toml` — one line, do it first
+0. ~~Work the hardening review's P1 list.~~ **Done 2026-07-28** — P2 and P3 as well, not just P1.
+1. ~~Set `min_machines_running = 1` in `fly.toml`~~ — **done 2026-07-28**, along with concurrency
+   limits ([step 5](#5-set-concurrency-limits-in-flytoml)).
 2. ~~Wire up hosted error logging (Sentry free tier)~~ — **done differently**: first-party
    telemetry with Discord alerting shipped in `586b5e4`. See
    [Error logging](#error-logging) for why the recommendation was overtaken rather than rejected.
 3. Add cache headers + Cloudflare, resolving the locale/cookie interaction — the
-   actual insurance policy. Note that
-   [PERF-1](./code-review/07-caching-and-scaling.md#perf-1) is the prerequisite, and it carries a
-   trap: the `Vary` header on the locale redirect is already incomplete, and becomes a live
-   correctness bug the moment anything caches these responses.
+   actual insurance policy. Cache headers landed with [PERF-1](./code-review/07-caching-and-scaling.md#perf-1);
+   Cloudflare itself is account setup outside this repo and is the one item left on this list that
+   isn't a code change. It carried a trap that's already resolved: the `Vary` header on the locale
+   redirect was incomplete and would have become a live correctness bug the moment anything cached
+   these responses — see [PERF-1's Done section](./code-review/07-caching-and-scaling.md#perf-1)
+   for how that was fixed.
 4. If (3) isn't ready by post day: pre-scale to 3× `shared-cpu-2x` 1GB, post, scale
-   back down. $0.63, no code.
+   back down. $0.63, no code. Do this closer to the actual post date, not now.
 5. Warm the roster cache from `/admin` minutes before posting — see
-   [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free)
-6. Bound event retention ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — a front-page
-   day writes ~126 MB of analytics, and the current bound is time-based only
+   [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free). A day-of action, not
+   something to do ahead of time.
+6. ~~Bound event retention~~ ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — **done**.
+
+What's left that isn't a day-of-posting action: the CDN itself (step 3), and the real req/s ceiling
+(still an estimate — see [Open questions](#open-questions), "most valuable single follow-up").
 
 Independently, whenever convenient: move rosters in-memory. This no longer deletes the SQLite
 layer — see [Storage architecture](#storage-architecture). Skip self-hosted Postgres regardless;

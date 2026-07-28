@@ -16,7 +16,21 @@ primary_region = 'yyz'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  # One machine always up removes the cold-start failure mode entirely — the
+  # first Reddit-referred visitor no longer pays a container boot plus a
+  # possible 8s upstream roster fetch while everyone behind them queues.
+  # ~$1.94/mo instead of ~$0.55/mo scale-to-zero (docs/hosting.md).
+  min_machines_running = 1
+
+  # Without this, Fly's defaults let many concurrent requests pile onto one
+  # 256MB box until it OOMs rather than shedding load — degraded-but-up beats
+  # down. Sized for a shared-cpu-1x/256MB machine serving lightweight SSR;
+  # revisit alongside any [[vm]] change. See docs/hosting.md's "Where it
+  # breaks" section.
+  [http_service.concurrency]
+    type = 'connections'
+    soft_limit = 20
+    hard_limit = 25
 
   [[http_service.checks]]
     interval = '30s'
