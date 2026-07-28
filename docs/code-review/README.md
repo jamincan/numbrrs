@@ -59,7 +59,7 @@ redistributed under a licence that cannot cover them.
 | [TYPE-2](./04-type-safety.md#type-2)             | `noUncheckedIndexedAccess` is off, hiding a module-load crash       | M      | ☑   |
 | [MAINT-2](./09-maintainability.md#maint-2)       | Some comments narrate history rather than explain the code          | M      | ☑   |
 | [TEST-2](./08-testing.md#test-2)                 | No end-to-end tests                                                 | L      | ☐   |
-| [MAINT-1](./09-maintainability.md#maint-1)       | `RosterGame.svelte` is 638 lines with three separable concerns      | L      | ☐   |
+| [MAINT-1](./09-maintainability.md#maint-1)       | `RosterGame.svelte` is 638 lines with three separable concerns      | L      | ☑   |
 
 ## P3 — correctness and polish
 

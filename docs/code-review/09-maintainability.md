@@ -112,6 +112,52 @@ maintainable, and it is the easiest thing to lose in a move.
 > Do [TYPE-2](./04-type-safety.md#type-2) first. Enabling `noUncheckedIndexedAccess` produces
 > errors in this file; fixing them once here beats fixing them across five files.
 
+### Done — landed 2026-07-28
+
+Split exactly along the four lines this finding proposed, plus the composing `RosterGame.svelte`
+itself:
+
+- **`src/lib/game-state.svelte.ts`** — a `GameState` class: the deck/recycle/identified state,
+  `guess()`, `reset()`, `setDifficulty()`, and the difficulty `localStorage` persistence (with the
+  try/catch from [ERR-3](./02-error-handling.md#err-3), carried over unchanged). `DIFFICULTY_OPTIONS`
+  lives here too, next to the type it's shaped around.
+- **`src/lib/drawer-layout.svelte.ts`** — a `DrawerLayout` class: `rightDrawer`, `drawerMax`,
+  `drawerOpen`/`toggleDrawer()`, `optionColumns`, and the three effects that used to sit at
+  `RosterGame`'s top level (the media-query listener, the `ResizeObserver`, and the column-count
+  measurement). It knows nothing about players — the one piece of quiz state the column
+  calculation needs (how many options are showing) comes in as a getter passed to the constructor,
+  which is what keeps this file, as the original finding put it, not about hockey.
+- **`CardTable.svelte`** and **`RosterDrawer.svelte`** — presentational, taking the `GameState` and
+  `DrawerLayout` instances as props and reading their fields directly. Passing class instances
+  across component boundaries keeps every `$state` field inside them reactive on the far side —
+  nothing here needed a rewrite to stay reactive, only to move.
+- **`RosterGame.svelte`** — down to composition: builds one `GameState` and one `DrawerLayout`,
+  wires the difficulty menu and the two child components to them, and keeps the responsive
+  top-level layout (which arrangement, and the compact-header decision that goes with it).
+
+Two things this finding didn't anticipate:
+
+- **DOM refs cross the component boundary via `bind:this` on a class field directly**
+  (`bind:this={layout.cardTable}` in `CardTable.svelte`, `bind:this={layout.drawerEl}` and
+  `bind:this={layout.optionsBox}` in `RosterDrawer.svelte`). Svelte 5 accepts a member expression as
+  a bind target, which meant the `ResizeObserver` effect in `DrawerLayout` could keep reading
+  `this.cardTable`/`this.drawerEl` exactly as it read the old local variables — no intermediate
+  wiring needed.
+- **`new GameState(roster)` in `RosterGame.svelte` triggered a compiler warning**
+  (`state_referenced_locally`) that didn't exist before the split, because reading a `$props()`
+  value once into a constructor looks like a mistake to the compiler — it can't tell "roster never
+  changes for this component's lifetime" from "forgot this needs to be reactive." Wrapped in
+  `untrack(() => roster)` to say which one it is, rather than leaving a warning in a clean build.
+
+Verified in a real browser (Playwright against the dev server, portrait and landscape, difficulty
+switched mid-game, both a correct and an incorrect guess): everything behaves identically to before
+the split, with no console errors. 133 tests pass; lint, check, and build are clean.
+
+Not done, and out of scope here: [MAINT-4](#maint-4)'s duplicated option-button markup between
+`RosterDrawer.svelte`'s two views is still duplicated — this finding's own note that it could fold
+into MAINT-1 was optional, and it's cheap to do separately later now that both copies live in the
+same file.
+
 ---
 
 <a id="maint-3"></a>
