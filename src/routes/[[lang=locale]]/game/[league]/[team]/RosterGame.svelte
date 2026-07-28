@@ -65,10 +65,10 @@
 
 	<!-- Two arrangements of the same pieces. The right-hand panel is meant to
 	     sit flush against the nav and the screen edge, so that layout takes no
-	     padding or max width of its own — the breathing room and the centring go
-	     on the card column instead. The bottom padding on the other one is only
-	     for the case where the page is forced to scroll anyway; the drawer
-	     otherwise sizes itself to the space under the cards. -->
+	     padding or max width of its own — the breathing room goes on the card
+	     column instead. The bottom padding on the other one is only for the
+	     case where the page is forced to scroll anyway; the drawer otherwise
+	     sizes itself to the space under the cards. -->
 	<main
 		class="flex w-full flex-1 {layout.rightDrawer
 			? 'min-h-0 flex-row'
@@ -76,7 +76,7 @@
 	>
 		<div
 			class="flex min-w-0 flex-1 flex-col items-center {layout.rightDrawer
-				? 'min-h-0 justify-center gap-3 px-4 py-3'
+				? 'min-h-0 justify-start gap-3 px-4 py-3'
 				: 'gap-8'}"
 		>
 			{#if layout.rightDrawer}
