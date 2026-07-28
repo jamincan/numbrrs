@@ -57,6 +57,13 @@ Explicitly leave alone:
 The rule of thumb: keep it if it explains a constraint, a rejected alternative, or a second-order
 consequence. Rewrite it if it only makes sense to someone who saw the previous version.
 
+### Done — landed 2026-07-28
+
+Five of the six rewritten as this finding suggested. `db/schema.ts`'s `sync_state` comment was
+already clean — the table was rewritten for the ABUSE-2 backoff work after this finding was
+written, and the historical clause didn't survive that rewrite. Nothing else in this codebase was
+swept; the explicitly-protected list above was left untouched, as instructed.
+
 ---
 
 <a id="maint-1"></a>

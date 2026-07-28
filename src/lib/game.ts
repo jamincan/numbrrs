@@ -13,7 +13,11 @@ export interface GamePlayer {
 export function shuffle<T>(items: T[], random: () => number = Math.random): T[] {
 	for (let i = items.length - 1; i > 0; i--) {
 		const j = Math.floor(random() * (i + 1));
-		[items[i], items[j]] = [items[j], items[i]];
+		// i and j are always valid indices (i counts down from length - 1, j is
+		// bounded by i + 1), so both reads are safe.
+		const temp = items[i]!;
+		items[i] = items[j]!;
+		items[j] = temp;
 	}
 	return items;
 }
@@ -56,8 +60,9 @@ export function drawCard<P extends GamePlayer>(
 		if (recycle.length === 0) return null;
 		return drawCard(shuffle([...recycle], random), [], random);
 	}
-	const [player, ...rest] = deck;
-	return { player, deck: rest, recycle: [...recycle] };
+	// deck.length > 0 was just checked, so index 0 exists.
+	const player = deck[0]!;
+	return { player, deck: deck.slice(1), recycle: [...recycle] };
 }
 
 /**

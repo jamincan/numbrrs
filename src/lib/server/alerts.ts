@@ -112,13 +112,29 @@ export function reportError(report: ErrorReport): string {
 function claimNotificationSlot(notifiedAt: number | null, now: number): boolean {
 	if (notifiedAt !== null && now - notifiedAt < NOTIFY_COOLDOWN_MS) return false;
 
-	while (recentNotifications.length && now - recentNotifications[0] > NOTIFY_COOLDOWN_MS) {
+	while (recentNotifications.length > 0) {
+		// Just checked the array is non-empty, so index 0 exists.
+		const oldest = recentNotifications[0]!;
+		if (now - oldest <= NOTIFY_COOLDOWN_MS) break;
 		recentNotifications.shift();
 	}
 	if (recentNotifications.length >= NOTIFY_BURST_LIMIT) return false;
 
 	recentNotifications.push(now);
 	return true;
+}
+
+/**
+ * Visually close to a backtick but not one Discord's Markdown parses as a code
+ * fence or inline-code delimiter. `source: 'client'` content comes straight off
+ * a POST body anyone can send (`api/client-error/+server.ts`), so a backtick in
+ * there can close a fence early and turn the rest of the payload into rendered
+ * Markdown instead of literal text.
+ */
+const BACKTICK_LOOKALIKE = 'ˋ';
+
+function neutralizeBackticks(value: string): string {
+	return value.replaceAll('`', BACKTICK_LOOKALIKE);
 }
 
 function notify(
@@ -130,11 +146,15 @@ function notify(
 	const webhook = env.ALERT_WEBHOOK_URL;
 	if (!webhook) return Promise.resolve();
 
+	// 'server' and 'sync' never carry attacker-supplied text; 'client' does, so
+	// it's worth flagging at a glance rather than making a reader infer trust
+	// from the source label alone.
+	const sourceLabel = report.source === 'client' ? 'client (unauthenticated)' : report.source;
 	const lines = [
-		`**numbrrs ${report.source} error**${count > 1 ? ` (${count}× so far)` : ''}`,
-		route ? `\`${route}\`` : null,
+		`**numbrrs ${sourceLabel} error**${count > 1 ? ` (${count}× so far)` : ''}`,
+		route ? `\`${neutralizeBackticks(route)}\`` : null,
 		'```',
-		truncate(report.stack || message, 1200),
+		neutralizeBackticks(truncate(report.stack || message, 1200)),
 		'```',
 		`${SITE_ORIGIN}/admin`
 	].filter(Boolean);
@@ -142,7 +162,9 @@ function notify(
 	return fetch(webhook, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ content: lines.join('\n') }),
+		// Stops the message from pinging anything, regardless of the escaping
+		// above — the documented way to neutralize @everyone/@here/@role/@user.
+		body: JSON.stringify({ content: lines.join('\n'), allowed_mentions: { parse: [] } }),
 		signal: AbortSignal.timeout(5000)
 	})
 		.then((res) => {

@@ -149,6 +149,18 @@ deliberate and correct, and the comment at `alerts.ts:38-46` explains why: a det
 be cut off when Fly stops the machine, so the row must not be the thing racing the shutdown.
 Do not make the webhook `await`ed while "fixing" this.
 
+### Done — landed 2026-07-28
+
+All three actions, in `alerts.ts`'s `notify`: the webhook body now sets `allowed_mentions: {
+parse: [] }`; a new `neutralizeBackticks` replaces every backtick with `ˋ` (U+02CB, a visual
+lookalike Discord's Markdown does not parse as a fence or inline-code delimiter), applied to both
+`route` and the truncated stack/message; and the title line labels `source: 'client'` reports as
+`client (unauthenticated)` rather than just `client`, so a reader can tell at a glance that the
+content below came from an unauthenticated POST rather than the server's own logs.
+
+Left alone, as this finding said to: the durable-write-then-fire-and-forget ordering in
+`reportError`.
+
 ---
 
 ## Done 2026-07-27 — PRIV-1

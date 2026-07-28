@@ -563,7 +563,7 @@
 				{#if drawerOpen}
 					<!-- Expanded: full roster, scrolling only once the drawer has
 					     taken all the space available to it. The number being asked
-					     about isn't repeated here — the drawer no longer covers the
+					     about isn't repeated here — the drawer does not cover the
 					     card that shows it. -->
 					<div class="@container min-h-0 flex-1 overflow-y-auto px-4 pb-8">
 						{@render rosterGroups()}

@@ -32,9 +32,9 @@ export const LEAGUE_IDS = LEAGUES.map((l) => l.id);
 
 /**
  * Remembered league tab for the home page. A cookie rather than localStorage
- * so the server can render the right grid on the first byte — with
- * localStorage the grid couldn't be server-rendered at all, which also meant
- * crawlers saw a loading message instead of any links to team pages.
+ * so the server can render the right grid on the first byte — localStorage is
+ * unavailable server-side, so the grid could only render after hydration and
+ * crawlers would see a loading message instead of links to team pages.
  */
 export const LEAGUE_COOKIE = 'numbrrs_league';
 

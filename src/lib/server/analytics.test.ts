@@ -8,7 +8,7 @@ import { lt } from 'drizzle-orm';
 const NOW = 1_800_000_000_000;
 
 function insertEvent(at: number): number {
-	const [row] = getDb()
+	const rows = getDb()
 		.insert(events)
 		.values({
 			at,
@@ -20,7 +20,8 @@ function insertEvent(at: number): number {
 		})
 		.returning({ id: events.id })
 		.all();
-	return row.id;
+	// A single-row insert's RETURNING always yields exactly one row.
+	return rows[0]!.id;
 }
 
 function remainingIds(): number[] {

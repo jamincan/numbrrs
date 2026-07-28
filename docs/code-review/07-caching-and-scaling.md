@@ -93,6 +93,13 @@ and the exit path when it is reached:
 Together with PERF-1, a single cached machine will absorb considerably more traffic than an
 uncached one, which likely defers this decision well past the current horizon.
 
+### Done — already landed before this pass
+
+Found already satisfied, from earlier work (`6841733`, `230457f`): `README.md`'s "Scaling" section
+states the single-machine constraint and all three reasons (the Fly volume, in-flight sync
+coalescing, the in-memory rate limiter), and points to `docs/hosting.md` for the full LiteFS/
+Postgres exit-path analysis, including cost comparisons. Nothing left to do here.
+
 ---
 
 <a id="perf-3"></a>
@@ -127,6 +134,19 @@ path, turns an upstream outage into a restart loop.
 
 Exclude it from caching ([PERF-1](#perf-1)) and from rate limiting
 ([ABUSE-1](./05-abuse-resistance.md#abuse-1)).
+
+### Done — landed 2026-07-28
+
+`src/routes/api/health/+server.ts` does a `select ... limit 1` against `sync_state` — cheap, and
+it exercises the same `getDb()` this app already relies on for everything else, so a boot that
+skipped [ERR-4](./02-error-handling.md#err-4)'s exit somehow still fails this check rather than
+serving 200s. It touches nothing else: no league API, no sync path. `fly.toml` now has an
+`[[http_service.checks]]` block polling it every 30s with a 5s timeout.
+
+Neither exclusion needed code: the route isn't under `/[[lang=locale]]`, so `hooks.server.ts`'s
+cache-control branch already skips it (same as `/api/client-error`), and nothing in this app rate
+limits by route generally — only `/admin`'s login has a limiter, and it doesn't apply here either.
+Verified against the built server: `GET /api/health` returns `200 {"status":"ok"}`.
 
 ---
 

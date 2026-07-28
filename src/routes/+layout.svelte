@@ -72,9 +72,10 @@
 </svelte:head>
 
 <!-- One viewport-height column: nav plus whatever the page renders. Pages fill
-     the rest with flex-1 rather than min-h-screen — that double-counted the nav
-     and left every page scrolling by exactly its height (worse on mobile, where
-     100vh also ignores the browser chrome; dvh doesn't). -->
+     the rest with flex-1 rather than min-h-screen — min-h-screen double-counts
+     the nav against the viewport height, leaving every page scrolling by
+     exactly that amount (worse on mobile, where 100vh also ignores the browser
+     chrome; dvh doesn't). -->
 <div class="flex min-h-dvh flex-col">
 	<nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">
 		<a

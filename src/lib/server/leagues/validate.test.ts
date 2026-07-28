@@ -72,7 +72,7 @@ describe('the HockeyTech roster schema is lenient by design', () => {
 		// logic that already handled it before validation existed.
 		const players = parseRosterEntries(parsed);
 		expect(players).toHaveLength(1);
-		expect(players[0].lastName).toBe('Nurse');
+		expect(players[0]!.lastName).toBe('Nurse');
 	});
 
 	it('keeps unknown fields rather than stripping them', () => {

@@ -61,11 +61,16 @@ export function parseAcceptLanguage(header: string | null | undefined): Locale |
 	const ranked = header
 		.split(',')
 		.map((part) => {
-			const [tag, ...params] = part.trim().split(';');
+			// Splitting a non-empty string always yields at least one element, so
+			// `tag` is never actually undefined; the default is only to satisfy
+			// noUncheckedIndexedAccess.
+			const [tag = '', ...params] = part.trim().split(';');
 			const quality = params.find((p) => p.trim().startsWith('q='));
 			return {
 				tag: tag.trim().toLowerCase(),
-				q: quality ? Number.parseFloat(quality.split('=')[1]) : 1
+				// The `startsWith('q=')` check above guarantees a '=', so the split
+				// always has two parts; the fallback is unreachable in practice.
+				q: quality ? Number.parseFloat(quality.split('=')[1] ?? '0') : 1
 			};
 		})
 		.filter((entry) => entry.tag !== '' && !Number.isNaN(entry.q))

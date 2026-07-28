@@ -49,7 +49,8 @@ describe('session cookies', () => {
 
 	it('rejects a tampered signature on an otherwise valid expiry', () => {
 		const cookie = signSession(NOW + HOUR, SECRET);
-		const [expiry, signature] = cookie.split('.');
+		// signSession's output always has exactly one '.', so both halves exist.
+		const [expiry, signature] = cookie.split('.') as [string, string];
 
 		// Flip one character rather than replacing the whole thing, so the length
 		// still matches and the comparison has to do real work to reject it.

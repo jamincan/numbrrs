@@ -51,13 +51,13 @@ redistributed under a licence that cannot cover them.
 | ------------------------------------------------ | ------------------------------------------------------------------- | ------ | --- |
 | [ERR-4](./02-error-handling.md#err-4)            | `migrate()` at module import turns a bad migration into opaque 500s | S      | ☑   |
 | [TYPE-1](./04-type-safety.md#type-1)             | `db` is typed as always-defined but is `undefined` during build     | S      | ☑   |
-| [SEC-1](./06-security-hardening.md#sec-1)        | `style-src` concession is broader than it needs to be               | S      | ☐   |
-| [PERF-2](./07-caching-and-scaling.md#perf-2)     | The app cannot scale past one machine — undocumented                | S      | ☐   |
-| [PERF-3](./07-caching-and-scaling.md#perf-3)     | No health check endpoint                                            | S      | ☐   |
-| [PRIV-2](./10-privacy-and-telemetry.md#priv-2)   | Client-submitted error text reaches Discord unescaped               | S      | ☐   |
+| [SEC-1](./06-security-hardening.md#sec-1)        | `style-src` concession is broader than it needs to be               | S      | ☑   |
+| [PERF-2](./07-caching-and-scaling.md#perf-2)     | The app cannot scale past one machine — undocumented                | S      | ☑   |
+| [PERF-3](./07-caching-and-scaling.md#perf-3)     | No health check endpoint                                            | S      | ☑   |
+| [PRIV-2](./10-privacy-and-telemetry.md#priv-2)   | Client-submitted error text reaches Discord unescaped               | S      | ☑   |
 | [LIC-2](./01-licensing-and-attribution.md#lic-2) | OFL font licence does not ship with the self-hosted fonts           | S      | ☑   |
-| [TYPE-2](./04-type-safety.md#type-2)             | `noUncheckedIndexedAccess` is off, hiding a module-load crash       | M      | ☐   |
-| [MAINT-2](./09-maintainability.md#maint-2)       | Some comments narrate history rather than explain the code          | M      | ☐   |
+| [TYPE-2](./04-type-safety.md#type-2)             | `noUncheckedIndexedAccess` is off, hiding a module-load crash       | M      | ☑   |
+| [MAINT-2](./09-maintainability.md#maint-2)       | Some comments narrate history rather than explain the code          | M      | ☑   |
 | [TEST-2](./08-testing.md#test-2)                 | No end-to-end tests                                                 | L      | ☐   |
 | [MAINT-1](./09-maintainability.md#maint-1)       | `RosterGame.svelte` is 638 lines with three separable concerns      | L      | ☐   |
 

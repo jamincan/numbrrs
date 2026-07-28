@@ -79,6 +79,15 @@ blocks:
 
 SvelteKit's `csp.directives` supports both.
 
+### Done — landed 2026-07-28
+
+`svelte.config.js` now sets `'style-src': ['self']` and `'style-src-attr': ['unsafe-inline']`
+separately; `style-src-elem` was left unset (falls back to `style-src`'s `'self'`), since nothing
+in this codebase injects a `<style>` element. Verified against the built server: the
+`Content-Security-Policy` header carries both directives split as expected, and
+`/game/nhl/TOR`'s HTML still renders inline `style="color: #4E7FDB;"` attributes for team
+colouring — the concession that has to survive this change.
+
 ### Test this before shipping
 
 `style-src-attr` is CSP Level 3. A browser that does not support it ignores the directive and

@@ -15,7 +15,12 @@ const LOCAL_LOGOS: Record<string, string> = Object.fromEntries(
 			import: 'default'
 		}) as Record<string, string>
 	).map(([path, url]) => {
-		const [, league, file] = path.match(/\/logos\/([^/]+)\/([^/]+)$/) ?? [];
+		const match = path.match(/\/logos\/([^/]+)\/([^/]+)$/);
+		if (!match) throw new Error(`Local logo path doesn't match the expected shape: ${path}`);
+		// Both groups are mandatory in the pattern (no '?'), so they're always
+		// present once the match itself succeeds.
+		const league = match[1]!;
+		const file = match[2]!;
 		return [logoKey(league, file.replace(/\.[^.]+$/, '')), url];
 	})
 );

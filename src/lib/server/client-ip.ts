@@ -15,7 +15,9 @@ export function clientIp(event: RequestEvent): string {
 	if (flyIp) return flyIp;
 
 	const forwarded = event.request.headers.get('x-forwarded-for');
-	if (forwarded) return forwarded.split(',')[0].trim();
+	// Splitting a non-empty string always yields at least one element; the
+	// fallback is unreachable and only satisfies noUncheckedIndexedAccess.
+	if (forwarded) return (forwarded.split(',')[0] ?? forwarded).trim();
 
 	try {
 		return event.getClientAddress();

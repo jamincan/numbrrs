@@ -160,11 +160,13 @@
 					<!-- Recessive baseline, and ticks only at the ends plus the peak. -->
 					<div class="mt-1 border-t border-white/15"></div>
 					<div class="mt-1.5 flex justify-between text-xs text-gray-500 tabular-nums">
-						<span>{shortDay(stats.daily[0].day)}</span>
+						<!-- hasTraffic guards this branch, and it's only true when some day
+						     had views > 0 — so daily has at least one entry here. -->
+						<span>{shortDay(stats.daily[0]!.day)}</span>
 						{#if busiest && busiest.visitors > 0}
 							<span class="text-gray-400">peak {busiest.visitors} on {shortDay(busiest.day)}</span>
 						{/if}
-						<span>{shortDay(stats.daily[stats.daily.length - 1].day)}</span>
+						<span>{shortDay(stats.daily[stats.daily.length - 1]!.day)}</span>
 					</div>
 				{/if}
 

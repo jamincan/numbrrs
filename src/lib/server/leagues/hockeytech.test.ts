@@ -108,19 +108,19 @@ describe('parseRosterEntries', () => {
 
 	it('stores a missing jersey number as null', () => {
 		expect(
-			parseRosterEntries([entry({ tp_jersey_number: undefined })])[0].sweaterNumber
+			parseRosterEntries([entry({ tp_jersey_number: undefined })])[0]!.sweaterNumber
 		).toBeNull();
-		expect(parseRosterEntries([entry({ tp_jersey_number: '' })])[0].sweaterNumber).toBeNull();
+		expect(parseRosterEntries([entry({ tp_jersey_number: '' })])[0]!.sweaterNumber).toBeNull();
 	});
 
 	it('normalizes handed positions and passes unknown ones through', () => {
-		expect(parseRosterEntries([entry({ position: 'LD' })])[0].positionCode).toBe('D');
-		expect(parseRosterEntries([entry({ position: 'RW' })])[0].positionCode).toBe('R');
-		expect(parseRosterEntries([entry({ position: 'HC' })])[0].positionCode).toBe('HC');
+		expect(parseRosterEntries([entry({ position: 'LD' })])[0]!.positionCode).toBe('D');
+		expect(parseRosterEntries([entry({ position: 'RW' })])[0]!.positionCode).toBe('R');
+		expect(parseRosterEntries([entry({ position: 'HC' })])[0]!.positionCode).toBe('HC');
 	});
 
 	it('defaults missing name and image fields', () => {
-		const [p] = parseRosterEntries([entry({ first_name: undefined, player_image: undefined })]);
+		const p = parseRosterEntries([entry({ first_name: undefined, player_image: undefined })])[0]!;
 		expect(p.firstName).toBe('');
 		expect(p.headshotUrl).toBe('');
 	});

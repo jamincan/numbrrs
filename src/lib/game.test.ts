@@ -105,34 +105,34 @@ describe('drawCard', () => {
 describe('cardOptions', () => {
 	it('includes the drawn player', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			expect(cardOptions(roster, [], roster[2], 4, seeded(seed))).toContain(3);
+			expect(cardOptions(roster, [], roster[2]!, 4, seeded(seed))).toContain(3);
 		}
 	});
 
 	it('offers as many options as the difficulty allows', () => {
-		expect(cardOptions(roster, [], roster[0], 4, seeded())).toHaveLength(4);
+		expect(cardOptions(roster, [], roster[0]!, 4, seeded())).toHaveLength(4);
 	});
 
 	it('offers every remaining player on expert difficulty', () => {
-		expect([...cardOptions(roster, [1], roster[1], Infinity, seeded())].sort()).toEqual([
+		expect([...cardOptions(roster, [1], roster[1]!, Infinity, seeded())].sort()).toEqual([
 			2, 3, 4, 5, 6
 		]);
 	});
 
 	it('caps the options at the remaining player count', () => {
-		expect([...cardOptions(roster, [1, 2, 3, 4], roster[4], 8, seeded())].sort()).toEqual([5, 6]);
+		expect([...cardOptions(roster, [1, 2, 3, 4], roster[4]!, 8, seeded())].sort()).toEqual([5, 6]);
 	});
 
 	it('never repeats an option', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			const options = cardOptions(roster, [], roster[0], 4, seeded(seed));
+			const options = cardOptions(roster, [], roster[0]!, 4, seeded(seed));
 			expect(new Set(options).size).toBe(options.length);
 		}
 	});
 
 	it('never offers an already-identified player', () => {
 		for (let seed = 1; seed < 20; seed++) {
-			const options = cardOptions(roster, [2, 4], roster[0], 8, seeded(seed));
+			const options = cardOptions(roster, [2, 4], roster[0]!, 8, seeded(seed));
 			expect(options).not.toContain(2);
 			expect(options).not.toContain(4);
 		}

@@ -97,10 +97,9 @@ export function pickCurrentSeason(
 /**
  * A season's roster feed lists everyone who appeared for the team, not just the
  * current squad, so a departed player and whoever inherited their sweater both
- * come back — which is why numbers looked duplicated. `active` marks who is
- * still on the roster. If a feed reports nobody active, treat that as a glitch
- * (reported via `onNobodyActive`) and keep the full list rather than empty the
- * team.
+ * come back. `active` marks who is still on the roster. If a feed reports
+ * nobody active, treat that as a glitch (reported via `onNobodyActive`) and
+ * keep the full list rather than empty the team.
  */
 export function parseRosterEntries(
 	entries: HockeyTechRosterEntry[],

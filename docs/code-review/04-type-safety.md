@@ -163,6 +163,37 @@ a comment can justify the assertion.
 > several of these errors, and fixing them in one 638-line file is easier than fixing them across
 > the five files MAINT-1 splits it into.
 
+### Done — landed 2026-07-28
+
+29 errors across 11 files, not 3 — the codebase moved on since this finding was written (the sync
+layer, the admin dashboard, and the TEST-1 test suite didn't exist yet). None were in
+`RosterGame.svelte`, so [MAINT-1](./09-maintainability.md#maint-1) is unblocked without having
+touched that file. `HockeyCard.svelte` and `nhl.ts:167` — the two other sites this finding
+named — turned out to already be type-correct (`getTeamColors`'s gradients are already typed as
+`[string, string]` tuples), matching what this finding predicted for `nhl.ts` but not for
+`HockeyCard.svelte`.
+
+The shape of the fixes split roughly in half:
+
+- **Real bugs, not just type noise.** `src/lib/logos.ts:18` was the exact latent crash this
+  finding described — `?? []` on a failed regex match, then `.toLowerCase()` on the (possibly
+  undefined) result, at module scope. Rewritten to throw a clear error naming the offending path
+  instead of producing `undefined` silently. `src/lib/game.ts`'s `shuffle` swap
+  (`[items[i], items[j]] = [items[j], items[i]]`) and `drawCard`'s `const [player, ...rest] = deck`
+  were genuine possibly-undefined the compiler now catches even though both are safe in practice —
+  fixed with narrow, commented non-null assertions tied to the loop bound or the preceding length
+  check, per this finding's own guidance.
+- **Test-only fixture indexing.** The rest — `game.test.ts`, `hockeytech.test.ts`,
+  `validate.test.ts`, `admin.test.ts`, `analytics.test.ts` — index into arrays built from literals
+  a few lines above (`roster[2]`, `parsed[0]`, `cookie.split('.')`), where the fix is a `!` or a
+  cast rather than a narrow, since the array shape is fixed by the test itself.
+
+`src/routes/admin/+page.svelte`'s two indices into `stats.daily` needed a comment rather than an
+assertion alone: they're guarded by `hasTraffic`, which is derived separately
+(`stats.daily.some(d => d.views > 0)`) and only implies non-emptiness indirectly.
+
+133 tests still pass; lint, check, and build are clean.
+
 ---
 
 <a id="type-3"></a>
