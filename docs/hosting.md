@@ -153,10 +153,15 @@ responses carry no `Set-Cookie`. Roughly a day of careful work.
 > locale-bucketing logic only needs `Request`/`URL`, which Vitest's Node
 > environment already provides.
 >
-> **Deliberately narrow for now:** the route in `wrangler.toml` only covers
-> `/privacy` and `/fr/privacy` — lower stakes than `/game/<league>/<team>` while the
-> mechanism proves itself. Expand the `routes` array once this has run cleanly for a
-> while; the Worker script itself needs no changes to cover more paths.
+> **Expanded to `/game/*` the same day.** The plan had been to wait and watch
+> `/privacy` first, but that reasoning didn't survive contact with the actual
+> traffic pattern: `/privacy` and `/game/<league>/<team>` run through the identical
+> Worker code path with no route-specific branching, and `/privacy` gets close to no
+> organic traffic — so waiting on it wouldn't have produced any evidence a direct
+> test couldn't produce faster. `wrangler.toml`'s `routes` now covers
+> `numbrrs.app/game/*` and `numbrrs.app/fr/game/*` too (which also matches the legacy
+> no-league `/game/<TEAM>` redirect route harmlessly — its response isn't `public` +
+> `s-maxage` either, so the Worker never caches it, same as the locale redirect).
 >
 > **Deployed and verified 2026-07-28**, via `pnpm run cf:deploy` from an
 > authenticated `wrangler login` session. Against the live site: a second request to
