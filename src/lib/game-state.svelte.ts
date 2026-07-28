@@ -98,13 +98,26 @@ export class GameState {
 			: [];
 	}
 
-	/** Deal the top card, with its answer options at the current difficulty. */
-	#dealt(drawn: ReturnType<typeof drawCard<Player>>, identified: number[]): ActiveCard | null {
+	/** Deal the top card, with its answer options at the current difficulty.
+	 *  `avoidId`, when given, is left out of the options where possible — see
+	 *  cardOptions. */
+	#dealt(
+		drawn: ReturnType<typeof drawCard<Player>>,
+		identified: number[],
+		avoidId?: number
+	): ActiveCard | null {
 		return (
 			drawn && {
 				key: this.#nextKey++,
 				player: drawn.player,
-				optionIds: cardOptions(this.#roster, identified, drawn.player, this.difficulty)
+				optionIds: cardOptions(
+					this.#roster,
+					identified,
+					drawn.player,
+					this.difficulty,
+					undefined,
+					avoidId
+				)
 			}
 		);
 	}
@@ -148,16 +161,18 @@ export class GameState {
 		const pool = identified.includes(card.player.id) ? recycle : [...recycle, card.player];
 		const drawn = drawCard(deck, pool);
 		const previous = this.resolved;
+		// Reveal whoever was picked when the guess was right, not whichever
+		// player the card happened to be built from — showing the other one
+		// reads as a correction when the answer was accepted. Computed before
+		// dealing the next card so its options can try to leave this player out.
+		const justRevealed = correct ? guessed : card.player;
 
 		this.deck = drawn?.deck ?? [];
 		this.recycle = drawn?.recycle ?? [];
 		this.identified = identified;
 		this.guesses += 1;
-		this.current = this.#dealt(drawn, identified);
-		// Reveal whoever was picked when the guess was right, not whichever
-		// player the card happened to be built from — showing the other one
-		// reads as a correction when the answer was accepted.
-		this.resolved = { key: card.key, player: correct ? guessed : card.player, correct };
+		this.current = this.#dealt(drawn, identified, justRevealed.id);
+		this.resolved = { key: card.key, player: justRevealed, correct };
 		this.previous = previous;
 	}
 
@@ -170,7 +185,14 @@ export class GameState {
 		if (!this.current) return;
 		this.current = {
 			...this.current,
-			optionIds: cardOptions(this.#roster, this.identified, this.current.player, value)
+			optionIds: cardOptions(
+				this.#roster,
+				this.identified,
+				this.current.player,
+				value,
+				undefined,
+				this.resolved?.player.id
+			)
 		};
 	}
 }

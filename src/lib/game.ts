@@ -68,19 +68,29 @@ export function drawCard<P extends GamePlayer>(
 /**
  * Answer options for a drawn card: its player plus enough other unidentified
  * players to fill out the difficulty's option count, shuffled.
+ *
+ * `avoidId` is the player most recently revealed on the guessed pile, if any.
+ * Their number is already visible there, so an option built from them can be
+ * ruled out on sight rather than recalled — they're filled in last, only if
+ * there aren't enough other candidates to reach the option count. Not always
+ * avoidable (a short roster, or high difficulty), but often is.
  */
 export function cardOptions<P extends GamePlayer>(
 	roster: readonly P[],
 	identified: readonly number[],
 	player: P,
 	difficulty: number,
-	random: () => number = Math.random
+	random: () => number = Math.random,
+	avoidId?: number
 ): number[] {
 	const remaining = roster.filter((p) => !identified.includes(p.id));
-	const others = shuffle(
+	const candidates = shuffle(
 		remaining.filter((p) => p.id !== player.id),
 		random
 	);
+	const preferred = candidates.filter((p) => p.id !== avoidId);
+	const fallback = candidates.filter((p) => p.id === avoidId);
 	const numOptions = Math.min(difficulty, remaining.length);
-	return shuffle([player.id, ...others.slice(0, numOptions - 1).map((p) => p.id)], random);
+	const others = [...preferred, ...fallback].slice(0, numOptions - 1);
+	return shuffle([player.id, ...others.map((p) => p.id)], random);
 }

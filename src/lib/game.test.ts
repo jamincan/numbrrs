@@ -137,4 +137,20 @@ describe('cardOptions', () => {
 			expect(options).not.toContain(4);
 		}
 	});
+
+	it('leaves out the avoided player when other candidates can fill the options', () => {
+		// Player 2's number is showing on the guessed pile; plenty of other
+		// unidentified players (3-6) are available instead.
+		for (let seed = 1; seed < 20; seed++) {
+			const options = cardOptions(roster, [], roster[0]!, 2, seeded(seed), 2);
+			expect(options).not.toContain(2);
+		}
+	});
+
+	it('falls back to the avoided player when nobody else is left to fill the options', () => {
+		// Only players 1 and 2 remain unidentified, so avoiding 2 entirely would
+		// leave the question with just one option.
+		const options = [...cardOptions(roster, [3, 4, 5, 6], roster[0]!, 2, seeded(), 2)].sort();
+		expect(options).toEqual([1, 2]);
+	});
 });
