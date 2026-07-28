@@ -5,7 +5,7 @@ import { clientIp } from '$lib/server/client-ip';
 import { getDb } from '$lib/server/db';
 import { events, errors } from '$lib/server/db/schema';
 import { dayKey, isBot, referrerHost, visitorHash } from '$lib/server/telemetry';
-import { SITE_ORIGIN } from '$lib/site';
+import { OWN_HOSTNAMES } from '$lib/site';
 
 /**
  * The salt behind the visitor hash. Regenerated whenever the day rolls over and
@@ -180,7 +180,7 @@ export function recordEvent(event: RequestEvent, input: EventInput): void {
 				locale: event.locals.locale,
 				referrerHost: referrerHost(event.request.headers.get('referer'), [
 					event.url.hostname,
-					new URL(SITE_ORIGIN).hostname
+					...OWN_HOSTNAMES
 				]),
 				visitorHash: visitorHash(saltFor(day), day, clientIp(event), userAgent),
 				props: input.props ? JSON.stringify(input.props) : null

@@ -4,15 +4,7 @@ import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
 import { bootstrap } from '$lib/server/db';
-import { SITE_ORIGIN } from '$lib/site';
-
-/**
- * Hosts that fold into SITE_ORIGIN rather than serving their own copy: the
- * domain the app used before moving there (see site.ts), and the www variant
- * — search engines and browsers should only ever see one canonical URL per
- * page.
- */
-const REDIRECT_HOSTNAMES = new Set(['numbrrs.ca', 'www.numbrrs.app']);
+import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '$lib/site';
 
 // Runs once, when the server module graph loads. Guarded by `building` so it
 // doesn't fire during `vite build`, which imports this module to prerender
