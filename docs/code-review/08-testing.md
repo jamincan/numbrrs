@@ -239,3 +239,19 @@ Add a `pnpm audit` step. Consider Dependabot or Renovate for update PRs.
 
 Once [TEST-1](#test-1) lands, a coverage threshold on `src/lib/server/` would be worth adding —
 that is where the destructive code lives.
+
+### Done — landed 2026-07-28
+
+`pnpm audit --audit-level=high` runs after the build step, but with `continue-on-error: true` —
+informational rather than blocking. At the time this landed the project already carried 20
+existing advisories (2 low, 11 moderate, 7 high), all in build/dev tooling nested under
+`@sveltejs/adapter-node` (vite, esbuild, postcss, devalue, kysely, brace-expansion) — none of it
+code that runs in the deployed process. `pnpm audit --prod` still surfaces 16 of them, because pnpm
+doesn't distinguish "a build-time tool nested under a runtime dependency" from "code that actually
+executes in production" — so a blocking check would gate every merge on advisories in vite's own
+dev server, which never runs on Fly. Visibility is what this finding asked for; a human still has
+to read the output and judge each advisory, which a hard failure would just as easily suppress by
+training everyone to `continue-on-error` around the whole step, not just this one.
+
+Dependabot/Renovate was not set up — genuinely a separate decision (recurring PRs vs. a CI check),
+left for whoever owns that trade-off.

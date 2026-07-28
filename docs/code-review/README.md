@@ -65,12 +65,12 @@ redistributed under a licence that cannot cover them.
 
 | ID                                         | Finding                                               | Effort |     |
 | ------------------------------------------ | ----------------------------------------------------- | ------ | --- |
-| [TYPE-3](./04-type-safety.md#type-3)       | `Accept-Language: fr;q=0` resolves to French          | S      | ☐   |
-| [SEC-2](./06-security-hardening.md#sec-2)  | No `Cross-Origin-Opener-Policy`                       | S      | ☐   |
-| [SEC-3](./06-security-hardening.md#sec-3)  | Cookie values are written unencoded                   | S      | ☐   |
-| [SEC-4](./06-security-hardening.md#sec-4)  | Redirect param interpolated into `Location` unencoded | S      | ☐   |
-| [TEST-3](./08-testing.md#test-3)           | CI has no dependency audit                            | S      | ☐   |
-| [MAINT-4](./09-maintainability.md#maint-4) | Duplicated markup, repeated literals, template cruft  | S      | ☐   |
+| [TYPE-3](./04-type-safety.md#type-3)       | `Accept-Language: fr;q=0` resolves to French          | S      | ☑   |
+| [SEC-2](./06-security-hardening.md#sec-2)  | No `Cross-Origin-Opener-Policy`                       | S      | ☑   |
+| [SEC-3](./06-security-hardening.md#sec-3)  | Cookie values are written unencoded                   | S      | ☑   |
+| [SEC-4](./06-security-hardening.md#sec-4)  | Redirect param interpolated into `Location` unencoded | S      | ☑   |
+| [TEST-3](./08-testing.md#test-3)           | CI has no dependency audit                            | S      | ☑   |
+| [MAINT-4](./09-maintainability.md#maint-4) | Duplicated markup, repeated literals, template cruft  | S      | ☑   |
 
 ## Sequencing
 

@@ -73,7 +73,9 @@ export function parseAcceptLanguage(header: string | null | undefined): Locale |
 				q: quality ? Number.parseFloat(quality.split('=')[1] ?? '0') : 1
 			};
 		})
-		.filter((entry) => entry.tag !== '' && !Number.isNaN(entry.q))
+		// q=0 is RFC 9110's explicit "not this one" — the one unambiguous way a
+		// client can rule out a language, so it must not just fail to rank last.
+		.filter((entry) => entry.tag !== '' && entry.q > 0)
 		.sort((a, b) => b.q - a.q);
 
 	for (const { tag } of ranked) {

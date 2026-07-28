@@ -29,6 +29,15 @@ jobs:
 
       - run: pnpm run build
 
+      # Informational rather than blocking: pnpm's dependency graph doesn't
+      # distinguish "a build-time tool nested under a runtime dependency" from
+      # "code that actually executes in production", so failing here would
+      # gate merges on advisories in vite/esbuild's own dev server — packages
+      # that never run on Fly. Visibility is the point; a human still has to
+      # read this and decide whether a given advisory is worth acting on.
+      - run: pnpm audit --audit-level=high
+        continue-on-error: true
+
       - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm run test:e2e

@@ -3,6 +3,17 @@ import type { Gender } from './index';
 /** Position codes the app has names for; anything else falls back to the code. */
 export type PositionCode = 'C' | 'L' | 'R' | 'F' | 'D' | 'G';
 
+/** The forward positions, grouped together in the roster view. */
+export const FORWARD_POSITION_CODES: readonly PositionCode[] = ['L', 'C', 'R', 'F'];
+
+/**
+ * Every position the roster view groups explicitly (forwards, plus defense
+ * and goalies). Anything not in this set falls into its "other" group —
+ * declared as a superset of `FORWARD_POSITION_CODES` rather than a second
+ * independent list, so the two can't silently drift apart.
+ */
+export const KNOWN_POSITION_CODES: readonly PositionCode[] = [...FORWARD_POSITION_CODES, 'D', 'G'];
+
 /**
  * The shape every catalogue implements. Declared explicitly rather than
  * inferred from the English one so that a locale can only ever be missing a

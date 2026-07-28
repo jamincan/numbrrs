@@ -231,3 +231,10 @@ input, so this slots straight in.
 `negotiator` or `@formatjs/intl-localematcher` would be the usual advice. It is not worth it
 here: the parser is 20 lines, handles quality ordering and primary-subtag matching correctly,
 has real test coverage, and serves exactly two locales. Fix the `q=0` case and leave it.
+
+### Done — landed 2026-07-28
+
+The filter changed from `!Number.isNaN(entry.q)` to `entry.q > 0`, which excludes `q=0` and still
+excludes `NaN` (`NaN > 0` is `false`) — a strict improvement, not a second condition. Three new
+cases in `index.test.ts`: `fr;q=0` alone resolves to `undefined`, `fr;q=0,en` resolves to `en`, and
+`fr;q=0.000` (the zero spelled differently) is also excluded.

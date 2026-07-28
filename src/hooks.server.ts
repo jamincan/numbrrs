@@ -119,6 +119,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 	response.headers.set('X-Content-Type-Options', 'nosniff');
 	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+	// Severs window.opener for cross-origin openers. The only outbound link
+	// today (GitHub, in +layout.svelte) already carries rel="noopener", so this
+	// is defence in depth for a link added later that forgets to.
+	response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
 	// Fly already forces HTTPS; this tells browsers to stop asking. Ignored
 	// over plain http, so it doesn't get in the way of local dev.
 	response.headers.set('Strict-Transport-Security', 'max-age=31536000');

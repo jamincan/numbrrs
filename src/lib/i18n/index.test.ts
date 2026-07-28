@@ -49,6 +49,12 @@ describe('parseAcceptLanguage', () => {
 		expect(parseAcceptLanguage('de-DE,de;q=0.9,fr;q=0.8')).toBe('fr');
 	});
 
+	it('treats q=0 as explicitly unacceptable, not just low priority', () => {
+		expect(parseAcceptLanguage('fr;q=0')).toBeUndefined();
+		expect(parseAcceptLanguage('fr;q=0,en')).toBe('en');
+		expect(parseAcceptLanguage('fr;q=0.000')).toBeUndefined();
+	});
+
 	it('returns undefined when nothing is supported', () => {
 		expect(parseAcceptLanguage('de,es;q=0.9')).toBeUndefined();
 	});

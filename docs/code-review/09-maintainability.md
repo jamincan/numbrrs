@@ -250,3 +250,22 @@ constant makes safe.
 
 Both are harmless, and both are the kind of thing that makes a reader wonder what else was left
 unconsidered.
+
+### Done — landed 2026-07-28
+
+All three, after [MAINT-1](#maint-1)'s split had already moved this code to
+`RosterDrawer.svelte`/`CardTable.svelte`:
+
+- **Option button** — a shared `{#snippet optionButton(player, interaction)}` in
+  `RosterDrawer.svelte`, parameterized by the one thing that differed (`hover:scale-105` for the
+  roomier expanded grid, `active:scale-95` for the compact collapsed one). Both call sites now
+  render it instead of repeating the markup.
+- **Position-code literal** — `FORWARD_POSITION_CODES` and `KNOWN_POSITION_CODES` (the latter
+  spread from the former, plus `'D'` and `'G'`) now live beside the `PositionCode` type in
+  `i18n/messages.ts`, not beside the comment in `server/leagues/types.ts` — that file is
+  server-only, and this codebase deliberately keeps client components from importing it (the same
+  reason `$lib/types.ts` duplicates row types rather than importing them). The `other` filter is
+  now provably `!KNOWN_POSITION_CODES.includes(...)`, which is what makes the complement safe.
+- **Template cruft** — `eslint.config.js`'s empty trailing block removed; `tsconfig.json`'s comment
+  trimmed to the one thing still true here (path aliases come from `svelte.config.js`), dropping the
+  generic "how to extend this file" advice that was never specific to this project.

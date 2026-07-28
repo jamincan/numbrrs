@@ -126,6 +126,10 @@ later that forget it.
 Add `response.headers.set('Cross-Origin-Opener-Policy', 'same-origin')` alongside the existing
 headers.
 
+### Done — landed 2026-07-28
+
+Added in `hooks.server.ts` alongside the other security headers, exactly as suggested.
+
 ---
 
 <a id="sec-3"></a>
@@ -157,6 +161,12 @@ than in the function.
 
 Either `encodeURIComponent(value)`, or narrow the parameter type so only the known-safe unions
 can be passed. The type-level fix is the better one — it makes the guarantee visible.
+
+### Done — landed 2026-07-28
+
+Took the type-level fix. `rememberCookie`'s `value` parameter is now `Locale | LeagueId` instead of
+`string` — the exact two unions its two real call sites already pass. A future caller trying to
+remember an arbitrary string now gets a compile error instead of a silently-accepted cookie value.
 
 ---
 
@@ -193,6 +203,11 @@ without encoding is a pattern worth not having in the codebase, and the fix cost
 
 Keep the route itself — the comment at `:3-4` explains it preserves pre-PWHL bookmarks
 (`/game/TOR`), which is worth maintaining.
+
+### Done — landed 2026-07-28
+
+`encodeURIComponent` wraps the uppercased param exactly as suggested; the route and its bookmark
+comment are untouched.
 
 ---
 

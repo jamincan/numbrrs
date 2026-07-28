@@ -3,6 +3,7 @@
 	import type { GameState } from '$lib/game-state.svelte';
 	import { getI18n } from '$lib/i18n/state.svelte';
 	import type { Gender } from '$lib/i18n';
+	import { FORWARD_POSITION_CODES, KNOWN_POSITION_CODES } from '$lib/i18n/messages';
 	import type { Player } from '$lib/types';
 
 	const i18n = getI18n();
@@ -22,14 +23,30 @@
 	} = $props();
 
 	const forwards = $derived(
-		roster.filter((player) => ['L', 'C', 'R', 'F'].includes(player.positionCode))
+		roster.filter((player) =>
+			(FORWARD_POSITION_CODES as readonly string[]).includes(player.positionCode)
+		)
 	);
 	const defensemen = $derived(roster.filter((player) => player.positionCode === 'D'));
 	const goalies = $derived(roster.filter((player) => player.positionCode === 'G'));
 	const other = $derived(
-		roster.filter((player) => !['L', 'C', 'R', 'F', 'D', 'G'].includes(player.positionCode))
+		roster.filter(
+			(player) => !(KNOWN_POSITION_CODES as readonly string[]).includes(player.positionCode)
+		)
 	);
 </script>
+
+{#snippet optionButton(player: Player, interaction: string)}
+	<button
+		onclick={() => game.guess(player.id)}
+		class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all {interaction}"
+		style="border-color: {primaryColor ?? '#555'}; background: {primaryColor ??
+			'#555'}22; color: white;"
+	>
+		{player.firstName}
+		{player.lastName}
+	</button>
+{/snippet}
 
 {#snippet playerGrid(group: Player[])}
 	<!-- Columns follow the container, not the viewport: this grid renders at
@@ -50,15 +67,7 @@
 					{player.sweaterNumber ?? '--'}
 				</div>
 			{:else if selectable}
-				<button
-					onclick={() => game.guess(player.id)}
-					class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all hover:scale-105"
-					style="border-color: {primaryColor ?? '#555'}; background: {primaryColor ??
-						'#555'}22; color: white;"
-				>
-					{player.firstName}
-					{player.lastName}
-				</button>
+				{@render optionButton(player, 'hover:scale-105')}
 			{:else}
 				<div class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600">
 					{player.firstName}
@@ -140,15 +149,7 @@
 					style="grid-template-columns: repeat({layout.optionColumns}, minmax(0, 1fr));"
 				>
 					{#each game.activeOptions as player (player.id)}
-						<button
-							onclick={() => game.guess(player.id)}
-							class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all active:scale-95"
-							style="border-color: {primaryColor ?? '#555'}; background: {primaryColor ??
-								'#555'}22; color: white;"
-						>
-							{player.firstName}
-							{player.lastName}
-						</button>
+						{@render optionButton(player, 'active:scale-95')}
 					{/each}
 				</div>
 			</div>
