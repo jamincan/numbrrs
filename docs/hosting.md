@@ -127,6 +127,26 @@ Likely shape: cache strictly per URL path (locale is already in the path, which
 helps a lot), keep the league-tab cookie a client-side concern, and ensure cached
 responses carry no `Set-Cookie`. Roughly a day of careful work.
 
+> [!NOTE]
+> **Partially done 2026-07-28.** The canonical domain moved to numbrrs.app
+> (numbrrs.ca redirects there — see `hooks.server.ts`), and numbrrs.app is proxied
+> through Cloudflare: DNS is AAAA-only per Fly's proxied-setup guidance, SSL/TLS mode
+> is Full (strict), and Cache Level is left at the default Standard. Verified against
+> the live site — `server: cloudflare` and `via: 1.1 fly.io` both present, and
+> `cf-cache-status: DYNAMIC` on page routes confirms HTML isn't being cached, which
+> is correct at this stage: Standard only caches static assets by file extension
+> (this app's own `_app/immutable/*` bundle, self-hosted fonts and logos), never HTML,
+> so there is no risk yet from Cloudflare's free tier ignoring `Vary: Cookie`.
+>
+> **Not done:** the actual insurance policy — caching the SSR HTML itself. That still
+> needs the cookie/locale interaction described above, most likely as a small
+> Cloudflare Worker that makes the locale decision at the edge before consulting
+> cache (Cloudflare's free tier has no vary-by-header cache key, so the origin's
+> `Vary: Cookie` can't be replicated by a Cache Rule alone). Until that lands, a
+> traffic spike still hits the origin for every page render — proxying already
+> absorbs connection overhead and serves the static bundle from the edge, but the
+> CPU-during-a-spike risk this section opened with is not yet retired.
+
 ### 2. Pre-scale before posting — cheap insurance, zero code
 
 ```sh
@@ -413,21 +433,24 @@ Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
 2. ~~Wire up hosted error logging (Sentry free tier)~~ — **done differently**: first-party
    telemetry with Discord alerting shipped in `586b5e4`. See
    [Error logging](#error-logging) for why the recommendation was overtaken rather than rejected.
-3. Add cache headers + Cloudflare, resolving the locale/cookie interaction — the
-   actual insurance policy. Cache headers landed with [PERF-1](./code-review/07-caching-and-scaling.md#perf-1);
-   Cloudflare itself is account setup outside this repo and is the one item left on this list that
-   isn't a code change. It carried a trap that's already resolved: the `Vary` header on the locale
-   redirect was incomplete and would have become a live correctness bug the moment anything cached
-   these responses — see [PERF-1's Done section](./code-review/07-caching-and-scaling.md#perf-1)
-   for how that was fixed.
-4. If (3) isn't ready by post day: pre-scale to 3× `shared-cpu-2x` 1GB, post, scale
+3. ~~Add cache headers + Cloudflare~~ — **partially done 2026-07-28**. Cache headers landed with
+   [PERF-1](./code-review/07-caching-and-scaling.md#perf-1), including the `Vary` fix the locale
+   redirect needed before anything could safely cache it. The domain also moved to numbrrs.app
+   (numbrrs.ca now redirects there) and is proxied through Cloudflare — TLS, DDoS absorption, and
+   free edge caching of this app's own static bundle, all live. **Still open:** the actual HTML
+   caching (the real insurance policy this step was about) needs a small Cloudflare Worker to make
+   the locale decision at the edge, since the free tier has no vary-by-cookie cache key — see
+   [step 1's note above](#1-put-a-cdn-in-front--highest-leverage-by-a-wide-margin) for why that's
+   deliberately separate from getting Cloudflare live.
+4. If (3)'s HTML caching isn't ready by post day: pre-scale to 3× `shared-cpu-2x` 1GB, post, scale
    back down. $0.63, no code. Do this closer to the actual post date, not now.
 5. Warm the roster cache from `/admin` minutes before posting — see
    [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free). A day-of action, not
    something to do ahead of time.
 6. ~~Bound event retention~~ ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — **done**.
 
-What's left that isn't a day-of-posting action: the CDN itself (step 3), and the real req/s ceiling
+What's left that isn't a day-of-posting action: the Cloudflare Worker for HTML caching (step 3),
+and the real req/s ceiling
 (still an estimate — see [Open questions](#open-questions), "most valuable single follow-up").
 
 Independently, whenever convenient: move rosters in-memory. This no longer deletes the SQLite
