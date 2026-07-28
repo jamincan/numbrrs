@@ -77,14 +77,14 @@ describe('visitorHash', () => {
 });
 
 describe('referrerHost', () => {
-	const own = ['numbrrs.ca', 'numbrrs.fly.dev'];
+	const own = ['numbrrs.app', 'numbrrs.fly.dev'];
 
 	it('keeps only the host', () => {
 		expect(referrerHost('https://discord.com/channels/123/456', own)).toBe('discord.com');
 	});
 
 	it('drops our own hosts so internal navigation is not a referrer', () => {
-		expect(referrerHost('https://numbrrs.ca/fr/game/nhl/TOR', own)).toBeNull();
+		expect(referrerHost('https://numbrrs.app/fr/game/nhl/TOR', own)).toBeNull();
 		expect(referrerHost('https://numbrrs.fly.dev/', own)).toBeNull();
 	});
 

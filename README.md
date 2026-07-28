@@ -97,4 +97,4 @@ the NHL, PWHL, WHL, OHL or QMJHL. Fonts ship under the SIL Open Font License and
 icons under ISC.
 
 See [NOTICE](NOTICE) for the full attribution, and
-[the privacy page](https://numbrrs.ca/privacy) for what the site records.
+[the privacy page](https://numbrrs.app/privacy) for what the site records.

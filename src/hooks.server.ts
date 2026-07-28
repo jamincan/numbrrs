@@ -4,6 +4,10 @@ import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
 import { bootstrap } from '$lib/server/db';
+import { SITE_ORIGIN } from '$lib/site';
+
+/** The domain the app used before moving to SITE_ORIGIN — see site.ts. */
+const OLD_HOSTNAME = 'numbrrs.ca';
 
 // Runs once, when the server module graph loads. Guarded by `building` so it
 // doesn't fire during `vite build`, which imports this module to prerender
@@ -53,6 +57,17 @@ const PAGE_CACHE = 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600
  * so someone who picked English stays put.
  */
 export const handle: Handle = async ({ event, resolve }) => {
+	// Permanent, unconditional, and ahead of everything else: every path and
+	// query string carries straight over, and nothing downstream (locale,
+	// caching) needs to know this host was ever in play.
+	if (event.url.hostname === OLD_HOSTNAME) {
+		const target = new URL(event.url.pathname + event.url.search, SITE_ORIGIN);
+		return new Response(null, {
+			status: 301,
+			headers: { location: target.toString(), 'cache-control': 'public, max-age=86400' }
+		});
+	}
+
 	const lang = event.params.lang;
 	// Falls back to the path, not to English: a URL matching no route has no
 	// params, and /fr/nonexistent should still stamp <html lang="fr"> and be

@@ -54,8 +54,9 @@
 <svelte:head>
 	<link rel="icon" href={favicon} />
 	<!-- Each language lives at its own URL, so tell search engines how the two
-	     relate — and that either host (numbrrs.ca, numbrrs.fly.dev) canonically
-	     lives at numbrrs.ca. Titles and descriptions are per page. -->
+	     relate — and that every host (numbrrs.app, numbrrs.fly.dev, the retired
+	     numbrrs.ca) canonically lives at numbrrs.app. Titles and descriptions
+	     are per page. -->
 	<link rel="canonical" href={SITE_ORIGIN + page.url.pathname} />
 	<link rel="alternate" hreflang="en" href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')} />
 	<link rel="alternate" hreflang="fr" href={SITE_ORIGIN + localizePath(page.url.pathname, 'fr')} />
