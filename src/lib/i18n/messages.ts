@@ -63,6 +63,37 @@ export interface Messages {
 
 	positions: Record<PositionCode, (gender: Gender) => string>;
 
+	footer: {
+		/** Says the project is independent of the leagues whose marks it shows. */
+		disclaimer: string;
+		privacy: string;
+		source: string;
+	};
+
+	privacy: {
+		title: string;
+		description: string;
+		/** Lead paragraph — the short version, for anyone who reads no further. */
+		summary: string;
+		collectedTitle: string;
+		/** Each entry is one thing recorded per page view. */
+		collected: string[];
+		hashTitle: string;
+		hashBody: string;
+		cookiesTitle: string;
+		cookiesBody: string;
+		errorsTitle: string;
+		errorsBody: string;
+		retentionTitle: string;
+		retentionBody: string;
+		sharingTitle: string;
+		sharingBody: string;
+		contactTitle: string;
+		contactBody: string;
+		/** ISO date the wording last changed, rendered in the page's locale. */
+		updated: (date: string) => string;
+	};
+
 	error: {
 		/** A URL that doesn't exist, or a league or team code that doesn't. */
 		notFoundTitle: string;

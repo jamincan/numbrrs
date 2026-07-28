@@ -37,10 +37,10 @@ redistributed under a licence that cannot cover them.
 | [ABUSE-1](./05-abuse-resistance.md#abuse-1)      | No rate limit on the `/admin` login; failed auth unlogged            | S      | ☑   |
 | [ABUSE-4](./05-abuse-resistance.md#abuse-4)      | `events` retention is time-only — a spike writes ~125 MB in a day    | S      | ☑   |
 | [PERF-1](./07-caching-and-scaling.md#perf-1)     | No page-level `Cache-Control` — every request re-renders             | S      | ☐   |
-| [PRIV-1](./10-privacy-and-telemetry.md#priv-1)   | No privacy policy or data-handling disclosure                        | S      | ☐   |
-| [MAINT-3](./09-maintainability.md#maint-3)       | `README.md` is stale — five leagues, not two                         | S      | ◑   |
-| [LIC-3](./01-licensing-and-attribution.md#lic-3) | No non-affiliation disclaimer or data-source attribution             | S      | ☐   |
-| [LIC-1](./01-licensing-and-attribution.md#lic-1) | Club logos and marks redistributed under MIT                         | M      | ☐   |
+| [PRIV-1](./10-privacy-and-telemetry.md#priv-1)   | No privacy policy or data-handling disclosure                        | S      | ☑   |
+| [MAINT-3](./09-maintainability.md#maint-3)       | `README.md` is stale — five leagues, not two                         | S      | ☑   |
+| [LIC-3](./01-licensing-and-attribution.md#lic-3) | No non-affiliation disclaimer or data-source attribution             | S      | ☑   |
+| [LIC-1](./01-licensing-and-attribution.md#lic-1) | Club logos and marks redistributed under MIT                         | M      | ☑   |
 | [VAL-1](./03-external-api-validation.md#val-1)   | League API responses are `as`-cast with no runtime validation        | M      | ☐   |
 | [ABUSE-2](./05-abuse-resistance.md#abuse-2)      | A failing league API is re-fetched on every home-page load           | M      | ☐   |
 | [TEST-1](./08-testing.md#test-1)                 | The only code that deletes rows has zero tests                       | L      | ☐   |
@@ -55,7 +55,7 @@ redistributed under a licence that cannot cover them.
 | [PERF-2](./07-caching-and-scaling.md#perf-2)     | The app cannot scale past one machine — undocumented                | S      | ☐   |
 | [PERF-3](./07-caching-and-scaling.md#perf-3)     | No health check endpoint                                            | S      | ☐   |
 | [PRIV-2](./10-privacy-and-telemetry.md#priv-2)   | Client-submitted error text reaches Discord unescaped               | S      | ☐   |
-| [LIC-2](./01-licensing-and-attribution.md#lic-2) | OFL font licence does not ship with the self-hosted fonts           | S      | ☐   |
+| [LIC-2](./01-licensing-and-attribution.md#lic-2) | OFL font licence does not ship with the self-hosted fonts           | S      | ☑   |
 | [TYPE-2](./04-type-safety.md#type-2)             | `noUncheckedIndexedAccess` is off, hiding a module-load crash       | M      | ☐   |
 | [MAINT-2](./09-maintainability.md#maint-2)       | Some comments narrate history rather than explain the code          | M      | ☐   |
 | [TEST-2](./08-testing.md#test-2)                 | No end-to-end tests                                                 | L      | ☐   |

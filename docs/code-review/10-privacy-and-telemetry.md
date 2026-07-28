@@ -148,3 +148,28 @@ The ordering in `reportError` — durable write first, fire-and-forget webhook s
 deliberate and correct, and the comment at `alerts.ts:38-46` explains why: a detached fetch can
 be cut off when Fly stops the machine, so the row must not be the thing racing the shutdown.
 Do not make the webhook `await`ed while "fixing" this.
+
+---
+
+## Done 2026-07-27 — PRIV-1
+
+`/privacy` exists under `[[lang=locale]]`, so it is a real page in both languages and appears in
+the sitemap twice. It states what a page view records, explains the daily-rotated salt in plain
+language (the point being that nothing can link a code back to a person once the day is over, and
+that the IP itself is never stored), separates the two preference cookies from tracking, covers
+error records and the 90-day window, says the data stays on the Canadian server it was collected
+on, and points questions at the repository's issues.
+
+Linked from the footer added for [LIC-3](./01-licensing-and-attribution.md#lic-3) — one piece of
+markup, both findings, as this document suggested.
+
+The "last updated" date is a hardcoded constant rather than a build timestamp. A policy that
+claims to have changed on every deploy tells a reader nothing; **change it by hand when the
+wording changes**, and only then.
+
+### Check this when the retention numbers move
+
+The page commits to specifics that live in code: 90 days, and "older records are also removed
+once the store passes a fixed size" — which is `RETENTION_MS` and `MAX_EVENTS` in `analytics.ts`
+(see [ABUSE-4](./05-abuse-resistance.md#abuse-4)). If either constant changes, this page is now
+wrong in a way that matters more than a stale comment would.

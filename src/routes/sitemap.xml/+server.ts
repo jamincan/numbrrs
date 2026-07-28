@@ -5,13 +5,13 @@ import { teams } from '$lib/server/db/schema';
 import type { RequestHandler } from './$types';
 
 /**
- * The home page and every team page, in both languages. Built from the
- * database rather than a static list so new teams (and new leagues) show up on
- * their own.
+ * The home page, the privacy page, and every team page, in both languages.
+ * Team pages are built from the database rather than a static list so new teams
+ * (and new leagues) show up on their own.
  */
 export const GET: RequestHandler = () => {
 	const rows = db.select().from(teams).all();
-	const paths = ['/', ...rows.map((t) => `/game/${t.league}/${t.abbreviation}`)];
+	const paths = ['/', '/privacy', ...rows.map((t) => `/game/${t.league}/${t.abbreviation}`)];
 
 	const urls = paths
 		.flatMap((path) => LOCALES.map((locale) => localizePath(path, locale)))

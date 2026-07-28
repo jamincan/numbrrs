@@ -58,6 +58,47 @@ export const en: Messages = {
 		G: () => 'Goalie'
 	},
 
+	footer: {
+		disclaimer:
+			'An independent fan project. Not affiliated with or endorsed by the NHL, PWHL, WHL, OHL or QMJHL. Team names and logos are the property of their respective clubs.',
+		privacy: 'Privacy',
+		source: 'Source'
+	},
+
+	privacy: {
+		title: 'Privacy',
+		description: 'What Numbrrs records, why, and for how long.',
+		summary:
+			'Numbrrs counts page views so I can tell whether anyone is using it. There are no accounts, no advertising, no third-party trackers, and nothing here is sold or shared.',
+		collectedTitle: 'What a page view records',
+		collected: [
+			'The page path and the route it matched',
+			'The league and team, when the page is a team page',
+			'The language the page was served in',
+			'The site you arrived from — the host only, never the full address',
+			'A visitor code, described below'
+		],
+		hashTitle: 'The visitor code',
+		hashBody:
+			'To tell two visitors apart within a single day, your IP address and browser are hashed together with a random value. That random value is generated fresh each day and is never written to disk — so once the day is over, nothing can link the code back to you, and today’s code cannot be matched to tomorrow’s. Your IP address itself is never stored.',
+		cookiesTitle: 'Cookies',
+		cookiesBody:
+			'None are used for analytics. Two cookies remember preferences you set — your language and the last league tab you opened — and nothing else reads them.',
+		errorsTitle: 'Errors',
+		errorsBody:
+			'When something breaks, the error message, the page it happened on, and a technical stack trace are recorded so it can be fixed. Repeats of the same fault collapse into a single record.',
+		retentionTitle: 'How long it is kept',
+		retentionBody:
+			'90 days, after which it is deleted automatically. Older records are also removed once the store passes a fixed size.',
+		sharingTitle: 'Who else sees it',
+		sharingBody:
+			'Nobody. Everything is stored on the server that runs the site, in Canada. The only thing that leaves is an error notification to a private channel I watch, which contains the error and no visitor information.',
+		contactTitle: 'Questions',
+		contactBody:
+			'For a question, a correction, or a request to remove something, open an issue on the project’s GitHub repository.',
+		updated: (date) => `Last updated ${date}.`
+	},
+
 	error: {
 		notFoundTitle: 'Page not found',
 		notFoundBody: "That page doesn't exist. The link may be out of date, or a team may have moved.",

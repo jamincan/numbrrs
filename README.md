@@ -1,6 +1,8 @@
 # NumBrrs
 
-**NumBrrs** is a flashcard-style game for learning hockey player jersey numbers, covering the NHL and the PWHL. Pick a league and a team, guess who wears each number, and work your way through the full roster.
+**NumBrrs** is a flashcard-style game for learning hockey player jersey numbers, covering the NHL, PWHL, WHL, OHL and QMJHL. Pick a league and a team, guess who wears each number, and work your way through the full roster.
+
+The whole site is available in English and French — each language has its own URLs (`/` and `/fr/`), so both are indexable and shareable.
 
 ## How it works
 
@@ -13,7 +15,7 @@ You're shown a hockey card with a team and jersey number. Guess the player from 
 
 Correctly identified players are marked in the roster and won't appear as options again, so the game gets progressively easier as you learn the team.
 
-Roster data is pulled from the league APIs (the NHL API and the PWHL's HockeyTech feed) and refreshed regularly, so it stays up to date as trades and signings happen. Each league is wired up through a small adapter (`src/lib/server/leagues/`), so adding another league mostly means writing a new adapter.
+Roster data is pulled from the league APIs — the NHL's own feed, and HockeyTech's for the other four — and refreshed on demand as pages are visited, so it stays up to date as trades and signings happen. Each league is wired up through a small adapter (`src/lib/server/leagues/`), so adding another league mostly means writing a new adapter.
 
 ## Contributing
 
@@ -66,6 +68,33 @@ cross-site check over plain http. Set `ORIGIN` to match:
 DATABASE_URL=scratch.db ADMIN_TOKEN=dev ORIGIN=http://localhost:3000 node build
 ```
 
+### Scaling
+
+The app runs as a single machine, and that is the only correct configuration
+today. Three things assume it: the Fly volume holding SQLite attaches to exactly
+one machine, the sync layer's in-flight coalescing is per-process, and the rate
+limiter is in memory. Running `fly scale count 2` would not fail loudly — it
+would quietly duplicate syncs and loosen the limits.
+
+The exit paths, when it matters, are LiteFS for read replicas or Postgres via a
+Drizzle dialect swap. See [`docs/hosting.md`](docs/hosting.md) for the full
+analysis, including why the storage layout is what it is.
+
+## Documentation
+
+- [`docs/code-review/`](docs/code-review/) — the hardening backlog: prioritised
+  findings with `file:line` evidence and status boxes.
+- [`docs/hosting.md`](docs/hosting.md) — what it costs to run, what a large
+  traffic spike would do to it, and the storage decisions behind both.
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — **source code only**.
+
+Team names, logos and marks belong to their respective clubs and leagues and are
+used here for identification. This project is not affiliated with or endorsed by
+the NHL, PWHL, WHL, OHL or QMJHL. Fonts ship under the SIL Open Font License and
+icons under ISC.
+
+See [NOTICE](NOTICE) for the full attribution, and
+[the privacy page](https://numbrrs.ca/privacy) for what the site records.

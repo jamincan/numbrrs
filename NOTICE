@@ -1,0 +1,96 @@
+NOTICE
+======
+
+The MIT licence in LICENSE covers the SOURCE CODE OF THIS PROJECT ONLY.
+
+It does not — and cannot — grant any rights in the third-party material listed
+below. That material is included under the terms of its own licence, or is used
+for identification purposes under the owner's rights.
+
+
+Not affiliated
+--------------
+
+Numbrrs is an independent fan project. It is not affiliated with, endorsed by,
+sponsored by, or otherwise connected to the National Hockey League (NHL), the
+Professional Women's Hockey League (PWHL), the Canadian Hockey League (CHL), the
+Western Hockey League (WHL), the Ontario Hockey League (OHL), the Ligue de
+hockey junior majeur du Québec (LHJMQ/QMJHL), or any of their member clubs.
+
+
+Team names, logos and marks
+---------------------------
+
+Club names, logos, wordmarks and colours are the property of their respective
+clubs and leagues. They appear here to identify the club a player belongs to —
+nominative use — and no claim of ownership is made.
+
+This includes, but is not limited to:
+
+  - The club logos committed under src/lib/assets/logos/ (NHL, OHL, PWHL, QMJHL
+    and WHL club marks).
+  - The club names and brand colours in src/lib/team-names.ts and
+    src/lib/team-colors.ts.
+  - Club logos and player photographs loaded at runtime from league-operated
+    CDNs, which are not redistributed by this project.
+
+If you are a rights holder and would like something removed, please open an
+issue at https://github.com/jamincan/numbrrs.
+
+
+Data sources
+------------
+
+Roster and team data is retrieved from public league endpoints:
+
+  - NHL          https://api-web.nhle.com/v1
+  - PWHL, WHL,   https://lscluster.hockeytech.com/feed/index.php
+    OHL, QMJHL   (HockeyTech "modulekit" feed)
+
+This project has no formal relationship with, and makes no warranty about,
+either source. The HockeyTech API keys in src/lib/server/leagues/ are the ones
+published by the leagues' own public websites; they are not secrets.
+
+
+Fonts
+-----
+
+Inter
+  Copyright 2016 The Inter Project Authors
+  https://github.com/rsms/inter
+  Licensed under the SIL Open Font License, Version 1.1.
+  Full text: static/licenses/OFL-Inter.txt
+
+Barlow Condensed
+  Copyright 2017 The Barlow Project Authors
+  https://github.com/jpt/barlow
+  Licensed under the SIL Open Font License, Version 1.1.
+  Full text: static/licenses/OFL-Barlow-Condensed.txt
+
+Both families are self-hosted (see src/app.css), so the built site distributes
+the font files themselves. The OFL requires the licence and copyright notice to
+travel with them, which is why the full text ships under static/licenses/ and is
+served at /licenses/OFL-Inter.txt and /licenses/OFL-Barlow-Condensed.txt.
+
+
+Icons
+-----
+
+Lucide
+  Copyright (c) 2022 Lucide Contributors
+  https://lucide.dev
+  Licensed under the ISC License.
+
+  The "gauge" and "check" glyphs are inlined as SVG paths in
+  src/routes/[[lang=locale]]/game/[league]/[team]/DifficultyMenu.svelte rather
+  than pulled in as a dependency.
+
+The GitHub mark inlined in src/routes/+layout.svelte is a trademark of GitHub,
+Inc., used to link to this project's repository.
+
+
+Dependencies
+------------
+
+Runtime and build dependencies carry their own licences; see package.json and
+the corresponding entries in node_modules. `pnpm licenses list` prints a summary.

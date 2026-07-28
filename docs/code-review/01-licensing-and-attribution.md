@@ -110,3 +110,39 @@ site is consuming these feeds with no attribution and no stated relationship.
   leagues as the data source.
 - Add the same to `README.md` (see also [MAINT-3](./09-maintainability.md#maint-3), which
   rewrites that file anyway).
+
+---
+
+## Done 2026-07-27 — LIC-1, LIC-2, LIC-3
+
+`NOTICE` at the repository root states that MIT covers the source code only, disclaims affiliation
+with all five leagues, names the club marks and brand-colour tables as third-party property,
+credits both data sources, and records the font and icon licences. `LICENSE` is unchanged;
+`README.md` points at `NOTICE` from a rewritten licence section.
+
+The OFL text now ships as `static/licenses/OFL-Inter.txt` and
+`static/licenses/OFL-Barlow-Condensed.txt`, copied from the Fontsource packages and served at
+`/licenses/…`. That closes LIC-2: the fonts and their licence now travel together.
+
+For LIC-3 the disclaimer went into a site footer in `+layout.svelte`, alongside links to the new
+privacy page ([PRIV-1](./10-privacy-and-telemetry.md#priv-1)) and the repository. Both catalogues
+carry the wording, so it is disclaimed in French too.
+
+### One deliberate exception
+
+> [!IMPORTANT]
+> **The footer is hidden on the game page** (`fillsViewport` in `+layout.svelte`). `RosterGame`
+> is `flex-1` and sizes its cards against the height left over, measured at runtime by a
+> `ResizeObserver` — so a footer comes straight out of the play area, worst on a phone in
+> landscape, which is already the tightest case that layout handles.
+>
+> The disclaimer is still on every route that leads to a game: the home page listing every team,
+> the privacy page, and the error page. If it ever needs to be on the game page too, put it
+> behind the roster drawer rather than below the card table.
+
+### Not done
+
+The hotlinked CDN assets noted under LIC-1 are unchanged — headshots still load from
+`assets.nhle.com` and HockeyTech at render time. They are not redistributed, so they are not a
+licensing problem; serving another party's images from their bandwidth on a growing site is the
+separate conversation that finding flagged, and it has not been had.

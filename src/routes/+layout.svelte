@@ -42,6 +42,13 @@
 	// (/admin) both toggle options resolve to the same URL, so the control would
 	// sit there looking switchable while doing nothing.
 	const localized = $derived(page.route.id?.startsWith('/[[lang=locale]]') ?? false);
+
+	// The game sizes its cards against whatever height is left over, measured at
+	// runtime, so anything added below it comes straight out of the play area —
+	// worst on a phone in landscape, which is the tightest case the layout
+	// already has to handle. The disclaimer it would carry is on every route
+	// that leads here, and in NOTICE.
+	const fillsViewport = $derived(page.route.id?.includes('/game/') ?? false);
 </script>
 
 <svelte:head>
@@ -107,4 +114,29 @@
 	</nav>
 
 	{@render children()}
+
+	<!-- The pages that show club marks carry the statement that we don't own them
+	     and aren't endorsed by anyone; NOTICE has the long form. mt-auto pins it
+	     to the bottom on short pages without making it sticky. -->
+	{#if !fillsViewport}
+		<footer class="mt-auto border-t border-gray-900 px-6 py-6 text-xs text-gray-500">
+			<div
+				class="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+			>
+				<p class="max-w-prose">{i18n.m.footer.disclaimer}</p>
+				<nav class="flex shrink-0 gap-4">
+					<a
+						href={resolve('/[[lang=locale]]/privacy', { lang: i18n.lang })}
+						class="transition-colors hover:text-gray-300">{i18n.m.footer.privacy}</a
+					>
+					<a
+						href="https://github.com/jamincan/numbrrs"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="transition-colors hover:text-gray-300">{i18n.m.footer.source}</a
+					>
+				</nav>
+			</div>
+		</footer>
+	{/if}
 </div>

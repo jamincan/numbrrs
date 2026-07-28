@@ -81,6 +81,47 @@ export const fr: Messages = {
 		G: (gender) => (gender === 'f' ? 'Gardienne' : 'Gardien')
 	},
 
+	footer: {
+		disclaimer:
+			"Projet indépendant réalisé par un amateur. Sans lien avec la LNH, la PWHL, la WHL, l'OHL ou la LHJMQ, et sans leur approbation. Les noms et logos d'équipe appartiennent à leurs clubs respectifs.",
+		privacy: 'Confidentialité',
+		source: 'Code source'
+	},
+
+	privacy: {
+		title: 'Confidentialité',
+		description: 'Ce que Numbrrs enregistre, pourquoi, et pour combien de temps.',
+		summary:
+			"Numbrrs compte les pages consultées, simplement pour savoir si le site sert à quelqu'un. Il n'y a ni compte, ni publicité, ni traceur tiers, et rien n'est vendu ni communiqué à qui que ce soit.",
+		collectedTitle: 'Ce qu’une page consultée enregistre',
+		collected: [
+			'Le chemin de la page et la route correspondante',
+			"La ligue et l'équipe, s'il s'agit d'une page d'équipe",
+			'La langue dans laquelle la page a été servie',
+			"Le site d'où vous arrivez — le domaine seulement, jamais l'adresse complète",
+			'Un code de visite, décrit ci-dessous'
+		],
+		hashTitle: 'Le code de visite',
+		hashBody:
+			"Pour distinguer deux visiteurs au cours d'une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n'est jamais écrite sur disque : une fois la journée terminée, plus rien ne relie le code à vous, et le code d'aujourd'hui ne peut être rapproché de celui de demain. Votre adresse IP n'est jamais conservée.",
+		cookiesTitle: 'Témoins (cookies)',
+		cookiesBody:
+			"Aucun n'est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue et le dernier onglet de ligue ouvert — et rien d'autre ne les consulte.",
+		errorsTitle: 'Erreurs',
+		errorsBody:
+			"Lorsqu'une erreur survient, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Les occurrences répétées d'une même erreur sont regroupées en une seule entrée.",
+		retentionTitle: 'Durée de conservation',
+		retentionBody:
+			'90 jours, après quoi les données sont supprimées automatiquement. Les plus anciennes le sont également dès que le stockage dépasse une taille fixée.',
+		sharingTitle: 'Qui d’autre y a accès',
+		sharingBody:
+			"Personne. Tout est conservé sur le serveur qui héberge le site, au Canada. Seule une notification d'erreur est transmise à un canal privé que je surveille ; elle contient l'erreur et aucune information sur les visiteurs.",
+		contactTitle: 'Questions',
+		contactBody:
+			'Pour une question, une correction ou une demande de suppression, ouvrez un ticket dans le dépôt GitHub du projet.',
+		updated: (date) => `Dernière mise à jour : ${date}.`
+	},
+
 	error: {
 		notFoundTitle: 'Page introuvable',
 		notFoundBody:
