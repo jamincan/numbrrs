@@ -1,0 +1,13 @@
+# Cloudflare Worker config — see cloudflare/locale-cache-worker.ts for what it
+# does and why. Deploy with `pnpm run cf:deploy` (wraps `wrangler deploy`),
+# the same shape as fly.toml + `flyctl deploy`.
+name = "numbrrs-locale-cache"
+main = "cloudflare/locale-cache-worker.ts"
+compatibility_date = "2026-07-28"
+
+# Deliberately narrow for now — see docs/hosting.md. Only /privacy, not yet
+# /game/<league>/<team>, until this has run cleanly for a while.
+routes = [
+	{ pattern = "numbrrs.app/privacy", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/fr/privacy", zone_name = "numbrrs.app" }
+]

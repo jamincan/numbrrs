@@ -138,14 +138,31 @@ responses carry no `Set-Cookie`. Roughly a day of careful work.
 > (this app's own `_app/immutable/*` bundle, self-hosted fonts and logos), never HTML,
 > so there is no risk yet from Cloudflare's free tier ignoring `Vary: Cookie`.
 >
-> **Not done:** the actual insurance policy — caching the SSR HTML itself. That still
-> needs the cookie/locale interaction described above, most likely as a small
-> Cloudflare Worker that makes the locale decision at the edge before consulting
-> cache (Cloudflare's free tier has no vary-by-header cache key, so the origin's
-> `Vary: Cookie` can't be replicated by a Cache Rule alone). Until that lands, a
-> traffic spike still hits the origin for every page render — proxying already
-> absorbs connection overhead and serves the static bundle from the edge, but the
-> CPU-during-a-spike risk this section opened with is not yet retired.
+> **The HTML-caching Worker landed 2026-07-28, scoped to `/privacy` only.**
+> `wrangler.toml` + `cloudflare/locale-cache-worker.ts` (config-as-code, same shape as
+> `fly.toml` + `flyctl deploy` — `pnpm run cf:deploy` wraps `wrangler deploy`). It
+> doesn't re-decide English-vs-French itself; it imports `negotiateLocale` and
+> `localeFromPath` straight from `src/lib/i18n` and uses them to compute which
+> **cache slot** a request belongs in, via the Workers Cache API (`caches.default`)
+> rather than Cloudflare's zone-level cache — that's what makes vary-by-cookie work
+> on the free plan without Business tier's custom cache keys. It only ever writes to
+> cache when the origin's own response says it's shareable (`public` + `s-maxage`),
+> so it needs no route list of its own; home and `/admin` are already excluded by
+> their own `Cache-Control`. Unit-tested directly (`cloudflare/locale-cache-worker.test.ts`,
+> run by the same `pnpm test`) rather than through the full Workers runtime — the
+> locale-bucketing logic only needs `Request`/`URL`, which Vitest's Node
+> environment already provides.
+>
+> **Deliberately narrow for now:** the route in `wrangler.toml` only covers
+> `/privacy` and `/fr/privacy` — lower stakes than `/game/<league>/<team>` while the
+> mechanism proves itself. Expand the `routes` array once this has run cleanly for a
+> while; the Worker script itself needs no changes to cover more paths.
+>
+> **What actually deploys it is still open:** the Worker exists in the repo and
+> bundles cleanly (`pnpm exec wrangler deploy --dry-run` confirms 2.9 KiB, no
+> errors), but hasn't been pushed to the Cloudflare account yet — that needs either
+> running `pnpm run cf:deploy` from an authenticated `wrangler login` session, or a
+> `CLOUDFLARE_API_TOKEN`.
 
 ### 2. Pre-scale before posting — cheap insurance, zero code
 
