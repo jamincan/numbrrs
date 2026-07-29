@@ -15,9 +15,14 @@ Analysis written 2026-07-27, ahead of posting numbrrs to
 
 ## Context
 
-numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz` with
-`min_machines_running = 0` and `auto_stop_machines = 'stop'` (`fly.toml`), backed
-by SQLite on a Fly volume mounted at `/data` (`src/lib/server/db/index.ts`).
+numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz`, backed by SQLite on
+a Fly volume mounted at `/data` (`src/lib/server/db/index.ts`).
+
+> [!NOTE]
+> **`min_machines_running` is now `1`, not `0`** — changed 2026-07-28, see
+> [step 3 below](#3-min_machines_running--1--one-line). The cold-start scenario this
+> section originally analyzed no longer applies as written, but the underlying CPU
+> ceiling it's really about is unaffected by that setting.
 
 Traffic at time of writing was estimated at **~19 unique visitors/day** — the app had only been
 shared with a few people and a small Discord server.
@@ -87,14 +92,16 @@ loaders. Estimated sustained ceiling for the current machine is **~5–15 req/s*
 degrading as burst credits drain. That puts "modest post" at the edge and **"good
 post" comfortably past it.**
 
-Three secondary failure modes compound it:
+Three secondary failure modes compound it — the first two are now closed (see
+[Preparation](#preparation-in-priority-order)), kept here for why they mattered:
 
-- **Cold start.** With `min_machines_running = 0`, the first visitor from Reddit
-  pays a container boot _plus_ potentially the 8s `BLOCKING_TIMEOUT` roster fetch
-  in `src/lib/server/leagues/index.ts`, while everyone behind them queues.
-- **No concurrency limits.** `fly.toml` has no `[http_service.concurrency]` block,
-  so Fly's defaults let many concurrent requests pile onto one 256MB box — which
-  turns slow into OOM.
+- ~~**Cold start.**~~ With `min_machines_running = 0` (as it was when this was written),
+  the first visitor from Reddit paid a container boot _plus_ potentially the 8s
+  `BLOCKING_TIMEOUT` roster fetch in `src/lib/server/leagues/index.ts`, while everyone
+  behind them queued. **Fixed 2026-07-28** — `min_machines_running = 1`.
+- ~~**No concurrency limits.**~~ `fly.toml` had no `[http_service.concurrency]` block, so
+  Fly's defaults let many concurrent requests pile onto one 256MB box — which turns
+  slow into OOM. **Fixed 2026-07-28** — `soft_limit = 20`, `hard_limit = 25`.
 - **Cold roster cache.** Thousands of people hitting team pages with stale rosters
   triggers upstream syncs. The `inFlight` coalescing in
   `src/lib/server/leagues/index.ts` handles the thundering herd per-team, but each
@@ -113,73 +120,51 @@ CPU problem stops existing.
 Cloudflare's free tier is sufficient. This converts "survive 100 req/s" into
 "nothing happens."
 
-Currently **exactly one route sets a cache header** —
-`src/routes/sitemap.xml/+server.ts` (`max-age=3600`). The page routes set none.
-
-The real work is the cookie/locale interaction, and it deserves proper thought
-rather than a bolt-on:
+The real work is the cookie/locale interaction:
 
 - `src/hooks.server.ts` can 302 to `/fr/...` based on locale negotiation
 - `numbrrs_locale` and `numbrrs_league` cookies (`src/lib/leagues.ts`) vary behaviour
-- A naive `Vary: Cookie` destroys the hit ratio entirely
-
-Likely shape: cache strictly per URL path (locale is already in the path, which
-helps a lot), keep the league-tab cookie a client-side concern, and ensure cached
-responses carry no `Set-Cookie`. Roughly a day of careful work.
+- A naive `Vary: Cookie` destroys the hit ratio entirely — and Cloudflare's free tier
+  doesn't honor `Vary: Cookie` at all, so a Cache Rule can't solve this on its own
 
 > [!NOTE]
-> **Partially done 2026-07-28.** The canonical domain moved to numbrrs.app
-> (numbrrs.ca redirects there — see `hooks.server.ts`), and numbrrs.app is proxied
-> through Cloudflare: DNS is AAAA-only per Fly's proxied-setup guidance, SSL/TLS mode
-> is Full (strict), and Cache Level is left at the default Standard. Verified against
-> the live site — `server: cloudflare` and `via: 1.1 fly.io` both present, and
-> `cf-cache-status: DYNAMIC` on page routes confirms HTML isn't being cached, which
-> is correct at this stage: Standard only caches static assets by file extension
-> (this app's own `_app/immutable/*` bundle, self-hosted fonts and logos), never HTML,
-> so there is no risk yet from Cloudflare's free tier ignoring `Vary: Cookie`.
->
-> **The HTML-caching Worker landed 2026-07-28, scoped to `/privacy` only.**
+> **Done 2026-07-28.** The canonical domain moved to numbrrs.app (numbrrs.ca redirects
+> there — see `hooks.server.ts`), proxied through Cloudflare (AAAA-only DNS, SSL/TLS
+> mode Full (strict)), with a Worker handling the cookie/locale problem above:
 > `wrangler.toml` + `cloudflare/locale-cache-worker.ts` (config-as-code, same shape as
-> `fly.toml` + `flyctl deploy` — `pnpm run cf:deploy` wraps `wrangler deploy`). It
-> doesn't re-decide English-vs-French itself; it imports `negotiateLocale` and
-> `localeFromPath` straight from `src/lib/i18n` and uses them to compute which
+> `fly.toml` + `flyctl deploy` — `pnpm run cf:deploy` wraps `wrangler deploy`).
+>
+> The Worker doesn't re-decide English-vs-French itself — it imports `negotiateLocale`
+> and `localeFromPath` straight from `src/lib/i18n` and uses them to compute which
 > **cache slot** a request belongs in, via the Workers Cache API (`caches.default`)
-> rather than Cloudflare's zone-level cache — that's what makes vary-by-cookie work
-> on the free plan without Business tier's custom cache keys. It only ever writes to
-> cache when the origin's own response says it's shareable (`public` + `s-maxage`),
-> so it needs no route list of its own; home and `/admin` are already excluded by
-> their own `Cache-Control`. Unit-tested directly (`cloudflare/locale-cache-worker.test.ts`,
-> run by the same `pnpm test`) rather than through the full Workers runtime — the
-> locale-bucketing logic only needs `Request`/`URL`, which Vitest's Node
-> environment already provides.
+> rather than Cloudflare's zone-level cache. That's what makes vary-by-cookie caching
+> work on the free plan without Business tier's custom cache keys, and it means there's
+> no hand-copied locale logic to drift out of sync — a change to `negotiateLocale` is
+> picked up here the next time this deploys. It only ever writes to cache when the
+> origin's own response says it's shareable (`public` + `s-maxage`), so it needs no
+> route list of its own; home and `/admin` are already excluded by their own
+> `Cache-Control`. Unit-tested directly against `Request`/`URL`
+> (`cloudflare/locale-cache-worker.test.ts`, run by the same `pnpm test`) rather than
+> through the full Workers runtime, and `cf:check` (a standalone `tsc` pass against
+> `@cloudflare/workers-types`) runs in CI.
 >
-> **Expanded to `/game/*` the same day.** The plan had been to wait and watch
-> `/privacy` first, but that reasoning didn't survive contact with the actual
-> traffic pattern: `/privacy` and `/game/<league>/<team>` run through the identical
+> Covers `/privacy` and every `/game/<league>/<team>` page, in both languages. The
+> plan had been to prove the mechanism on `/privacy` alone before trusting it with
+> team pages, but that didn't survive scrutiny: both routes run through the identical
 > Worker code path with no route-specific branching, and `/privacy` gets close to no
-> organic traffic — so waiting on it wouldn't have produced any evidence a direct
-> test couldn't produce faster. `wrangler.toml`'s `routes` now covers
-> `numbrrs.app/game/*` and `numbrrs.app/fr/game/*` too (which also matches the legacy
-> no-league `/game/<TEAM>` redirect route harmlessly — its response isn't `public` +
-> `s-maxage` either, so the Worker never caches it, same as the locale redirect).
+> organic traffic, so waiting on it wouldn't have produced evidence a direct test
+> couldn't produce immediately.
 >
-> **Deployed and verified 2026-07-28**, via `pnpm run cf:deploy` from an
-> authenticated `wrangler login` session. Against the live site: a second request to
-> `/privacy` returns `cf-cache-status: HIT`; `/fr/privacy` caches independently with
-> the correct `lang="fr"` content; and — the case that actually matters — a
-> French-preferring request (`Accept-Language: fr`, no cookie) redirects to
-> `/fr/privacy` as before, and a plain English request to the same unprefixed
-> `/privacy` URL immediately afterward still returns `lang="en"`, confirming the
-> locale-bucketed cache key does its job rather than leaking one visitor's outcome
-> to another.
->
-> One detail worth recording: the French redirect response itself is never cached
-> (stays `DYNAMIC` on repeat requests), because `hooks.server.ts` already marks it
-> `private, no-store` — a defensive choice made before this Worker existed ("caches
-> must not serve one visitor's answer to another"). The Worker correctly respects
-> that and skips it. Not a gap: redirects are cheap to regenerate, and the
-> expensive thing worth caching — the full rendered HTML — is exactly what's
-> covered.
+> Verified against the live site: a second request to a covered page returns
+> `cf-cache-status: HIT`; the `/fr` equivalent caches independently with the correct
+> content; and — the case that actually matters — a French-preferring request
+> (`Accept-Language: fr`, no cookie) redirects as before, and a plain English request
+> to the same unprefixed URL immediately afterward still returns English, confirming
+> the locale-bucketed cache key doesn't leak one visitor's outcome to another. The
+> redirect response itself is never cached — `hooks.server.ts` already marks it
+> `private, no-store`, a defensive choice made before this Worker existed — which is
+> fine: redirects are cheap to regenerate, and the expensive thing worth caching, the
+> full rendered HTML, is exactly what's covered.
 
 ### 2. Pre-scale before posting — cheap insurance, zero code
 
@@ -467,25 +452,21 @@ Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
 2. ~~Wire up hosted error logging (Sentry free tier)~~ — **done differently**: first-party
    telemetry with Discord alerting shipped in `586b5e4`. See
    [Error logging](#error-logging) for why the recommendation was overtaken rather than rejected.
-3. ~~Add cache headers + Cloudflare~~ — **partially done 2026-07-28**. Cache headers landed with
-   [PERF-1](./code-review/07-caching-and-scaling.md#perf-1), including the `Vary` fix the locale
-   redirect needed before anything could safely cache it. The domain also moved to numbrrs.app
-   (numbrrs.ca now redirects there) and is proxied through Cloudflare — TLS, DDoS absorption, and
-   free edge caching of this app's own static bundle, all live. **Still open:** the actual HTML
-   caching (the real insurance policy this step was about) needs a small Cloudflare Worker to make
-   the locale decision at the edge, since the free tier has no vary-by-cookie cache key — see
-   [step 1's note above](#1-put-a-cdn-in-front--highest-leverage-by-a-wide-margin) for why that's
-   deliberately separate from getting Cloudflare live.
-4. If (3)'s HTML caching isn't ready by post day: pre-scale to 3× `shared-cpu-2x` 1GB, post, scale
-   back down. $0.63, no code. Do this closer to the actual post date, not now.
+3. ~~Add cache headers + Cloudflare~~ — **done 2026-07-28**. Cache headers with the `Vary` fix
+   ([PERF-1](./code-review/07-caching-and-scaling.md#perf-1)), the domain move to numbrrs.app,
+   Cloudflare proxying, and the locale-aware caching Worker — see
+   [step 1's note above](#1-put-a-cdn-in-front--highest-leverage-by-a-wide-margin) for the full
+   design. `/privacy` and every `/game/<league>/<team>` page are cached at the edge in both
+   languages, verified against the live site.
+4. Optional extra insurance, not required now that (3) is done: pre-scale to 3× `shared-cpu-2x`
+   1GB before a post, scale back down after. $0.63, no code.
 5. Warm the roster cache from `/admin` minutes before posting — see
    [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free). A day-of action, not
    something to do ahead of time.
 6. ~~Bound event retention~~ ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — **done**.
 
-What's left that isn't a day-of-posting action: the Cloudflare Worker for HTML caching (step 3),
-and the real req/s ceiling
-(still an estimate — see [Open questions](#open-questions), "most valuable single follow-up").
+What's left that isn't a day-of-posting action: the real req/s ceiling — still an estimate, see
+[Open questions](#open-questions).
 
 Independently, whenever convenient: move rosters in-memory. This no longer deletes the SQLite
 layer — see [Storage architecture](#storage-architecture). Skip self-hosted Postgres regardless;
@@ -502,9 +483,6 @@ if telemetry ever moves off the volume, managed serverless (Turso/Neon) is the d
   against the deployed URL replaces the estimated 5–15 req/s with a measured
   number. **Most valuable single follow-up in this document** — every capacity
   decision above rests on an estimate.
-- **How should CDN caching handle locale?** The 302 in `src/hooks.server.ts` and
-  the `numbrrs_locale` / `numbrrs_league` cookies need a caching strategy that
-  doesn't require `Vary: Cookie`.
 
 Also worth checking: current RSS headroom against the 256MB cap
 (`fly machine status`), and actual current spend in the Fly dashboard to confirm
@@ -531,12 +509,11 @@ SQLite database (`src/lib/server/analytics.ts`, `alerts.ts`, `telemetry.ts`), a 
 for alerts, and an `/admin` dashboard behind `ADMIN_TOKEN`. Both secrets are now real and
 documented in `README.md`.
 
-Two of the observations above survive and are now tracked findings:
+Two of the observations above became tracked findings, and both are now done:
 
-- **Still no `[metrics]` block in `fly.toml`**, and still no health check — see
-  [PERF-3](./code-review/07-caching-and-scaling.md#perf-3).
-- **Rate limiting is still absent from every route that matters.** One working limiter exists, in
-  `src/routes/api/client-error/+server.ts`, but it guards only that endpoint. The `/admin` login
-  has nothing in front of it but a 400ms delay. See
-  [ABUSE-1](./code-review/05-abuse-resistance.md#abuse-1), which is now the priority it was
-  predicted to become.
+- ~~Still no `[metrics]` block in `fly.toml`, and still no health check~~ — **done**:
+  [PERF-3](./code-review/07-caching-and-scaling.md#perf-3) added `/api/health`, wired
+  into `fly.toml`.
+- ~~Rate limiting is still absent from every route that matters~~ — **done**:
+  [ABUSE-1](./code-review/05-abuse-resistance.md#abuse-1) put a limiter in front of the
+  `/admin` login.
