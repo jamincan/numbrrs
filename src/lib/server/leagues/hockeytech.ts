@@ -95,6 +95,40 @@ export function pickCurrentSeason(
 }
 
 /**
+ * The seasons to try for a roster, best first: the current regular season,
+ * then any preseason that ran between it and the previous regular season,
+ * then that previous season.
+ *
+ * The fallbacks exist for the first days of a new season. HockeyTech opens the
+ * season on its start date but teams fill in its rosters later, so for a while
+ * the current season lists only coaching staff. The preseason roster is this
+ * year's team and the best stand-in; last season's is the one after that.
+ * Only non-career seasons that start after the previous season ended count as
+ * preseason, so a mid-season one-off like a prospects game can never supply a
+ * team's roster.
+ */
+export function rosterSeasons(seasons: HockeyTechSeason[], today: string): HockeyTechSeason[] {
+	const current = pickCurrentSeason(seasons, today);
+	if (!current) return [];
+	const previous = pickCurrentSeason(
+		seasons.filter((s) => s.start_date < current.start_date),
+		today
+	);
+	if (!previous) return [current];
+
+	const preseasons = seasons
+		.filter(
+			(s) =>
+				s.career !== '1' &&
+				s.playoff !== '1' &&
+				s.start_date > previous.end_date &&
+				s.start_date < current.start_date
+		)
+		.sort((a, b) => b.start_date.localeCompare(a.start_date));
+	return [current, ...preseasons, previous];
+}
+
+/**
  * A season's roster feed lists everyone who appeared for the team, not just the
  * current squad, so a departed player and whoever inherited their sweater both
  * come back. `active` marks who is still on the roster. If a feed reports
@@ -123,7 +157,10 @@ export function parseRosterEntries(
 			id,
 			firstName: entry.first_name ?? '',
 			lastName: entry.last_name,
-			sweaterNumber: isNaN(sweaterNumber) ? null : sweaterNumber,
+			// Real sweaters run 0–99. Training-camp rosters list everyone still
+			// waiting on a number as #999, which the game would otherwise quiz as
+			// one number with dozens of right answers.
+			sweaterNumber: sweaterNumber >= 0 && sweaterNumber <= 99 ? sweaterNumber : null,
 			positionCode: POSITION_MAP[position] ?? position,
 			headshotUrl: entry.player_image ?? ''
 		});
@@ -177,27 +214,31 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		return parseFeed(schema, value, `${label} ${params.view}`);
 	}
 
-	async function currentSeasonId(): Promise<string> {
+	/** Season IDs to try for rosters, best first (see `rosterSeasons`). */
+	async function candidateSeasonIds(): Promise<string[]> {
 		const seasons = await fetchFeed({ view: 'seasons' }, 'Seasons', seasonsSchema);
-		const current = pickCurrentSeason(seasons, new Date().toISOString().slice(0, 10));
-		if (!current) {
+		const candidates = rosterSeasons(seasons, new Date().toISOString().slice(0, 10));
+		if (candidates.length === 0) {
 			throw new Error(`${label} feed returned no started regular seasons`);
 		}
-		return current.season_id;
+		return candidates.map((s) => s.season_id);
 	}
 
-	// team_id/season_id needed for roster requests, keyed by team code. Held per
-	// adapter, so leagues sharing this factory don't overwrite each other.
-	let rosterParams = new Map<string, { seasonId: string; teamId: string }>();
+	// team_id and the season_ids to try, needed for roster requests, keyed by
+	// team code. Held per adapter, so leagues sharing this factory don't
+	// overwrite each other.
+	let rosterParams = new Map<string, { seasonIds: string[]; teamId: string }>();
 
 	async function loadTeams(): Promise<LeagueTeam[]> {
-		const seasonId = await currentSeasonId();
+		const seasonIds = await candidateSeasonIds();
+		// The team list always comes from the current season. HockeyTech keeps a
+		// team's ID across seasons, so the same ID works for the fallbacks.
 		const teams = await fetchFeed(
-			{ view: 'teamsbyseason', season_id: seasonId },
+			{ view: 'teamsbyseason', season_id: seasonIds[0] ?? '' },
 			'Teamsbyseason',
 			teamsSchema
 		);
-		rosterParams = new Map(teams.map((t) => [teamCode(t), { seasonId, teamId: t.id }]));
+		rosterParams = new Map(teams.map((t) => [teamCode(t), { seasonIds, teamId: t.id }]));
 		return teams.map((t) => ({
 			code: teamCode(t),
 			name: teamName(t),
@@ -241,25 +282,31 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			return { ok: false, reason: 'not-found' };
 		}
 
-		let entries: HockeyTechRosterEntry[];
-		try {
-			entries = await fetchFeed(
-				{ view: 'roster', season_id: params.seasonId, team_id: params.teamId },
-				'Roster',
-				rosterSchema
-			);
-		} catch (err) {
-			if (err instanceof FeedSchemaError) {
-				console.error(err.message);
-				return { ok: false, reason: 'invalid' };
+		// Later seasons are only asked for when an earlier one has no players, which
+		// in practice means the first days of a new season.
+		let players: LeaguePlayer[] = [];
+		for (const seasonId of params.seasonIds) {
+			let entries: HockeyTechRosterEntry[];
+			try {
+				entries = await fetchFeed(
+					{ view: 'roster', season_id: seasonId, team_id: params.teamId },
+					'Roster',
+					rosterSchema
+				);
+			} catch (err) {
+				if (err instanceof FeedSchemaError) {
+					console.error(err.message);
+					return { ok: false, reason: 'invalid' };
+				}
+				console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
+				return { ok: false, reason: 'transient' };
 			}
-			console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
-			return { ok: false, reason: 'transient' };
-		}
 
-		const players = parseRosterEntries(entries, () =>
-			console.warn(`${label} roster for ${team.code} reports nobody active; keeping all entries`)
-		);
+			players = parseRosterEntries(entries, () =>
+				console.warn(`${label} roster for ${team.code} reports nobody active; keeping all entries`)
+			);
+			if (players.length > 0) break;
+		}
 		return { ok: true, players };
 	}
 

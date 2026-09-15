@@ -149,13 +149,47 @@ describe('syncTeamList', () => {
 	});
 });
 
+/** A roster containing just one player, for tests that need a non-empty sync. */
+function rosterOf(id: number): RosterResult {
+	return {
+		ok: true,
+		players: [
+			{
+				id,
+				firstName: 'New',
+				lastName: 'Player',
+				sweaterNumber: 1,
+				positionCode: 'C',
+				headshotUrl: ''
+			}
+		]
+	};
+}
+
 describe('syncRoster', () => {
-	it('clears a team’s own players when its roster comes back empty, and leaves other teams alone', async () => {
+	it('removes a team’s departed players, and leaves other teams alone', async () => {
 		const torId = seedTeam('nhl', 'TOR');
 		const bosId = seedTeam('nhl', 'BOS');
 		seedPlayer(torId, 'nhl', 1);
 		seedPlayer(torId, 'nhl', 2);
 		seedPlayer(bosId, 'nhl', 3);
+
+		await syncRoster(
+			fakeAdapter('nhl', { fetchRoster: vi.fn().mockResolvedValue(rosterOf(2)) }),
+			leagueTeam('TOR')
+		);
+
+		const tor = getDb().select().from(players).where(eq(players.teamId, torId)).all();
+		expect(tor.map((p) => p.id)).toEqual([2]);
+		expect(getDb().select().from(players).where(eq(players.teamId, bosId)).all()).toHaveLength(1);
+	});
+
+	it('keeps a team’s players and records a failure when its roster comes back empty', async () => {
+		// New HockeyTech seasons open with only coaching staff listed, so an empty
+		// roster must never be trusted to wipe a team (or be marked fresh).
+		const torId = seedTeam('nhl', 'TOR');
+		seedPlayer(torId, 'nhl', 1);
+		seedPlayer(torId, 'nhl', 2);
 
 		await syncRoster(
 			fakeAdapter('nhl', {
@@ -164,8 +198,16 @@ describe('syncRoster', () => {
 			leagueTeam('TOR')
 		);
 
-		expect(getDb().select().from(players).where(eq(players.teamId, torId)).all()).toHaveLength(0);
-		expect(getDb().select().from(players).where(eq(players.teamId, bosId)).all()).toHaveLength(1);
+		expect(getDb().select().from(players).where(eq(players.teamId, torId)).all()).toHaveLength(2);
+		expect(
+			getDb().select().from(teams).where(eq(teams.id, torId)).get()?.rosterSyncedAt
+		).toBeNull();
+		const state = getDb()
+			.select()
+			.from(syncState)
+			.where(eq(syncState.key, `roster:${torId}`))
+			.get();
+		expect(state?.failureCount).toBe(1);
 	});
 
 	it('does not delete a player already recorded as traded to another team', async () => {
@@ -176,9 +218,7 @@ describe('syncRoster', () => {
 		seedPlayer(bosId, 'nhl', 10);
 
 		await syncRoster(
-			fakeAdapter('nhl', {
-				fetchRoster: vi.fn().mockResolvedValue({ ok: true, players: [] } satisfies RosterResult)
-			}),
+			fakeAdapter('nhl', { fetchRoster: vi.fn().mockResolvedValue(rosterOf(11)) }),
 			leagueTeam('TOR')
 		);
 
@@ -193,15 +233,12 @@ describe('syncRoster', () => {
 		seedPlayer(pwhlTorId, 'pwhl', 99);
 
 		await syncRoster(
-			fakeAdapter('nhl', {
-				fetchRoster: vi.fn().mockResolvedValue({ ok: true, players: [] } satisfies RosterResult)
-			}),
+			fakeAdapter('nhl', { fetchRoster: vi.fn().mockResolvedValue(rosterOf(100)) }),
 			leagueTeam('TOR')
 		);
 
-		expect(getDb().select().from(players).where(eq(players.teamId, nhlTorId)).all()).toHaveLength(
-			0
-		);
+		const nhlTor = getDb().select().from(players).where(eq(players.teamId, nhlTorId)).all();
+		expect(nhlTor.map((p) => p.id)).toEqual([100]);
 		const pwhlPlayer = getDb()
 			.select()
 			.from(players)
@@ -386,5 +423,30 @@ describe('backoff integration (ABUSE-2)', () => {
 		const second = await loadRoster('nhl', 'TOR');
 		expect(second).toHaveLength(1);
 		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('loadRoster', () => {
+	it('refreshes a team with no players even when its last sync is still fresh', async () => {
+		// A team emptied before the empty-roster guard existed was marked fresh, and
+		// must not have to wait out the TTL to recover.
+		const torId = seedTeam('nhl', 'TOR');
+		getDb().update(teams).set({ rosterSyncedAt: Date.now() }).where(eq(teams.id, torId)).run();
+		nhlFetchRoster.mockResolvedValueOnce(rosterOf(7));
+
+		const roster = await loadRoster('nhl', 'TOR');
+
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+		expect(roster.map((p) => p.id)).toEqual([7]);
+	});
+
+	it('does not refresh a fresh team that has players', async () => {
+		const torId = seedTeam('nhl', 'TOR');
+		seedPlayer(torId, 'nhl', 1);
+		getDb().update(teams).set({ rosterSyncedAt: Date.now() }).where(eq(teams.id, torId)).run();
+
+		await loadRoster('nhl', 'TOR');
+
+		expect(nhlFetchRoster).not.toHaveBeenCalled();
 	});
 });

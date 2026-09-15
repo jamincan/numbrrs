@@ -209,7 +209,13 @@ export async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Prom
 		await sleep(Math.min(result.retryAfter ?? RETRY_DELAY, MAX_RETRY_DELAY));
 		result = await adapter.fetchRoster(team);
 	}
-	if (!result.ok) {
+	// An empty roster is a failure too, the same way syncTeamList treats an empty
+	// team list. A real team always has players, and the likelier cause is a feed
+	// that hasn't been filled in yet: new HockeyTech seasons open with only
+	// coaching staff listed. Trusting it would delete the whole team and then
+	// mark the empty result fresh for 12 hours.
+	const reason = !result.ok ? result.reason : result.players.length === 0 ? 'empty' : null;
+	if (!result.ok || reason) {
 		// Backoff is per team, not per league: one team's roster 404ing shouldn't
 		// stop the other hundred from refreshing.
 		markFailed(rosterKey(dbId));
@@ -218,7 +224,7 @@ export async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Prom
 		// one problem with a high count than as a hundred separate ones.
 		reportError({
 			source: 'sync',
-			message: `Roster sync failed for ${adapter.id} (${result.reason}); keeping existing players`,
+			message: `Roster sync failed for ${adapter.id} (${reason}); keeping existing players`,
 			stack: `team: ${dbId}`,
 			route: `sync:roster:${adapter.id}`
 		});
@@ -380,7 +386,11 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
 	const adapter = ADAPTERS_BY_ID.get(league);
 	const row = teamRow(dbId);
 
-	const stale = adapter && row && !isFresh(row.rosterSyncedAt, ROSTER_TTL);
+	// A team with no players counts as stale however recently it synced. Nothing
+	// records an empty roster as fresh any more, but a team emptied before that
+	// guard existed would otherwise stay empty until its TTL ran out.
+	const stale =
+		adapter && row && (!isFresh(row.rosterSyncedAt, ROSTER_TTL) || !hasStoredRoster(league, code));
 	// The most exposed path of the three. Because failures used to go unrecorded,
 	// a team whose roster couldn't be fetched blocked for up to 8s on *every*
 	// visit — and the sitemap invites a crawler to walk every team page in turn.
