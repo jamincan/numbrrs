@@ -1,0 +1,57 @@
+# Throwaway app for load testing. Deploy, measure, destroy.
+#
+# The VM block and the concurrency block must stay identical to the root
+# fly.toml — they are the whole reason this app exists. A staging box on
+# different hardware produces a number that does not transfer, which is worse
+# than no number because it reads like one.
+#
+# Two deliberate differences from production:
+#
+#   * No [mounts]. The database lives on the container's ephemeral disk, which
+#     is fine when the data is disposable, and it avoids creating a volume that
+#     would outlive `fly apps destroy` and keep billing.
+#   * auto_stop_machines = 'off'. A machine that stops between ramp stages would
+#     charge the next stage a cold start and show up as a latency cliff that
+#     production would never see.
+#
+# This app is only reachable at <name>.fly.dev, with no Cloudflare in front of
+# it — which is exactly what the test wants. See load-test/README.md.
+app = 'numbrrs-loadtest'
+primary_region = 'yyz'
+
+# The Dockerfile is passed on the command line rather than set here, so the
+# build context is unambiguously the repo root. See load-test/README.md.
+[build]
+
+[env]
+  PORT = '3000'
+  PROTOCOL_HEADER = 'x-forwarded-proto'
+  # Ephemeral, unlike production's /data volume path.
+  DATABASE_URL = '/app/loadtest.db'
+  # Left unset on purpose so notify() no-ops: a load test must not be able to
+  # page the real Discord channel. Errors still land in the errors table, which
+  # is where you want to read them from anyway.
+  ALERT_WEBHOOK_URL = ''
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'connections'
+    soft_limit = 20
+    hard_limit = 25
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    method = 'GET'
+    path = '/api/health'
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1

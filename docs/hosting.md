@@ -88,9 +88,34 @@ The entire bandwidth bill for a front-page post is under a dollar.
 ### Where it breaks
 
 SvelteKit SSR runs on every request via `src/hooks.server.ts` plus the route
-loaders. Estimated sustained ceiling for the current machine is **~5–15 req/s**,
-degrading as burst credits drain. That puts "modest post" at the edge and **"good
-post" comfortably past it.**
+loaders. This section used to estimate **~5–15 req/s**, degrading as burst credits
+drain. **Measured 2026-07-29** against a throwaway app on identical hardware
+(`shared-cpu-1x`, 256MB, yyz, one machine) — see [`load-test/`](../load-test/).
+The estimate was the right shape and slightly pessimistic:
+
+| State                         | Sustained rate   | p50  | p95   | Failures |
+| ----------------------------- | ---------------- | ---- | ----- | -------- |
+| Burst credits available       | **100 req/s**    | 12ms | 24ms  | 0%       |
+| Credits drained (~25min load) | **~17–20 req/s** | 12ms | 10.3s | 0.04%    |
+
+Two things this changes.
+
+**It does not fall over.** 20,207 requests across a 1→100 req/s ramp produced zero
+failures, zero restarts and no OOM, with the health check green throughout. The
+concurrency limits below were never approached: concurrency is rate × latency, so
+100 req/s at 12ms is ~1.5 simultaneous connections, nowhere near `hard_limit = 25`.
+"Good post" is survivable, not fatal.
+
+**Degradation is a latency tail, not errors.** Once burst credits drain the median
+holds at 12ms while p90 goes to ~5.5s. Fly enforces shared-vCPU throttling by
+withholding CPU in slices, and Node is single-threaded — so requests landing in a
+scheduling window stay fast while those arriving mid-stall queue for seconds. The
+number to watch is the tail, and it is invisible in an average.
+
+> [!NOTE]
+> The sustained figure is the one that matters for a multi-hour Reddit spike, and
+> it is an origin number. With the CDN in front (below), the origin only sees cache
+> misses, so the arrival rate here is not the arrival rate at the edge.
 
 Three secondary failure modes compound it — the first two are now closed (see
 [Preparation](#preparation-in-priority-order)), kept here for why they mattered:

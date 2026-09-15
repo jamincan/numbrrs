@@ -3,4 +3,4 @@ User-agent: *
 Disallow: /admin
 Disallow: /api/
 
-Sitemap: https://numbrrs.ca/sitemap.xml
+Sitemap: https://numbrrs.app/sitemap.xml
