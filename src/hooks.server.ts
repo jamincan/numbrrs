@@ -118,7 +118,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	//
 	// Anything else — the sitemap, the API routes — sets its own policy or is a
 	// POST, so it is left alone rather than given a blanket default.
-	if (event.route.id === '/admin') {
+	//
+	// A load can also opt a single response out (`locals.uncacheable`) — a team
+	// page with no roster yet, so the edge doesn't keep serving the empty state
+	// after the sync lands. That has to be a flag rather than "respect whatever
+	// cache-control is already there": SvelteKit stamps `private, no-store` on
+	// every __data.json response, and overriding it is what lets client-side
+	// navigations between pages be cached at all.
+	if (event.route.id === '/admin' || event.locals.uncacheable) {
 		response.headers.set('cache-control', 'private, no-store');
 	} else if (event.route.id === HOME_ROUTE) {
 		response.headers.set('cache-control', 'private, no-cache');

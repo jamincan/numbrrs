@@ -57,7 +57,8 @@ export const fr: Messages = {
 		accuracy: (percent) => `Précision${NBSP}: ${percent}`,
 		playAgain: 'Rejouer',
 		loadingRoster: "Chargement de l'alignement",
-		noRoster: 'Aucun alignement disponible pour le moment. Actualisez dans un instant.',
+		noRoster: "L'alignement n'est pas disponible pour le moment.",
+		retryRoster: 'Réessayer',
 		identified: (found, total, gender) =>
 			`${found} / ${total} ${gender === 'f' ? 'identifiées' : 'identifiés'}`,
 		collapseRoster: "Réduire l'alignement",

@@ -394,6 +394,23 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
 	return getDb().select().from(players).where(eq(players.teamId, dbId)).all();
 }
 
+/**
+ * Whether the database holds any players for a team right now, before any
+ * refresh. The page uses this to decide its caching headers, which have to be
+ * sent before the streamed roster resolves.
+ */
+export function hasStoredRoster(league: LeagueId, code: string): boolean {
+	const dbId = teamDbId(league, code);
+	return (
+		getDb()
+			.select({ id: players.id })
+			.from(players)
+			.where(eq(players.teamId, dbId))
+			.limit(1)
+			.get() !== undefined
+	);
+}
+
 /** Refresh everything, ignoring TTLs. Used by the manual sync endpoint. */
 export async function syncRosters(): Promise<void> {
 	for (const adapter of ADAPTERS) {

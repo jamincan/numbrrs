@@ -59,6 +59,7 @@ export interface Messages {
 		playAgain: string;
 		loadingRoster: string;
 		noRoster: string;
+		retryRoster: string;
 		identified: (found: number, total: number, gender: Gender) => string;
 		collapseRoster: string;
 		expandRoster: string;

@@ -16,6 +16,11 @@ declare global {
 		interface Locals {
 			/** Resolved from the locale cookie or Accept-Language in hooks.server.ts. */
 			locale: Locale;
+			/**
+			 * Set by a load function whose response must not be shared by a CDN,
+			 * overriding the page caching policy in hooks.server.ts.
+			 */
+			uncacheable?: boolean;
 		}
 		// interface PageData {}
 		// interface PageState {}
