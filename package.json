@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
-	"packageManager": "pnpm@9.14.2",
+	"packageManager": "pnpm@11.3.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -41,7 +41,7 @@
 		"typescript-eslint": "^8.58.1",
 		"vite": "^8.0.7",
 		"vitest": "^4.1.10",
-		"wrangler": "^4.115.0"
+		"wrangler": "^4.114.0"
 	},
 	"dependencies": {
 		"@fontsource/barlow-condensed": "^5.3.0",
@@ -52,11 +52,5 @@
 		"drizzle-orm": "^0.45.2",
 		"tailwindcss": "^4.2.2",
 		"zod": "^4.4.3"
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"better-sqlite3",
-			"esbuild"
-		]
 	}
 }

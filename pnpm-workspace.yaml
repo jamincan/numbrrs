@@ -1,0 +1,17 @@
+# pnpm 10 moved settings out of package.json's `pnpm` field and into this file,
+# and pnpm 11 renamed the install-script allowlist from `onlyBuiltDependencies`
+# (a list) to `allowBuilds` (an explicit true/false per package).
+#
+# Only these packages may run install scripts. better-sqlite3 must compile its
+# native binding or the server cannot open the database at all; esbuild fetches
+# its platform binary, which Vite needs to build. Everything else stays unbuilt,
+# so a compromised transitive dependency has no install-time foothold. Setting
+# one of these to true is a decision to execute that package's code at install.
+#
+# workerd is wrangler's local runtime, wanted only by `wrangler dev`. The Worker
+# is deployed with `wrangler deploy`, which bundles and uploads without it, so it
+# stays false — see cloudflare/locale-cache-worker.ts.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  workerd: false

@@ -1,16 +1,16 @@
 FROM node:22-slim AS base
-RUN corepack enable && corepack prepare pnpm@9 --activate
+RUN corepack enable && corepack prepare pnpm@11 --activate
 WORKDIR /app
 
 # All dependencies, for building
 FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Only what the server needs at runtime (better-sqlite3 and friends) — the
 # final image shouldn't ship vite, eslint and typescript.
 FROM base AS prod-deps
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --prod --frozen-lockfile
 
 # Build the app
