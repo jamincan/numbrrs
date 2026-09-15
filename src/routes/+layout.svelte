@@ -1,8 +1,9 @@
 <script lang="ts">
 	import '../app.css';
 	import { browser } from '$app/environment';
+	import { beforeNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
+	import { page, updated } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import LocaleToggle from '$lib/components/LocaleToggle.svelte';
 	import NumbrrsIcon from '$lib/components/NumbrrsIcon.svelte';
@@ -31,6 +32,19 @@
 	// Falling back to the URL rather than to English, because /fr/nonexistent is
 	// still a French visitor and deserves a French 404.
 	const i18n = createI18n(() => data?.locale ?? localeFromPath(page.url.pathname));
+
+	// A deploy replaces every hashed chunk, so a tab opened before it can no
+	// longer fetch the modules a client-side navigation needs — which surfaces as
+	// "Failed to fetch dynamically imported module" and, worse, as a page that
+	// simply stops working. Taking the next navigation through the server instead
+	// hands that visitor the new build at the moment they were leaving the page
+	// anyway.
+	//
+	// `willUnload` is already a full page load, so redirecting it would be a
+	// second one; `to` is null when the navigation leaves the app entirely.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
 
 	// The server stamps <html lang> on the first render; client-side
 	// navigations between /... and /fr/... have to keep it honest themselves.
