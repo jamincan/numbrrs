@@ -166,9 +166,10 @@ export const handle: Handle = async ({ event, resolve }) => {
  * detail goes to the database and to Discord, not to the visitor.
  */
 export const handleError: HandleServerError = ({ error, event, status, message }) => {
-	// 404s are routine here — crawlers and stale links guessing at team codes —
-	// and alerting on them would bury the errors that matter.
-	if (status === 404) return { message };
+	// Client errors are routine here — crawlers and stale links guessing at team
+	// codes (404), scanners POSTing to pages that have no form actions (405) — and
+	// alerting on them would bury the errors that matter.
+	if (status < 500) return { message };
 
 	// The returned id is the error's fingerprint, so a visitor quoting it off the
 	// error page points at exactly one row in the dashboard rather than at a log
