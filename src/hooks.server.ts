@@ -1,5 +1,5 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i18n';
 import { recordEvent } from '$lib/server/analytics';
 import { reportError } from '$lib/server/alerts';
@@ -12,7 +12,10 @@ import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '$lib/site';
 // pages.
 if (!building) {
 	bootstrap();
-	startSweeps();
+	// Production only: a dev server left open would otherwise walk five leagues'
+	// APIs every hour for a local database nobody is looking at. The on-demand
+	// path still refreshes whatever a dev actually opens.
+	if (!dev) startSweeps();
 }
 
 /** The home page's route id — the one localized page whose HTML varies per visitor. */
