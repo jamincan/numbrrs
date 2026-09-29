@@ -473,7 +473,11 @@ export async function syncStale(): Promise<void> {
 
 		const rows = getDb().select().from(teams).where(eq(teams.league, adapter.id)).all();
 		for (const row of rows) {
-			if (isFresh(row.rosterSyncedAt, ROSTER_TTL)) continue;
+			// Same definition of stale as loadRoster: an empty team is stale however
+			// recently it synced.
+			const fresh =
+				isFresh(row.rosterSyncedAt, ROSTER_TTL) && hasStoredRoster(adapter.id, row.abbreviation);
+			if (fresh) continue;
 			if (backingOff(failureState(rosterKey(row.id)))) continue;
 			if (!first) await sleep(FULL_SYNC_DELAY);
 			first = false;

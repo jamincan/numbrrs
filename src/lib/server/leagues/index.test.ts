@@ -407,9 +407,12 @@ describe('syncStale', () => {
 			seedSyncState(`teams:${league}`, { syncedAt: now });
 		}
 		const stale = seedTeam('nhl', 'TOR', now - 13 * HOUR);
-		seedTeam('nhl', 'BOS', now - 1 * HOUR);
+		seedPlayer(stale, 'nhl', 1);
+		const fresh = seedTeam('nhl', 'BOS', now - 1 * HOUR);
+		seedPlayer(fresh, 'nhl', 2);
 		const failing = seedTeam('nhl', 'MTL', now - 13 * HOUR);
 		seedSyncState(`roster:${failing}`, { syncedAt: 0, failedAt: now, failureCount: 1 });
+		nhlFetchRoster.mockResolvedValue(rosterOf(1));
 
 		await syncStale();
 
@@ -433,6 +436,21 @@ describe('syncStale', () => {
 		expect(nhlFetchTeams).toHaveBeenCalledTimes(1);
 		// TOR was only just inserted by the list sync, so it has never had a
 		// roster and is picked up in the same pass.
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+	});
+
+	it('treats a team with no stored players as stale, however fresh its timestamp', async () => {
+		const now = Date.now();
+		for (const league of ['nhl', 'pwhl', 'whl', 'ohl', 'qmjhl']) {
+			seedSyncState(`teams:${league}`, { syncedAt: now });
+		}
+		// Synced a minute ago, but emptied — say by a feed that opened the season
+		// with nobody on it, before the empty-roster guard existed.
+		seedTeam('nhl', 'TOR', now - 60_000);
+		nhlFetchRoster.mockResolvedValue(rosterOf(1));
+
+		await syncStale();
+
 		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
 	});
 });
