@@ -28,8 +28,18 @@ const TEAM_LIST_TTL = 24 * 60 * 60 * 1000;
  */
 const BLOCKING_TIMEOUT = 8000;
 
-/** Delay between roster requests during a full sync, to stay polite. */
+/** Delay between roster requests during a full sync or sweep, to stay polite. */
 const FULL_SYNC_DELAY = 400;
+
+/**
+ * How often the background sweep looks for stale data, and how long after boot
+ * it first does. Hourly against a 12-hour roster TTL means no roster is ever
+ * more than ~13 hours old, visited or not. The initial delay keeps a fresh
+ * deploy from opening with a hundred upstream requests while it is still
+ * answering its first health checks.
+ */
+const SWEEP_INTERVAL = 60 * 60 * 1000;
+const SWEEP_INITIAL_DELAY = 60 * 1000;
 
 /**
  * Backoff before retrying a transient roster failure, and the most a league's
@@ -438,6 +448,69 @@ export async function syncRosters(): Promise<void> {
 
 let fullSync: Promise<void> | null = null;
 let fullSyncStartedAt: number | null = null;
+
+/**
+ * Refresh whatever has gone stale, and nothing else. The on-demand path only
+ * refreshes a team when someone opens it, so a team nobody visits for a week
+ * keeps a week-old roster, and the first visitor after a trade deadline pays
+ * for the fetch. This walks everything past its TTL instead, at the same
+ * polite pace as a full sync, so the on-demand path becomes the exception.
+ *
+ * Shares `once()` with the on-demand path, so a visitor opening a team the
+ * sweep is mid-way through joins that fetch rather than starting a second.
+ */
+export async function syncStale(): Promise<void> {
+	// A manual resync is already walking every team; nothing to add.
+	if (fullSync) return;
+
+	let first = true;
+	for (const adapter of ADAPTERS) {
+		const listKey = teamListKey(adapter.id);
+		const listState = getDb().select().from(syncState).where(eq(syncState.key, listKey)).get();
+		if (!isFresh(listState?.syncedAt, TEAM_LIST_TTL) && !backingOff(listState)) {
+			await once(listKey, () => syncTeamList(adapter));
+		}
+
+		const rows = getDb().select().from(teams).where(eq(teams.league, adapter.id)).all();
+		for (const row of rows) {
+			if (isFresh(row.rosterSyncedAt, ROSTER_TTL)) continue;
+			if (backingOff(failureState(rosterKey(row.id)))) continue;
+			if (!first) await sleep(FULL_SYNC_DELAY);
+			first = false;
+			await once(rosterKey(row.id), () => syncRoster(adapter, toLeagueTeam(row)));
+		}
+	}
+}
+
+let sweep: NodeJS.Timeout | null = null;
+
+/**
+ * Run `syncStale` on a timer for the life of the process. Chained timeouts
+ * rather than an interval, so a slow sweep can't overlap the next one. Only
+ * worth calling on a machine that stays up: `min_machines_running = 1` is what
+ * makes this fire at all, since a stopped machine has no timers.
+ *
+ * The timer is unref'd so it never keeps a process alive that would otherwise
+ * exit — the build, a test run, a dev server being shut down.
+ */
+export function startSweeps(): void {
+	if (sweep) return;
+	const run = () => {
+		syncStale()
+			.catch((err) => {
+				reportError({
+					source: 'sync',
+					message: `Sweep failed: ${err instanceof Error ? err.message : String(err)}`,
+					stack: err instanceof Error ? err.stack : null,
+					route: 'sync:sweep'
+				});
+			})
+			.finally(() => {
+				sweep = setTimeout(run, SWEEP_INTERVAL).unref();
+			});
+	};
+	sweep = setTimeout(run, SWEEP_INITIAL_DELAY).unref();
+}
 
 /**
  * Whether a full sync is in flight, and since when. The admin page uses the

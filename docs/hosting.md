@@ -285,9 +285,10 @@ simplification.
 
 ### Caveat if machine count goes high
 
-N machines means N× independent upstream syncs. At N=4 with 12h/24h TTLs this is
-negligible. At N=20 it stops being negligible, and a shared warm store becomes
-worth revisiting. The HockeyTech key in `src/lib/server/leagues/chl.ts` is
+N machines means N× independent upstream syncs — and, since the hourly stale
+sweep (`startSweeps` in `leagues/index.ts`) runs per process, N× sweeps too. At
+N=4 with 12h/24h TTLs this is negligible. At N=20 it stops being negligible, and a
+shared warm store becomes worth revisiting. The HockeyTech key in `src/lib/server/leagues/chl.ts` is
 hardcoded and shared across CHL consumers — worth not hammering.
 
 ## Error logging

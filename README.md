@@ -45,10 +45,13 @@ fly deploy
 | `ADMIN_TOKEN`       | Password for the `/admin` dashboard, which is also what authorises a manual resync. Rotating it signs everyone out. Generate with `openssl rand -hex 32`. |
 | `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset.                                 |
 
-Rosters refresh on demand — 12 hours per team, 24 hours per team list — so there
-is nothing to schedule. To push new data out immediately, use the resync button on
-`/admin`; it starts a full refresh in the background and the page reports progress
-as it lands.
+Rosters go stale after 12 hours, team lists after 24. An hourly sweep inside the
+app refreshes whatever has passed its limit, so every roster is re-fetched at
+least once a day whether or not anyone opens it; a visit to a stale team still
+refreshes it on the spot. Nothing external to schedule — the sweep relies on
+`min_machines_running = 1` in `fly.toml`, since a stopped machine has no timers.
+To push new data out immediately, use the resync button on `/admin`; it starts a
+full refresh in the background and the page reports progress as it lands.
 
 ### Usage tracking
 

@@ -40,6 +40,7 @@ const {
 	loadRoster,
 	once,
 	syncRoster,
+	syncStale,
 	syncTeamList,
 	withTimeout
 } = await import('./index');
@@ -62,7 +63,7 @@ function leagueTeam(code: string, overrides: Partial<LeagueTeam> = {}): LeagueTe
 	};
 }
 
-function seedTeam(league: string, code: string): string {
+function seedTeam(league: string, code: string, rosterSyncedAt: number | null = null): string {
 	const id = teamDbId(league as LeagueId, code);
 	getDb()
 		.insert(teams)
@@ -71,10 +72,26 @@ function seedTeam(league: string, code: string): string {
 			league,
 			name: `${code} Team`,
 			abbreviation: code,
-			logoUrl: `https://example.com/${code}.svg`
+			logoUrl: `https://example.com/${code}.svg`,
+			rosterSyncedAt
 		})
 		.run();
 	return id;
+}
+
+function seedSyncState(
+	key: string,
+	state: { syncedAt: number; failedAt?: number; failureCount?: number }
+) {
+	getDb()
+		.insert(syncState)
+		.values({
+			key,
+			syncedAt: state.syncedAt,
+			failedAt: state.failedAt ?? null,
+			failureCount: state.failureCount ?? 0
+		})
+		.run();
 }
 
 function seedPlayer(
@@ -377,6 +394,46 @@ describe('withTimeout', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe('syncStale', () => {
+	const HOUR = 60 * 60 * 1000;
+
+	it('refreshes only the rosters past their ttl, leaving fresh and backing-off teams alone', async () => {
+		const now = Date.now();
+		// Every league's team list is fresh, so the sweep goes straight to rosters.
+		for (const league of ['nhl', 'pwhl', 'whl', 'ohl', 'qmjhl']) {
+			seedSyncState(`teams:${league}`, { syncedAt: now });
+		}
+		const stale = seedTeam('nhl', 'TOR', now - 13 * HOUR);
+		seedTeam('nhl', 'BOS', now - 1 * HOUR);
+		const failing = seedTeam('nhl', 'MTL', now - 13 * HOUR);
+		seedSyncState(`roster:${failing}`, { syncedAt: 0, failedAt: now, failureCount: 1 });
+
+		await syncStale();
+
+		expect(nhlFetchTeams).not.toHaveBeenCalled();
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+		expect(nhlFetchRoster).toHaveBeenCalledWith(expect.objectContaining({ code: 'TOR' }));
+		const row = getDb().select().from(teams).where(eq(teams.id, stale)).get();
+		expect(row?.rosterSyncedAt).toBeGreaterThanOrEqual(now);
+	});
+
+	it('refreshes a stale team list before walking its rosters', async () => {
+		const now = Date.now();
+		for (const league of ['pwhl', 'whl', 'ohl', 'qmjhl']) {
+			seedSyncState(`teams:${league}`, { syncedAt: now });
+		}
+		seedSyncState('teams:nhl', { syncedAt: now - 25 * HOUR });
+		nhlFetchTeams.mockResolvedValueOnce([leagueTeam('TOR')]);
+
+		await syncStale();
+
+		expect(nhlFetchTeams).toHaveBeenCalledTimes(1);
+		// TOR was only just inserted by the list sync, so it has never had a
+		// roster and is picked up in the same pass.
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
 	});
 });
 
