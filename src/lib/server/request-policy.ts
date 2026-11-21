@@ -1,5 +1,6 @@
+import { isIP } from 'node:net';
 import { negotiateLocale } from '#lib/i18n/index.ts';
-import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '#lib/site.ts';
+import { FLY_HOSTNAME, REDIRECT_HOSTNAMES, SITE_ORIGIN } from '#lib/site.ts';
 
 /**
  * Every decision `handle` makes about a request, as functions of plain values:
@@ -59,21 +60,145 @@ export function requiresAccess(request: {
 }
 
 /**
- * Where a request for a retired hostname should be sent, or null if the
- * hostname is one the app serves.
+ * The same path and query on the canonical origin: the only place a host
+ * redirect is ever allowed to point.
  *
  * The target is the canonical origin with the path and query appended as text.
  * Resolving the path against the origin instead (`new URL(path, origin)`) reads
  * a path that starts `//` as a new authority, which turns the redirect into one
  * to any site the visitor's link names, and throws on some of them.
  */
-export function hostRedirectTarget(url: URL): string | null {
-	if (!REDIRECT_HOSTNAMES.has(url.hostname)) return null;
+function onCanonicalOrigin(url: URL): string {
 	// The leading slash is what keeps the appended text inside the path, where it
 	// can't extend the hostname. URL guarantees it for http(s); this holds even if
 	// handed something else.
 	const path = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
 	return `${SITE_ORIGIN}${path}${url.search}`;
+}
+
+/**
+ * Where a request for a retired hostname should be sent, or null if the
+ * hostname is not one of them.
+ */
+export function hostRedirectTarget(url: URL): string | null {
+	if (!REDIRECT_HOSTNAMES.has(url.hostname)) return null;
+	return onCanonicalOrigin(url);
+}
+
+/** Fly's health check, the deploy script and the uptime probe all ask for this. */
+export const HEALTH_ROUTE = '/api/health';
+
+/** The fuller report the uptime probe reads: disk, roster age, whether writes land. */
+export const STATUS_ROUTE = '/api/status';
+
+/**
+ * Where a request that arrived on Fly's own hostname should be sent, or null to
+ * serve it there.
+ *
+ * That hostname reaches the app without passing through Cloudflare, so serving
+ * the site on it hands out a copy with no edge cache in front and none of
+ * Cloudflare's protection. Two things still have to be answered there:
+ *
+ * - The health check and the status report. They are how the machine is known
+ *   to be up and well — by Fly, by the deploy script and by the uptime probe —
+ *   and they have to say so about this machine, not about whatever Cloudflare
+ *   would answer in its place.
+ * - Everything, while `adminDirect` is on. That switch means Cloudflare is
+ *   down, which is exactly when the canonical host cannot be reached and this
+ *   one is the only way in.
+ *
+ * This is a courtesy to visitors and crawlers, not a wall. It compares the
+ * hostname the request names, and a connection made straight to Fly can name
+ * any host it likes; such a request is served like any other, with the Access
+ * check and the per-address limit still applying to it.
+ */
+export function flyRedirectTarget(request: {
+	url: URL;
+	routeId: string | null;
+	adminDirect: boolean;
+}): string | null {
+	if (request.url.hostname !== FLY_HOSTNAME) return null;
+	if (request.adminDirect) return null;
+	if (request.routeId === HEALTH_ROUTE || request.routeId === STATUS_ROUTE) return null;
+	return onCanonicalOrigin(request.url);
+}
+
+/**
+ * How many requests one address may make before the rest of the window is
+ * answered 429.
+ *
+ * A visitor costs the origin one request per page: its HTML, or its data when
+ * the navigation is client-side. Scripts, styles and fonts are files that
+ * adapter-node serves before `handle` is ever called, and headshots come from
+ * the leagues. Two requests a second, kept up for a minute, is far beyond
+ * anyone reading the site, so the limit is for whatever asks for every page as
+ * fast as it can.
+ *
+ * An address is not a person, though: a school or a mobile carrier puts many
+ * people behind one. The headroom is for them, and the edge cache answers most
+ * of what a crowd asks for before it gets this far.
+ */
+export const PAGE_RATE_LIMIT = { limit: 120, windowMs: 60_000 } as const;
+
+/**
+ * Routes the limit leaves alone. Matched on the route SvelteKit chose, exactly,
+ * so that only the endpoint itself is exempt and not every URL that can be
+ * spelled to begin like it.
+ */
+const UNLIMITED_ROUTES: ReadonlySet<string> = new Set([
+	// Monitoring. A probe that is turned away reads as an outage, and Fly stops
+	// sending visitors to a machine whose check fails.
+	HEALTH_ROUTE,
+	STATUS_ROUTE,
+	// Reports from the Cloudflare Workers. They all arrive from Cloudflare's
+	// addresses, so a count per address would be a count of the whole edge, and
+	// they are admitted by a token instead.
+	'/api/hit',
+	// Has a tighter limit of its own.
+	'/api/client-error'
+]);
+
+/** What `visitorKey` in client-ip.ts makes of an IPv6 address: its /64. */
+const IPV6_BLOCK = /^[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){3}::\/64$/;
+
+/** 127.0.0.0/8, and the block holding ::1 as `visitorKey` writes it. */
+const LOOPBACK = /^(?:127(?:\.\d{1,3}){3}|0:0:0:0::\/64|::1)$/;
+
+/**
+ * The key to count a request against, or null if it is not counted at all.
+ *
+ * `ip` is what `clientIp` answered. Three kinds of request go uncounted:
+ *
+ * - The routes above, and /admin, whose login has its own limit and which is
+ *   otherwise behind Access and a session. Only the admin route itself: a URL
+ *   under /admin that matches no route has either been refused by the Access
+ *   check already or is a 404 like any other.
+ * - One with no address to count against — `clientIp` could not tell and said
+ *   so, or passed on something that is not an address. They would all share a
+ *   single key, and the first of them to pass the limit would lock out every
+ *   other. Nothing arriving from the internet is in this position: Fly's proxy
+ *   stamps an address on every request it forwards.
+ * - One from the machine itself. A loopback address is the server run locally
+ *   — dev, a production build on a laptop, the e2e suite, which sends hundreds
+ *   of requests a minute from 127.0.0.1 — and behind Fly's proxy no visitor
+ *   can have one.
+ *
+ * The last two lean on the address being trustworthy, which it is on Fly and
+ * is not anywhere else: off Fly `clientIp` falls back to a header the client
+ * writes, and a client that can write its own address was never going to be
+ * held by a limit keyed on it.
+ */
+export function rateLimitKey(request: { routeId: string | null; ip: string }): string | null {
+	const { routeId, ip } = request;
+	if (routeId !== null && (UNLIMITED_ROUTES.has(routeId) || isAdminPath(routeId))) return null;
+	if (isIP(ip) === 0 && !IPV6_BLOCK.test(ip)) return null;
+	if (LOOPBACK.test(ip)) return null;
+	return ip;
+}
+
+/** A wait in milliseconds as a `Retry-After` value: whole seconds, never zero. */
+export function retryAfterSeconds(waitMs: number): number {
+	return Math.max(1, Math.ceil(waitMs / 1000));
 }
 
 /**
@@ -158,12 +283,12 @@ export const NO_STORE = 'private, no-store';
 /**
  * The Cache-Control a response should carry, or null to leave whatever it has.
  *
- * The home page resolves the remembered league tab server-side so the grid and
- * its links are in the first byte for crawlers (see its load function). That is
- * good for SEO and it means the HTML differs per visitor, so it must not be
- * shared — Vary: Cookie would be correct and would also make the entry
- * worthless. Team pages are the long tail worth caching and have no such
- * dependency.
+ * The home page is offered like any other, though its HTML differs by visitor:
+ * it renders the grid of the league the URL names or the cookie remembers (see
+ * its load function). It says so with Vary: Cookie, which a cache that keys on
+ * the whole header would find worthless. The cache this is for does not: the
+ * Cloudflare Worker reads the same league out of the request, with the same
+ * function, and keeps one copy per league (cloudflare/locale-cache-worker.ts).
  *
  * /admin is behind a session and shows usage data. Never store it anywhere.
  *
@@ -171,8 +296,8 @@ export const NO_STORE = 'private, no-store';
  * POST, so it is left alone rather than given a blanket default.
  *
  * A load can also opt a single response out (`uncacheable`) — a team page with
- * no roster yet, so the edge doesn't keep serving the empty state after the
- * sync lands. That has to be a flag rather than "respect whatever cache-control
+ * no roster yet, or the home page while a league's teams are missing, so the
+ * edge doesn't keep serving the empty state after the sync lands. That has to be a flag rather than "respect whatever cache-control
  * is already there": SvelteKit stamps `private, no-store` on every __data.json
  * response, and overriding it is what lets client-side navigations between
  * pages be cached at all.
@@ -190,7 +315,6 @@ export function cacheControlFor(response: {
 	setsCookie: boolean;
 }): string | null {
 	if (isAdminRequest(response.routeId, response.pathname) || response.uncacheable) return NO_STORE;
-	if (response.routeId === HOME_ROUTE) return 'private, no-cache';
 	if (isLocalizedRoute(response.routeId) && !response.setsCookie && response.status === 200) {
 		return PAGE_CACHE;
 	}

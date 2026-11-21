@@ -32,6 +32,12 @@ The origin's ceiling is the unknown, so the test goes straight at `.fly.dev`,
 which has no CDN in front of it. `k6-origin.js` refuses to run against
 `numbrrs.app` for this reason.
 
+That means the staging app's own hostname, `numbrrs-loadtest.fly.dev`.
+Production's `numbrrs.fly.dev` is no use for this even setting the pageview
+rows aside: the app answers everything asked of that one hostname, bar its
+health check, with a redirect to `numbrrs.app`. The staging app has a different
+name, so nothing here is redirected.
+
 ## Steps
 
 ### 1. Install k6
@@ -51,6 +57,17 @@ fly secrets set ADMIN_TOKEN=$(openssl rand -hex 32) -a numbrrs-loadtest
 fly deploy -c load-test/fly.staging.toml
 ```
 
+**Lift the request limit for this build first.** The app answers `429` to an
+address that passes 120 requests a minute (`PAGE_RATE_LIMIT` in
+`src/lib/server/request-policy.ts`), and k6 sends everything from one address:
+left alone, every stage past 2 req/s measures how fast the app can refuse. No
+setting turns the limit off, so that there is none to leave on in production.
+Raise `limit` in the working tree before the `fly deploy` above — to `1_000_000`,
+say — and put it back once the deploy has finished; the image is built from the
+working directory, so nothing needs committing. A run that skipped this is hard
+to miss: `route_failures` near 100% from the 5 req/s stage on, impossibly good
+latency, and `[rate-limit]` lines in `fly logs`.
+
 ### 3. Warm it before measuring
 
 A fresh database means the first request to each team triggers an upstream
@@ -65,7 +82,10 @@ hand and confirm they render. Only then measure.
 `/admin` normally refuses anything that did not come through Cloudflare Access,
 which this app is not behind. `fly.staging.toml` sets `ADMIN_DIRECT = '1'` to
 skip that check, so the page carries its "Direct access is on" warning here; a
-403 instead means that line has gone missing.
+403 instead means that line has gone missing. The switch also raises an alert
+each time the server starts, so the errors table opens with a
+`boot:admin-direct` row. That one is expected, and with no webhook set it goes
+no further than the table.
 
 ### 4. Run the ramp
 

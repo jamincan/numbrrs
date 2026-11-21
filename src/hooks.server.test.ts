@@ -1,6 +1,11 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NEGOTIATED_VARY, PAGE_CACHE, SECURITY_HEADERS } from '#lib/server/request-policy.ts';
+import {
+	NEGOTIATED_VARY,
+	PAGE_CACHE,
+	PAGE_RATE_LIMIT,
+	SECURITY_HEADERS
+} from '#lib/server/request-policy.ts';
 
 /**
  * hooks.server.ts boots the database and the sweeps as it is imported, and
@@ -46,6 +51,7 @@ vi.mock('$app/env/private', () => ({
 		return world.adminToken;
 	},
 	ALERT_WEBHOOK_URL: undefined,
+	EDGE_TOKEN: undefined,
 	DATABASE_URL: ':memory:'
 }));
 vi.mock('#lib/server/db/index.ts', () => ({
@@ -108,6 +114,11 @@ interface Incoming {
 	cookies?: Record<string, string>;
 	params?: Record<string, string>;
 	locals?: Partial<App.Locals>;
+	/**
+	 * What the socket reports. Loopback unless a test says otherwise, as it is
+	 * for a server run locally; on Fly the `fly-client-ip` header outranks it.
+	 */
+	clientAddress?: () => string;
 }
 
 /**
@@ -126,7 +137,7 @@ function eventFor(url: string, incoming: Incoming = {}): RequestEvent {
 		params,
 		locals: { ...incoming.locals },
 		cookies: { get: (name: string) => cookies[name] },
-		getClientAddress: () => '127.0.0.1'
+		getClientAddress: incoming.clientAddress ?? (() => '127.0.0.1')
 	} as unknown as RequestEvent;
 }
 
@@ -356,16 +367,362 @@ describe('the redirect from retired hostnames', () => {
 		expect(mocks.verifyAccessToken).not.toHaveBeenCalled();
 	});
 
-	it('leaves the canonical host and the Fly hostname alone', async () => {
-		for (const origin of ['https://numbrrs.app', 'https://numbrrs.fly.dev']) {
-			const resolve = resolving();
+	it('leaves the canonical host alone', async () => {
+		const resolve = resolving();
+		const response = await hooks.handle({
+			event: eventFor('https://numbrrs.app/game/nhl/TOR', { routeId: TEAM_ROUTE }),
+			resolve
+		});
+		expect(response.status).toBe(200);
+		expect(resolve).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('the redirect from the Fly hostname', () => {
+	it('sends a page to the canonical host, keeping the path and query', async () => {
+		const resolve = resolving();
+		const event = eventFor('https://numbrrs.fly.dev/fr/game/nhl/TOR?mode=hard&x=1', {
+			routeId: TEAM_ROUTE,
+			params: { lang: 'fr' }
+		});
+
+		const response = await hooks.handle({ event, resolve });
+
+		expect(response.status).toBe(308);
+		expect(response.headers.get('location')).toBe(
+			'https://numbrrs.app/fr/game/nhl/TOR?mode=hard&x=1'
+		);
+		// Stored, it would still be followed while the switch below is on, to a
+		// host that is down.
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		expectSecurityHeaders(response);
+		expect(resolve).not.toHaveBeenCalled();
+		expect(mocks.recordEvent).not.toHaveBeenCalled();
+	});
+
+	it('comes before the French redirect, so nobody is sent to /fr on the wrong host', async () => {
+		const response = await hooks.handle({
+			event: eventFor('https://numbrrs.fly.dev/game/nhl/TOR', {
+				routeId: TEAM_ROUTE,
+				headers: { 'accept-language': 'fr-CA,fr;q=0.9' }
+			}),
+			resolve: resolving()
+		});
+
+		expect(response.status).toBe(308);
+		expect(response.headers.get('location')).toBe('https://numbrrs.app/game/nhl/TOR');
+	});
+
+	it.each([
+		['GET /admin', 'https://numbrrs.fly.dev/admin', 'GET'],
+		['GET /%61dmin', 'https://numbrrs.fly.dev/%61dmin', 'GET'],
+		['POST /admin?/login', 'https://numbrrs.fly.dev/admin?/login', 'POST']
+	])('sends %s to where Access guards it instead of refusing it', async (_label, url, method) => {
+		const resolve = resolving();
+
+		const response = await hooks.handle({
+			event: eventFor(url, { routeId: '/admin', method }),
+			resolve
+		});
+
+		expect(response.status).toBe(308);
+		expect(response.headers.get('location')).toBe(url.replace('numbrrs.fly.dev', 'numbrrs.app'));
+		expect(resolve).not.toHaveBeenCalled();
+		expect(mocks.verifyAccessToken).not.toHaveBeenCalled();
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it('keeps answering the health check there', async () => {
+		const resolve = resolving();
+
+		const response = await hooks.handle({
+			event: eventFor('https://numbrrs.fly.dev/api/health', { routeId: '/api/health' }),
+			resolve
+		});
+
+		expect(response.status).toBe(200);
+		expect(resolve).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(['//example.com/', '/\\example.com/', '//example.com:443/x?y=1', '//a:b/x'])(
+		'cannot be pointed at another site by the path %j',
+		async (path) => {
 			const response = await hooks.handle({
-				event: eventFor(`${origin}/api/health`, { routeId: '/api/health' }),
+				event: eventFor(`https://numbrrs.fly.dev${path}`),
+				resolve: resolving()
+			});
+
+			expect(response.status).toBe(308);
+			expect(new URL(response.headers.get('location') ?? '').origin).toBe('https://numbrrs.app');
+		}
+	);
+
+	describe('while ADMIN_DIRECT is on', () => {
+		beforeEach(() => {
+			world.adminDirect = true;
+		});
+
+		it('serves pages there directly', async () => {
+			const resolve = resolving();
+			const event = eventFor('https://numbrrs.fly.dev/game/nhl/TOR', { routeId: TEAM_ROUTE });
+
+			const response = await hooks.handle({ event, resolve });
+
+			expect(response.status).toBe(200);
+			expect(response.headers.has('location')).toBe(false);
+			expect(resolve).toHaveBeenCalledTimes(1);
+		});
+
+		it('serves /admin there with no Access token, leaving it to the token login', async () => {
+			const resolve = resolving();
+
+			const response = await hooks.handle({
+				event: eventFor('https://numbrrs.fly.dev/admin', { routeId: '/admin' }),
 				resolve
 			});
+
 			expect(response.status).toBe(200);
 			expect(resolve).toHaveBeenCalledTimes(1);
+			expect(mocks.verifyAccessToken).not.toHaveBeenCalled();
+			expect(response.headers.get('cache-control')).toBe('private, no-store');
+		});
+
+		it('still redirects the retired hostnames', async () => {
+			const response = await hooks.handle({
+				event: eventFor('https://numbrrs.ca/game/nhl/TOR', { routeId: TEAM_ROUTE }),
+				resolve: resolving()
+			});
+
+			expect(response.status).toBe(301);
+		});
+	});
+
+	it('does not get a direct request that names the canonical host past the Access check', async () => {
+		// A connection made straight to Fly can put any host it likes in the
+		// request. Naming the canonical one avoids the redirect, and must then meet
+		// the same refusal as before there was a redirect to avoid.
+		const resolve = resolving();
+		const event = eventFor('https://numbrrs.app/admin', {
+			routeId: '/admin',
+			// Not one of Cloudflare's addresses: this did not come through the edge.
+			headers: { 'fly-client-ip': '198.51.100.7' }
+		});
+
+		const response = await hooks.handle({ event, resolve });
+
+		expect(response.status).toBe(403);
+		expect(resolve).not.toHaveBeenCalled();
+	});
+});
+
+describe('the per-address request limit', () => {
+	const LIMIT = PAGE_RATE_LIMIT.limit;
+
+	// The counts live in the module and outlast a test, so each test uses an
+	// address of its own.
+	let nextAddress = 0;
+	const freshAddress = () => `203.0.113.${++nextAddress}`;
+
+	const pageFrom = (ip: string, incoming: Incoming = {}) =>
+		eventFor('https://numbrrs.app/game/nhl/TOR', {
+			routeId: TEAM_ROUTE,
+			...incoming,
+			headers: { 'fly-client-ip': ip, ...incoming.headers }
+		});
+
+	/** Sends `count` requests and returns the status of each. */
+	async function statuses(count: number, event: () => RequestEvent): Promise<number[]> {
+		const seen: number[] = [];
+		for (let i = 0; i < count; i++) {
+			seen.push((await hooks.handle({ event: event(), resolve: resolving() })).status);
 		}
+		return seen;
+	}
+
+	it('serves an address its allowance, then answers 429 without running the route', async () => {
+		const ip = freshAddress();
+		expect(new Set(await statuses(LIMIT, () => pageFrom(ip)))).toEqual(new Set([200]));
+		mocks.recordEvent.mockClear();
+		const resolve = resolving();
+
+		const response = await hooks.handle({ event: pageFrom(ip), resolve });
+
+		expect(response.status).toBe(429);
+		expect(await response.text()).toBe('Too Many Requests');
+		expect(Number(response.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+		expect(Number(response.headers.get('retry-after'))).toBeLessThanOrEqual(60);
+		// Nothing a cache may keep: the Worker stores only a 200, and this says
+		// so to any other cache between here and the visitor.
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		expectSecurityHeaders(response);
+		expect(resolve).not.toHaveBeenCalled();
+		expect(mocks.recordEvent).not.toHaveBeenCalled();
+	});
+
+	it('logs one line for an address over the limit, and alerts nobody', async () => {
+		const ip = freshAddress();
+		await statuses(LIMIT, () => pageFrom(ip));
+
+		expect(new Set(await statuses(25, () => pageFrom(ip)))).toEqual(new Set([429]));
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith(
+			`[rate-limit] ${ip} is over ${LIMIT} requests a minute, answering 429: GET /game/nhl/TOR`
+		);
+		expect(mocks.reportError).not.toHaveBeenCalled();
+	});
+
+	it('counts each address separately', async () => {
+		const [busy, quiet] = [freshAddress(), freshAddress()];
+		await statuses(LIMIT + 5, () => pageFrom(busy));
+
+		const response = await hooks.handle({ event: pageFrom(quiet), resolve: resolving() });
+
+		expect(response.status).toBe(200);
+	});
+
+	it('lets the address back in once its requests have left the window', async () => {
+		const ip = freshAddress();
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			vi.setSystemTime(new Date('2026-11-21T12:00:00Z'));
+			await statuses(LIMIT, () => pageFrom(ip));
+			vi.setSystemTime(new Date('2026-11-21T12:00:20Z'));
+			const refused = await hooks.handle({ event: pageFrom(ip), resolve: resolving() });
+
+			expect(refused.status).toBe(429);
+			expect(refused.headers.get('retry-after')).toBe('40');
+
+			vi.setSystemTime(new Date('2026-11-21T12:01:00Z'));
+			const served = await hooks.handle({ event: pageFrom(ip), resolve: resolving() });
+
+			expect(served.status).toBe(200);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('counts a visitor behind Cloudflare by their own address, not the edge it came through', async () => {
+		// Two visitors arriving through the same Cloudflare address.
+		const edge = '172.68.1.1';
+		const [busy, quiet] = [freshAddress(), freshAddress()];
+		const through = (visitor: string) => () =>
+			pageFrom(edge, { headers: { 'cf-connecting-ip': visitor } });
+		await statuses(LIMIT, through(busy));
+
+		expect(await statuses(1, through(busy))).toEqual([429]);
+		expect(await statuses(1, through(quiet))).toEqual([200]);
+	});
+
+	it('counts pages that do not exist as well, which cost a render each', async () => {
+		const ip = freshAddress();
+		const missing = () =>
+			eventFor('https://numbrrs.app/wp-login.php', { headers: { 'fly-client-ip': ip } });
+		for (let i = 0; i < LIMIT; i++) {
+			await hooks.handle({ event: missing(), resolve: resolving(404) });
+		}
+
+		const response = await hooks.handle({ event: missing(), resolve: resolving(404) });
+
+		expect(response.status).toBe(429);
+	});
+
+	it.each([
+		['/api/health', '/api/health', 'GET'],
+		['/api/status', '/api/status', 'GET'],
+		['/api/hit', '/api/hit', 'POST'],
+		['/api/client-error', '/api/client-error', 'POST']
+	])(
+		'never limits %s, even for an address that is over the limit',
+		async (path, routeId, method) => {
+			const ip = freshAddress();
+			await statuses(LIMIT + 1, () => pageFrom(ip));
+
+			const exempt = await statuses(LIMIT + 10, () =>
+				eventFor(`https://numbrrs.app${path}`, {
+					routeId,
+					method,
+					headers: { 'fly-client-ip': ip }
+				})
+			);
+
+			expect(new Set(exempt)).toEqual(new Set([200]));
+		}
+	);
+
+	it('never limits /admin, which has a limit of its own', async () => {
+		const ip = freshAddress();
+		await statuses(LIMIT + 1, () => pageFrom(ip));
+
+		const admin = await statuses(LIMIT + 10, () =>
+			eventFor('https://numbrrs.app/admin', {
+				routeId: '/admin',
+				headers: { 'fly-client-ip': ip, 'cf-access-jwt-assertion': VALID_TOKEN }
+			})
+		);
+
+		expect(new Set(admin)).toEqual(new Set([200]));
+	});
+
+	it('does not spend the allowance on requests the health check makes', async () => {
+		const ip = freshAddress();
+		await statuses(LIMIT * 2, () =>
+			eventFor('https://numbrrs.app/api/health', {
+				routeId: '/api/health',
+				headers: { 'fly-client-ip': ip }
+			})
+		);
+
+		expect(await statuses(LIMIT, () => pageFrom(ip))).not.toContain(429);
+	});
+
+	it.each([
+		['127.0.0.1', '127.0.0.1'],
+		['::1', '::1'],
+		['::ffff:127.0.0.1', '::ffff:127.0.0.1']
+	])(
+		'never limits the server talking to itself, as dev and the e2e suite do: %s',
+		async (_label, address) => {
+			// No Fly header: this is a server on a laptop, and the address is the
+			// socket's.
+			const local = () =>
+				eventFor('http://localhost:4729/game/nhl/TOR', {
+					routeId: TEAM_ROUTE,
+					clientAddress: () => address
+				});
+
+			expect(new Set(await statuses(LIMIT * 3, local))).toEqual(new Set([200]));
+			expect(warn).not.toHaveBeenCalled();
+		}
+	);
+
+	it('does not pool requests whose address cannot be determined', async () => {
+		// One key for all of them would let the first burst lock out the rest.
+		const anonymous = () =>
+			eventFor('https://numbrrs.app/game/nhl/TOR', {
+				routeId: TEAM_ROUTE,
+				clientAddress: () => {
+					throw new Error('no address for this request');
+				}
+			});
+
+		expect(new Set(await statuses(LIMIT * 3, anonymous))).toEqual(new Set([200]));
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it('still limits a direct request on the Fly hostname while ADMIN_DIRECT serves it', async () => {
+		world.adminDirect = true;
+		const ip = freshAddress();
+		const direct = () =>
+			eventFor('https://numbrrs.fly.dev/game/nhl/TOR', {
+				routeId: TEAM_ROUTE,
+				headers: { 'fly-client-ip': ip }
+			});
+
+		const seen = await statuses(LIMIT + 1, direct);
+
+		expect(seen.slice(0, LIMIT)).not.toContain(429);
+		expect(seen[LIMIT]).toBe(429);
 	});
 });
 
@@ -491,13 +848,13 @@ describe('caching', () => {
 		expect(response.headers.get('cache-control')).toBeNull();
 	});
 
-	it('keeps the home page private', async () => {
+	it('offers the home page to shared caches like any other page', async () => {
 		const response = await hooks.handle({
 			event: eventFor('https://numbrrs.app/', { routeId: HOME_ROUTE }),
 			resolve: resolving()
 		});
 
-		expect(response.headers.get('cache-control')).toBe('private, no-cache');
+		expect(response.headers.get('cache-control')).toBe(PAGE_CACHE);
 	});
 
 	it('honours a load that marked its response uncacheable', async () => {
@@ -681,6 +1038,7 @@ describe('boot', () => {
 			mocks.startSweeps.mock.invocationCallOrder[0] ?? 0
 		);
 		expect(warn).not.toHaveBeenCalled();
+		expect(mocks.reportError).not.toHaveBeenCalled();
 	});
 
 	it('does nothing at all during a build', async () => {
@@ -691,6 +1049,8 @@ describe('boot', () => {
 		expect(mocks.installProcessGuards).not.toHaveBeenCalled();
 		expect(process.listenerCount('sveltekit:shutdown')).toBe(0);
 		expect(warn).not.toHaveBeenCalled();
+		// The record is a database write, and a build has no database.
+		expect(mocks.reportError).not.toHaveBeenCalled();
 	});
 
 	it('closes the database once the server has shut down', async () => {
@@ -710,6 +1070,8 @@ describe('boot', () => {
 		// A handler that ends the process does not belong under a dev server.
 		expect(mocks.installProcessGuards).not.toHaveBeenCalled();
 		expect(warn).not.toHaveBeenCalled();
+		// The switch does nothing on localhost, so there is nothing to raise.
+		expect(mocks.reportError).not.toHaveBeenCalled();
 	});
 
 	it('says so in the logs when the Access check is switched off', async () => {
@@ -717,6 +1079,31 @@ describe('boot', () => {
 
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('ADMIN_DIRECT is set'));
+	});
+
+	it('raises one alert when the emergency switch is on, once the database is open', async () => {
+		await boot({ adminDirect: true });
+
+		expect(mocks.reportError).toHaveBeenCalledTimes(1);
+		expect(mocks.reportError).toHaveBeenCalledWith({
+			source: 'server',
+			message:
+				'ADMIN_DIRECT is on: numbrrs.fly.dev is serving the site directly and /admin is skipping Cloudflare Access. Unset it once Cloudflare is back.',
+			route: 'boot:admin-direct'
+		});
+		// The report is a row in the database before it is anything else.
+		expect(mocks.bootstrap.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.reportError.mock.invocationCallOrder[0] ?? 0
+		);
+	});
+
+	it('raises the same alert at every boot, so the cooldown can fold them into one', async () => {
+		await boot({ adminDirect: true });
+		await boot({ adminDirect: true });
+
+		// Same source, message and route, which is all a fingerprint is made from.
+		expect(mocks.reportError).toHaveBeenCalledTimes(2);
+		expect(mocks.reportError.mock.calls[0]).toEqual(mocks.reportError.mock.calls[1]);
 	});
 
 	it('warns about a short admin token without printing it, and still boots', async () => {

@@ -7,6 +7,7 @@ import {
 	SECURITY_HEADERS,
 	applySecurityHeaders,
 	cacheControlFor,
+	flyRedirectTarget,
 	frenchRedirectTarget,
 	hostRedirectTarget,
 	isAdminPath,
@@ -14,8 +15,11 @@ import {
 	isLocaleNegotiated,
 	isLocalizedRoute,
 	isReportableError,
-	requiresAccess
+	rateLimitKey,
+	requiresAccess,
+	retryAfterSeconds
 } from './request-policy.ts';
+import { visitorKey } from './client-ip.ts';
 
 const TEAM_ROUTE = '/[[lang=locale]]/game/[league]/[team]';
 const PRIVACY_ROUTE = '/[[lang=locale]]/privacy';
@@ -161,6 +165,180 @@ describe('hostRedirectTarget', () => {
 	});
 });
 
+describe('flyRedirectTarget', () => {
+	const onFly = (path: string, routeId: string | null = TEAM_ROUTE, adminDirect = false) =>
+		flyRedirectTarget({ url: new URL(`https://numbrrs.fly.dev${path}`), routeId, adminDirect });
+
+	it.each([
+		['/', HOME_ROUTE, 'https://numbrrs.app/'],
+		['/game/nhl/TOR', TEAM_ROUTE, 'https://numbrrs.app/game/nhl/TOR'],
+		['/fr/game/pwhl/MTL?x=1&y=2', TEAM_ROUTE, 'https://numbrrs.app/fr/game/pwhl/MTL?x=1&y=2'],
+		['/sitemap.xml', '/sitemap.xml', 'https://numbrrs.app/sitemap.xml'],
+		['/api/client-error', '/api/client-error', 'https://numbrrs.app/api/client-error'],
+		['/nothing-here', null, 'https://numbrrs.app/nothing-here'],
+		// Where Cloudflare Access guards it, which beats refusing it here.
+		['/admin', '/admin', 'https://numbrrs.app/admin'],
+		['/%61dmin?/login', '/admin', 'https://numbrrs.app/%61dmin?/login']
+	])('sends %s to the same place on the canonical host', (path, routeId, to) => {
+		expect(onFly(path, routeId)).toBe(to);
+	});
+
+	it('leaves the health check and the status report answering where they were asked', () => {
+		expect(onFly('/api/health', '/api/health')).toBeNull();
+		expect(onFly('/api/health?probe=1', '/api/health')).toBeNull();
+		expect(onFly('/api/status', '/api/status')).toBeNull();
+	});
+
+	it('exempts the health route itself, not paths that resemble it', () => {
+		expect(onFly('/api/health/extra', null)).toBe('https://numbrrs.app/api/health/extra');
+		expect(onFly('/api/healthy', null)).toBe('https://numbrrs.app/api/healthy');
+		expect(onFly('/api/status/extra', null)).toBe('https://numbrrs.app/api/status/extra');
+		expect(onFly('/api/hit', '/api/hit')).toBe('https://numbrrs.app/api/hit');
+	});
+
+	it('serves everything there while the emergency switch is on', () => {
+		for (const [path, routeId] of [
+			['/', HOME_ROUTE],
+			['/game/nhl/TOR', TEAM_ROUTE],
+			['/admin', '/admin'],
+			['/api/health', '/api/health'],
+			['/nothing-here', null]
+		] as const) {
+			expect(onFly(path, routeId, true)).toBeNull();
+		}
+	});
+
+	it.each([
+		'https://numbrrs.app/game/nhl/TOR',
+		'http://localhost:5173/',
+		'http://localhost:4729/admin',
+		// The load-test app, and anything else that merely looks similar.
+		'https://numbrrs-loadtest.fly.dev/',
+		'https://x.numbrrs.fly.dev/',
+		'https://numbrrs.fly.dev.example.com/',
+		'https://fly.dev/'
+	])('only applies to that exact hostname: %s', (url) => {
+		expect(
+			flyRedirectTarget({ url: new URL(url), routeId: TEAM_ROUTE, adminDirect: false })
+		).toBeNull();
+	});
+
+	it('matches the hostname whatever the port or scheme', () => {
+		expect(
+			flyRedirectTarget({
+				url: new URL('http://numbrrs.fly.dev:8080/x'),
+				routeId: null,
+				adminDirect: false
+			})
+		).toBe('https://numbrrs.app/x');
+	});
+
+	it.each([
+		'//example.com/',
+		'///example.com/',
+		'/\\example.com/',
+		'//example.com:443/path?q=1',
+		'//a:b/x',
+		'//user:pass@example.com/',
+		'/@example.com',
+		'/%2F%2Fexample.com'
+	])('stays on the canonical origin for the path %j', (path) => {
+		const target = onFly(path, null);
+
+		expect(target?.startsWith(`${SITE_ORIGIN}/`)).toBe(true);
+		expect(new URL(target ?? '').origin).toBe(SITE_ORIGIN);
+	});
+});
+
+describe('rateLimitKey', () => {
+	const VISITOR = '203.0.113.9';
+
+	it('counts a page, its data and anything unrouted against the address', () => {
+		for (const routeId of [HOME_ROUTE, TEAM_ROUTE, PRIVACY_ROUTE, '/sitemap.xml', null]) {
+			expect(rateLimitKey({ routeId, ip: VISITOR })).toBe(VISITOR);
+		}
+	});
+
+	it('counts an IPv6 visitor by the /64 that clientIp reports', () => {
+		const block = visitorKey('2001:db8:aa:bb::9');
+
+		expect(block).toBe('2001:db8:aa:bb::/64');
+		expect(rateLimitKey({ routeId: TEAM_ROUTE, ip: block })).toBe(block);
+	});
+
+	it.each(['/api/health', '/api/status', '/api/hit', '/api/client-error', '/admin'])(
+		'leaves %s alone',
+		(routeId) => {
+			expect(rateLimitKey({ routeId, ip: VISITOR })).toBeNull();
+		}
+	);
+
+	it('exempts those routes only when they are what matched', () => {
+		// No route id: SvelteKit matched nothing, so these are 404s to render.
+		expect(rateLimitKey({ routeId: null, ip: VISITOR })).toBe(VISITOR);
+		expect(rateLimitKey({ routeId: '/api/healthy', ip: VISITOR })).toBe(VISITOR);
+		expect(rateLimitKey({ routeId: '/api/health/[deep]', ip: VISITOR })).toBe(VISITOR);
+		expect(rateLimitKey({ routeId: '/administrator', ip: VISITOR })).toBe(VISITOR);
+		// A route beneath /admin is still the admin area.
+		expect(rateLimitKey({ routeId: '/admin/[section]', ip: VISITOR })).toBeNull();
+	});
+
+	it.each([
+		['the marker clientIp uses', 'unknown'],
+		['nothing', ''],
+		['a hostname', 'localhost'],
+		['junk from a header', '203.0.113.9, 10.0.0.1'],
+		['an address with a port', '203.0.113.9:443'],
+		['an out-of-range address', '300.1.1.1']
+	])('does not count a request with no address to count against: %s', (_label, ip) => {
+		// Counted, they would all be one key, and one burst would lock out the rest.
+		expect(rateLimitKey({ routeId: TEAM_ROUTE, ip })).toBeNull();
+	});
+
+	it('does not count a request whose address is missing altogether', () => {
+		// adapter-node hands back undefined for a socket that has already closed.
+		expect(rateLimitKey({ routeId: TEAM_ROUTE, ip: undefined as unknown as string })).toBeNull();
+	});
+
+	it.each([
+		// Each written the way clientIp would report it.
+		['127.0.0.1', visitorKey('127.0.0.1')],
+		['::1', visitorKey('::1')],
+		['::ffff:127.0.0.1', visitorKey('::ffff:127.0.0.1')],
+		['127.8.9.10', visitorKey('127.8.9.10')]
+	])('does not count the machine talking to itself: %s', (_address, ip) => {
+		expect(rateLimitKey({ routeId: TEAM_ROUTE, ip })).toBeNull();
+	});
+
+	it.each(['128.0.0.1', '12.7.0.1', '10.0.0.1', '172.19.3.2', '192.168.1.20', '1.127.0.0'])(
+		'counts %s, which is not loopback',
+		(ip) => {
+			expect(rateLimitKey({ routeId: TEAM_ROUTE, ip })).toBe(ip);
+		}
+	);
+
+	it('counts private IPv6 addresses, which are not loopback either', () => {
+		for (const address of ['fdaa:0:1:a7b::3', 'fe80::1', '0:0:0:1::1']) {
+			const block = visitorKey(address);
+			expect(rateLimitKey({ routeId: TEAM_ROUTE, ip: block })).toBe(block);
+		}
+	});
+});
+
+describe('retryAfterSeconds', () => {
+	it.each([
+		[60_000, 60],
+		[59_001, 60],
+		[1_000, 1],
+		[1, 1],
+		// A refusal always asks for some wait, even one computed as none.
+		[0, 1],
+		[-5, 1]
+	])('turns %ims into %is', (waitMs, seconds) => {
+		expect(retryAfterSeconds(waitMs)).toBe(seconds);
+	});
+});
+
 describe('isLocalizedRoute', () => {
 	it('is true for pages and false for everything else', () => {
 		expect(isLocalizedRoute(HOME_ROUTE)).toBe(true);
@@ -285,11 +463,12 @@ describe('cacheControlFor', () => {
 		}
 	);
 
-	it('keeps the home page out of shared caches, whatever its status', () => {
+	it('offers the home page on the same terms as any other page', () => {
 		const home = { ...teamPage, routeId: HOME_ROUTE, pathname: '/' };
-		expect(cacheControlFor(home)).toBe('private, no-cache');
-		expect(cacheControlFor({ ...home, pathname: '/fr' })).toBe('private, no-cache');
-		expect(cacheControlFor({ ...home, status: 500 })).toBe('private, no-cache');
+		expect(cacheControlFor(home)).toBe(PAGE_CACHE);
+		expect(cacheControlFor({ ...home, pathname: '/fr' })).toBe(PAGE_CACHE);
+		expect(cacheControlFor({ ...home, status: 500 })).toBeNull();
+		expect(cacheControlFor({ ...home, setsCookie: true })).toBeNull();
 	});
 
 	it('never stores /admin, by route or by path', () => {
@@ -304,7 +483,7 @@ describe('cacheControlFor', () => {
 
 	it('honours a load that opted its response out', () => {
 		expect(cacheControlFor({ ...teamPage, uncacheable: true })).toBe(NO_STORE);
-		// Stronger than the home page's own policy, not weaker.
+		// The home page while a league's teams are missing.
 		expect(cacheControlFor({ ...teamPage, routeId: HOME_ROUTE, uncacheable: true })).toBe(NO_STORE);
 	});
 

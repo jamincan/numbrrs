@@ -10,18 +10,24 @@ import { ACCESS_COOKIE, ACCESS_HEADER, verifyAccessToken } from '#lib/server/clo
 import { bootstrap, closeDb } from '#lib/server/db/index.ts';
 import { startSweeps } from '#lib/server/leagues/index.ts';
 import { installProcessGuards } from '#lib/server/process-guards.ts';
+import { createRateLimiter } from '#lib/server/rate-limit.ts';
 import {
 	NEGOTIATED_VARY,
 	NO_STORE,
+	PAGE_RATE_LIMIT,
 	applySecurityHeaders,
 	cacheControlFor,
+	flyRedirectTarget,
 	frenchRedirectTarget,
 	hostRedirectTarget,
 	isLocaleNegotiated,
 	isLocalizedRoute,
 	isReportableError,
-	requiresAccess
+	rateLimitKey,
+	requiresAccess,
+	retryAfterSeconds
 } from '#lib/server/request-policy.ts';
+import { FLY_HOSTNAME } from '#lib/site.ts';
 
 // Boot. Runs once, when the server module graph loads. Guarded by `building` so
 // it doesn't fire during `vite build`, which imports this module to prerender
@@ -44,14 +50,42 @@ if (!building) {
 	if (!dev) startSweeps();
 
 	if (!dev) {
-		// The admin page shows a banner as well; this puts it in the logs too.
 		if (ADMIN_DIRECT) {
-			console.warn('[admin] ADMIN_DIRECT is set: /admin is skipping the Cloudflare Access check');
+			// The admin page shows a banner as well; this puts it in the logs too.
+			console.warn(
+				`[admin] ADMIN_DIRECT is set: ${FLY_HOSTNAME} is serving the site directly and /admin is skipping the Cloudflare Access check`
+			);
+			// And in front of a person, because the switch is for an outage and
+			// nothing takes it off again when the outage ends. The message and the
+			// route never vary, so every boot is the same fingerprint, and the
+			// cooldown in alerts.ts decides which of them ping: the boot that turned
+			// the switch on does, restarts within the hour after it don't, and a
+			// deploy days later with the switch still on does again.
+			reportError({
+				source: 'server',
+				message: `ADMIN_DIRECT is on: ${FLY_HOSTNAME} is serving the site directly and /admin is skipping Cloudflare Access. Unset it once Cloudflare is back.`,
+				route: 'boot:admin-direct'
+			});
 		}
 		const weakToken = weakTokenWarning(ADMIN_TOKEN);
 		if (weakToken) console.warn(weakToken);
 	}
 }
+
+/**
+ * The count behind `PAGE_RATE_LIMIT`. In memory and per process, which is right
+ * while the app is one machine: a restart forgets the counts, and nothing here
+ * is worth keeping across one. On two machines each would count for itself, and
+ * the limit would be twice as loose as it reads.
+ */
+const pageLimiter = createRateLimiter(PAGE_RATE_LIMIT);
+
+/**
+ * Lets one refusal per address per window into the logs. An address over the
+ * limit is usually sending a great deal more, and a line for each request would
+ * bury everything else Fly keeps.
+ */
+const refusalLog = createRateLimiter({ limit: 1, windowMs: PAGE_RATE_LIMIT.windowMs });
 
 /**
  * A response `handle` writes itself instead of getting from `resolve`. These
@@ -85,6 +119,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return respond(301, { location: canonical, 'cache-control': 'public, max-age=86400' });
 	}
 
+	// Fly's own hostname, which gets here without passing through Cloudflare.
+	// Ahead of the Access check, so /admin there is sent to where Access guards
+	// it rather than refused. A 308, so a POST arrives at the other end still a
+	// POST. And never stored, unlike the redirect above: this one is switched off
+	// when Cloudflare is down, and a browser that had kept it would go on
+	// following it to the host that is unreachable.
+	const offFly = flyRedirectTarget({ url, routeId, adminDirect: ADMIN_DIRECT });
+	if (offFly) {
+		return respond(308, { location: offFly, 'cache-control': NO_STORE });
+	}
+
 	// /admin answers only requests that came through Cloudflare Access (see
 	// cloudflare-access.ts), and its own token login still applies on top. The
 	// cookie stands in for the header in case Access is ever set to cover /admin
@@ -97,6 +142,32 @@ export const handle: Handle = async ({ event, resolve }) => {
 				`[admin] refused ${request.method} ${url.pathname.slice(0, 200)} from ${clientIp(event)}: ${access.reason}`
 			);
 			return respond(403, { 'cache-control': NO_STORE }, 'Forbidden');
+		}
+	}
+
+	// Everything past here costs real work — a render, a database read — so
+	// this is where an address that has had its share is turned away. Deliberately
+	// not reported: a 429 is the limit doing its job, not a fault, and it must not
+	// be able to spend the alert budget.
+	const limitKey = rateLimitKey({ routeId, ip: clientIp(event) });
+	if (limitKey !== null) {
+		const now = Date.now();
+		if (!pageLimiter.allow(limitKey, now)) {
+			if (refusalLog.allow(limitKey, now)) {
+				console.warn(
+					`[rate-limit] ${limitKey} is over ${PAGE_RATE_LIMIT.limit} requests a minute, answering 429: ${request.method} ${url.pathname.slice(0, 200)}`
+				);
+			}
+			return respond(
+				429,
+				{
+					'retry-after': String(retryAfterSeconds(pageLimiter.retryAfterMs(limitKey, now))),
+					// The Worker stores nothing but a 200 and this says the same to any
+					// other cache, so a refusal can never be served to the next visitor.
+					'cache-control': NO_STORE
+				},
+				'Too Many Requests'
+			);
 		}
 	}
 

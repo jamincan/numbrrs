@@ -1,7 +1,6 @@
 /**
  * Canonical origin for absolute URLs (hreflang, canonical, Open Graph, the
- * sitemap). The app also answers on numbrrs.fly.dev; pointing canonicals here
- * keeps search engines from treating the two hosts as duplicate sites.
+ * sitemap), and where every other hostname the app is reachable on redirects.
  *
  * Moved from numbrrs.ca on 2026-07-28 — easily mistyped as numbers.ca, an
  * unrelated bar's domain. hooks.server.ts 301s the old domain here.
@@ -17,6 +16,16 @@ export const SITE_ORIGIN = 'https://numbrrs.app';
 export const REDIRECT_HOSTNAMES = new Set(['numbrrs.ca', 'www.numbrrs.app']);
 
 /**
+ * The hostname Fly gives the app, which reaches it without passing through
+ * Cloudflare: no edge cache, no Cloudflare Access. It redirects to SITE_ORIGIN
+ * too, but not unconditionally, which is why it is not in the set above: the
+ * health check keeps answering here, and so does everything else while the
+ * ADMIN_DIRECT switch says Cloudflare is down. See `flyRedirectTarget` in
+ * request-policy.ts.
+ */
+export const FLY_HOSTNAME = 'numbrrs.fly.dev';
+
+/**
  * Every hostname this app answers on or redirects from. `analytics.ts` drops
  * these from referrer tracking — otherwise a visitor redirected from
  * www.numbrrs.app (or the retired numbrrs.ca) to the canonical host shows up
@@ -25,6 +34,6 @@ export const REDIRECT_HOSTNAMES = new Set(['numbrrs.ca', 'www.numbrrs.app']);
  */
 export const OWN_HOSTNAMES = new Set([
 	new URL(SITE_ORIGIN).hostname,
-	'numbrrs.fly.dev',
+	FLY_HOSTNAME,
 	...REDIRECT_HOSTNAMES
 ]);

@@ -40,6 +40,12 @@ export interface RateLimiter {
 	 * rate limit into a lockout.
 	 */
 	allow(key: string, now: number): boolean;
+	/**
+	 * How long until an attempt by `key` would be permitted, in milliseconds; 0
+	 * if one would be now. Records nothing, so asking is free — it is there to
+	 * fill in a `Retry-After`.
+	 */
+	retryAfterMs(key: string, now: number): number;
 	/** Tracked key count. Exposed for tests to assert the map stays bounded. */
 	size(): number;
 }
@@ -96,10 +102,27 @@ export function createRateLimiter({
 			return true;
 		},
 
+		retryAfterMs(key, now) {
+			const own = untilRoom(hitsByKey.get(key) ?? [], limit, windowMs, now);
+			if (globalLimit === undefined) return own;
+			return Math.max(own, untilRoom(globalHits, globalLimit, globalWindowMs, now));
+		},
+
 		size() {
 			return hitsByKey.size;
 		}
 	};
+}
+
+/**
+ * Milliseconds until a window holding `times` has room for one more attempt.
+ * With `max` attempts still inside it, room opens when the oldest of the most
+ * recent `max` ages out.
+ */
+function untilRoom(times: number[], max: number, windowMs: number, now: number): number {
+	const live = times.filter((t) => now - t < windowMs);
+	const blocking = live[live.length - max];
+	return blocking === undefined ? 0 : blocking + windowMs - now;
 }
 
 function last(times: number[]): number {

@@ -59,8 +59,9 @@
 				style="border-color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 10%, transparent);"
 			>
 				<strong style="color: var(--status-warning)">Direct access is on.</strong> This page is
-				skipping the Cloudflare Access check, so anyone who reaches numbrrs.fly.dev needs only the
-				token. Once Cloudflare is back, turn it off with
+				skipping the Cloudflare Access check and numbrrs.fly.dev is serving the site directly, so
+				anyone who reaches /admin there needs only the token. Once Cloudflare is back, turn it off
+				with
 				<code class="rounded bg-white/10 px-1.5 py-0.5">flyctl secrets unset ADMIN_DIRECT</code>.
 			</p>
 		{/if}

@@ -44,6 +44,61 @@ describe('createRateLimiter', () => {
 		expect(limiter.allow('a', MINUTE + 1)).toBe(true);
 	});
 
+	describe('retryAfterMs', () => {
+		it('is zero while there is room', () => {
+			const limiter = createRateLimiter({ limit: 2, windowMs: MINUTE });
+
+			expect(limiter.retryAfterMs('a', 0)).toBe(0);
+			limiter.allow('a', 0);
+			expect(limiter.retryAfterMs('a', 1)).toBe(0);
+		});
+
+		it('counts down to the moment the oldest attempt leaves the window', () => {
+			const limiter = createRateLimiter({ limit: 2, windowMs: MINUTE });
+
+			limiter.allow('a', 0);
+			limiter.allow('a', 20_000);
+
+			expect(limiter.retryAfterMs('a', 30_000)).toBe(30_000);
+			expect(limiter.retryAfterMs('a', MINUTE - 1)).toBe(1);
+			// Exactly when it says: not allowed a millisecond early, allowed on time.
+			expect(limiter.allow('a', MINUTE - 1)).toBe(false);
+			expect(limiter.retryAfterMs('a', MINUTE)).toBe(0);
+			expect(limiter.allow('a', MINUTE)).toBe(true);
+		});
+
+		it('is per key', () => {
+			const limiter = createRateLimiter({ limit: 1, windowMs: MINUTE });
+
+			limiter.allow('a', 0);
+
+			expect(limiter.retryAfterMs('a', 1)).toBe(MINUTE - 1);
+			expect(limiter.retryAfterMs('b', 1)).toBe(0);
+		});
+
+		it('records nothing, however often it is asked', () => {
+			const limiter = createRateLimiter({ limit: 1, windowMs: MINUTE });
+
+			for (let t = 0; t < 10; t++) limiter.retryAfterMs('a', t);
+
+			expect(limiter.size()).toBe(0);
+			expect(limiter.allow('a', 10)).toBe(true);
+		});
+
+		it('waits on the shared ceiling when that is what is spent', () => {
+			const limiter = createRateLimiter({
+				limit: 5,
+				windowMs: MINUTE,
+				globalLimit: 1,
+				globalWindowMs: 10 * MINUTE
+			});
+
+			limiter.allow('a', 0);
+
+			expect(limiter.retryAfterMs('b', MINUTE)).toBe(9 * MINUTE);
+		});
+	});
+
 	describe('global ceiling', () => {
 		it('refuses across keys once the shared budget is spent', () => {
 			const limiter = createRateLimiter({
