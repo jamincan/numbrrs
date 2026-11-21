@@ -5,6 +5,7 @@ import {
 	isBot,
 	normalizeMessage,
 	referrerHost,
+	singleLine,
 	truncate,
 	visitorHash
 } from './telemetry';
@@ -108,6 +109,53 @@ describe('normalizeMessage', () => {
 
 	it('leaves single digits alone, since those are usually meaningful', () => {
 		expect(normalizeMessage('period 3 ended')).toBe('period 3 ended');
+	});
+
+	it('folds a lazy-import failure across deploys, whose chunk hashes all differ', () => {
+		const before =
+			'Failed to fetch dynamically imported module: https://numbrrs.app/_app/immutable/chunks/BxK3f9aZ.js';
+		const after =
+			'Failed to fetch dynamically imported module: https://numbrrs.app/_app/immutable/chunks/D0q_7LmW.js';
+		expect(normalizeMessage(before)).toBe(normalizeMessage(after));
+		expect(normalizeMessage(before)).toBe('Failed to fetch dynamically imported module: <url>');
+	});
+
+	it('folds hashed build paths that arrive without an origin', () => {
+		expect(
+			normalizeMessage('Unable to preload CSS for /_app/immutable/assets/0.Ck2Lq9xA.css')
+		).toBe(normalizeMessage('Unable to preload CSS for /_app/immutable/assets/0.Zt81bPq3.css'));
+		expect(normalizeMessage('error loading _app/immutable/nodes/4.DkR3a9Qx.js')).toBe(
+			'error loading <chunk>'
+		);
+	});
+
+	it('folds absolute URLs whatever the scheme, host or path', () => {
+		expect(normalizeMessage('GET https://api.example.com/roster/TOR failed')).toBe(
+			normalizeMessage('GET https://api.example.com/roster/MTL?season=20262027 failed')
+		);
+		expect(normalizeMessage('blocked (chrome-extension://abcdefgh/inject.js) here')).toBe(
+			'blocked (<url>) here'
+		);
+	});
+
+	it('keeps the words around a URL, so different failures stay different', () => {
+		expect(normalizeMessage('Failed to fetch https://a.example/x')).not.toBe(
+			normalizeMessage('Timed out loading https://a.example/x')
+		);
+	});
+});
+
+describe('singleLine', () => {
+	it('replaces line breaks and other control characters with spaces', () => {
+		// Built from the code point: a literal U+2028 in source is invisible in review.
+		const lineSeparator = String.fromCharCode(0x2028);
+		expect(singleLine(`one\r\ntwo\tthree${lineSeparator}four\0five`)).toBe(
+			'one two three four five'
+		);
+	});
+
+	it('leaves ordinary text, accents included, untouched', () => {
+		expect(singleLine('Équipe introuvable — 404')).toBe('Équipe introuvable — 404');
 	});
 });
 

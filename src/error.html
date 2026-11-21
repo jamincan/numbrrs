@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<meta name="color-scheme" content="dark" />
+		<title>%sveltekit.status% · Numbrrs</title>
+	</head>
+	<!--
+		SvelteKit serves this when it cannot render +error.svelte: the root layout
+		or a hook has failed, so there is no locale, no stylesheet and no script to
+		lean on. Hence both languages at once, system fonts, and style attributes
+		only: the CSP allows those (style-src-attr) but neither a <style> element
+		nor an inline script. The browser can also swap this in for a page that was
+		already loaded, where that policy is in force.
+	-->
+	<body
+		style="
+			margin: 0;
+			background: #030712;
+			color: #ffffff;
+			font-family:
+				ui-sans-serif,
+				system-ui,
+				-apple-system,
+				'Segoe UI',
+				Roboto,
+				sans-serif;
+			line-height: 1.5;
+		"
+	>
+		<main
+			style="
+				box-sizing: border-box;
+				min-height: 100vh;
+				min-height: 100dvh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 2.5rem;
+				padding: 4rem 1.5rem;
+				text-align: center;
+			"
+		>
+			<p style="margin: 0; font-size: 4.5rem; font-weight: 900; line-height: 1; color: #364153">
+				%sveltekit.status%
+			</p>
+
+			<section lang="en" style="max-width: 32rem">
+				<h1 style="margin: 0 0 0.5rem; font-size: 1.875rem; font-weight: 700; line-height: 1.2">
+					Something went wrong
+				</h1>
+				<p style="margin: 0 0 1.25rem; color: #99a1af">
+					Sorry — that request failed on our end. Trying again often works.
+				</p>
+				<a
+					href="/"
+					style="
+						display: inline-block;
+						border-radius: 0.25rem;
+						background: #ffffff;
+						padding: 0.5rem 1rem;
+						font-weight: 600;
+						color: #030712;
+						text-decoration: none;
+					"
+					>Back to the teams</a
+				>
+			</section>
+
+			<section lang="fr" style="max-width: 32rem">
+				<h1 style="margin: 0 0 0.5rem; font-size: 1.875rem; font-weight: 700; line-height: 1.2">
+					Une erreur est survenue
+				</h1>
+				<p style="margin: 0 0 1.25rem; color: #99a1af">
+					Désolé, cette requête a échoué de notre côté. Réessayer fonctionne souvent.
+				</p>
+				<a
+					href="/fr"
+					style="
+						display: inline-block;
+						border-radius: 0.25rem;
+						background: #ffffff;
+						padding: 0.5rem 1rem;
+						font-weight: 600;
+						color: #030712;
+						text-decoration: none;
+					"
+					>Retour aux équipes</a
+				>
+			</section>
+
+			<p
+				style="
+					margin: 0;
+					font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+					font-size: 0.75rem;
+					color: #99a1af;
+				"
+			>
+				%sveltekit.error.message%
+			</p>
+		</main>
+	</body>
+</html>

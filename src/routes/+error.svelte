@@ -12,11 +12,43 @@
 	const title = $derived(notFound ? i18n.m.error.notFoundTitle : i18n.m.error.genericTitle);
 	const body = $derived(notFound ? i18n.m.error.notFoundBody : i18n.m.error.genericBody);
 
-	// SvelteKit's own message for an unhandled error is the generic "Internal
-	// Error", which says less than our own copy does. Anything thrown with
-	// error() carries a message worth showing — "League not found" tells someone
-	// what they got wrong. 500s are the ones to keep quiet about.
-	const detail = $derived(page.status < 500 ? page.error?.message : undefined);
+	// What SvelteKit says about errors of its own. They are the HTTP status text,
+	// in English whatever the page's language, and say nothing the localized
+	// title above them hasn't: "Not Found" under "Page introuvable" is noise.
+	// There is no flag on page.error to tell these from the app's own messages,
+	// so they are matched by text.
+	const FRAMEWORK_MESSAGES = new Set([
+		'Bad Request',
+		'Malformed URI',
+		'Not Found',
+		'Method Not Allowed',
+		'Payload Too Large',
+		'Unsupported Media Type',
+		'Internal Error'
+	]);
+
+	// The two messages the game page's load throws (game/[league]/[team]/
+	// +page.server.ts). An error crosses to the page as its text and nothing
+	// else, so these are matched by text as well, and shown from the catalogue
+	// in the page's language.
+	const LOCALIZED_MESSAGES = new Map<string, 'leagueNotFound' | 'teamNotFound'>([
+		['League not found', 'leagueNotFound'],
+		['Team not found', 'teamNotFound']
+	]);
+
+	// Anything thrown with error() carries a message worth showing — "League not
+	// found" tells someone what they got wrong. 500s are the ones to keep quiet
+	// about. A message the catalogue doesn't know is shown as it was written.
+	const detail = $derived.by(() => {
+		const message = page.status < 500 ? page.error?.message : undefined;
+		if (!message || FRAMEWORK_MESSAGES.has(message)) return undefined;
+		const key = LOCALIZED_MESSAGES.get(message);
+		return key ? i18n.m.error[key] : message;
+	});
+
+	// French sets a no-break space before a colon. Built from its code point for
+	// the reasons given in i18n/fr.ts.
+	const colon = $derived(i18n.locale === 'fr' ? `${String.fromCharCode(0xa0)}: ` : ': ');
 </script>
 
 <svelte:head>
@@ -45,7 +77,7 @@
 		<!-- The fingerprint of the recorded error. Quoting it back points at one
 		     row in /admin, which is the whole reason it's on screen. -->
 		<p class="mt-4 font-mono text-xs text-gray-600">
-			{i18n.m.error.reference}: {page.error.id}
+			{i18n.m.error.reference}{colon}{page.error.id}
 		</p>
 	{/if}
 </main>

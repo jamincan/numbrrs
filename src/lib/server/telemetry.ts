@@ -78,9 +78,24 @@ export function referrerHost(referer: string | null, ownHosts: string[]): string
 /** A stack trace that doesn't fit in these limits isn't one anybody will read. */
 export const MAX_MESSAGE = 500;
 export const MAX_STACK = 900;
+/**
+ * Route ids are short; the cap is for the fallback, a raw pathname, which is as
+ * long as whoever sent the request wanted it to be.
+ */
+export const MAX_ROUTE = 200;
 
 export function truncate(value: string, max: number): string {
 	return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * Flatten a value onto one line by turning control characters and the Unicode
+ * line separators into spaces. Error text can come from a request path or an
+ * anonymous POST body, and a CR/LF in there would otherwise let the sender
+ * start a log line of their own — one that reads as if the server wrote it.
+ */
+export function singleLine(value: string): string {
+	return value.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ');
 }
 
 /**
@@ -88,9 +103,16 @@ export function truncate(value: string, max: number): string {
  * lands on the same row. Without this, "team 42 not found" and "team 43 not
  * found" are two errors, each with its own notification cooldown, and the
  * burst limit is what ends up protecting the alert channel instead.
+ *
+ * URLs and build output paths go first, whole: every deploy renames every
+ * chunk, so "Failed to fetch dynamically imported module …/chunks/<hash>.js"
+ * would otherwise be a new error after each one, and an upstream URL usually
+ * carries a team code that splits one outage into one row per team.
  */
 export function normalizeMessage(message: string): string {
 	return message
+		.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>()[\]]+/gi, '<url>')
+		.replace(/\/?_app\/immutable\/[^\s"'`<>()[\]]+/g, '<chunk>')
 		.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
 		.replace(/0x[0-9a-f]+/gi, '<hex>')
 		.replace(/\b\d{2,}\b/g, '<n>')
