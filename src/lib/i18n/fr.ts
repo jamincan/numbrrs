@@ -93,34 +93,33 @@ export const fr: Messages = {
 		title: 'Confidentialité',
 		description: 'Ce que Numbrrs enregistre, pourquoi, et pour combien de temps.',
 		summary:
-			"Numbrrs compte les pages consultées, simplement pour savoir si le site sert à quelqu'un. Il n'y a ni compte, ni publicité, ni traceur tiers, et rien n'est vendu ni communiqué à qui que ce soit.",
+			'Numbrrs compte les pages consultées, simplement pour savoir si le site sert à quelqu’un. Il n’y a ni compte, ni publicité, ni outil de mesure ou traceur tiers, et rien n’est vendu. Les entreprises qui acheminent le site jusqu’à vous traitent forcément votre requête; elles sont nommées plus bas.',
 		collectedTitle: 'Ce qu’une page consultée enregistre',
 		collected: [
+			'La date et l’heure de la visite',
 			'Le chemin de la page et la route correspondante',
-			"La ligue et l'équipe, s'il s'agit d'une page d'équipe",
+			'La ligue et l’équipe, s’il s’agit d’une page d’équipe',
 			'La langue dans laquelle la page a été servie',
-			"Le site d'où vous arrivez — le domaine seulement, jamais l'adresse complète",
+			'Le site d’où vous arrivez — le domaine seulement, jamais l’adresse complète',
 			'Un code de visite, décrit ci-dessous'
 		],
 		hashTitle: 'Le code de visite',
-		hashBody:
-			"Pour distinguer deux visiteurs au cours d'une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n'est jamais écrite sur disque : une fois la journée terminée, plus rien ne relie le code à vous, et le code d'aujourd'hui ne peut être rapproché de celui de demain. Votre adresse IP n'est jamais conservée.",
+		hashBody: `Pour distinguer deux visiteurs au cours d’une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n’est jamais écrite sur disque${NBSP}: une fois la journée terminée, plus rien ne relie le code à vous, et le code d’aujourd’hui ne peut être rapproché de celui de demain. Votre adresse IP elle-même n’est jamais inscrite dans la base de données du site. Le seul endroit où le site consigne une adresse IP est le journal de son serveur, conservé peu de temps${NBSP}: une tentative refusée ou échouée d’accéder à la page d’administration du site y est notée avec l’adresse d’où elle provient.`,
 		cookiesTitle: 'Témoins (cookies)',
 		cookiesBody:
-			"Aucun n'est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue et le dernier onglet de ligue ouvert — et rien d'autre ne les consulte.",
+			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de difficulté est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Vous pouvez effacer les trois en tout temps dans votre navigateur.',
 		errorsTitle: 'Erreurs',
 		errorsBody:
-			"Lorsqu'une erreur survient, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Les occurrences répétées d'une même erreur sont regroupées en une seule entrée.",
+			'Lorsqu’une erreur survient — sur le serveur ou dans votre navigateur —, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Votre adresse IP n’y est pas jointe. Les occurrences répétées d’une même erreur sont regroupées en une seule entrée.',
 		retentionTitle: 'Durée de conservation',
 		retentionBody:
-			'90 jours, après quoi les données sont supprimées automatiquement. Les plus anciennes le sont également dès que le stockage dépasse une taille fixée.',
-		sharingTitle: 'Qui d’autre y a accès',
-		sharingBody:
-			"Personne. Tout est conservé sur le serveur qui héberge le site, au Canada. Seule une notification d'erreur est transmise à un canal privé que je surveille ; elle contient l'erreur et aucune information sur les visiteurs.",
+			'Les enregistrements de pages consultées sont supprimés automatiquement après 90 jours, ou plus tôt si le stockage dépasse une taille fixée. Une entrée d’erreur est supprimée 90 jours après la dernière occurrence de l’erreur; celles qui proviennent des navigateurs le sont plus tôt si elles s’accumulent. Les copies de sauvegarde du disque du serveur peuvent encore contenir un enregistrement supprimé, jusqu’à ce qu’elles soient éliminées à leur tour.',
+		sharingTitle: 'Qui d’autre intervient',
+		sharingBody: `Les enregistrements décrits ci-dessus sont conservés dans la base de données du site, sur un serveur situé à Toronto, au Canada, ainsi que dans ses copies de sauvegarde, et je suis la seule personne à les consulter. Trois entreprises interviennent en cours de route${NBSP}: Fly.io (États-Unis) exploite ce serveur et en détient les copies de sauvegarde; Cloudflare (États-Unis) est placée devant lui, de sorte que chaque requête — y compris votre adresse IP — transite par son réseau, qui peut la traiter à l’extérieur du Canada et tient ses propres journaux de trafic et de sécurité; et Discord (États-Unis) reçoit une alerte lorsqu’une erreur est enregistrée, contenant le texte de l’erreur, sans adresse IP. Les photos des joueuses et des joueurs, ainsi que les logos d’équipe que le site n’héberge pas lui-même, sont chargés directement depuis des serveurs d’images exploités par les ligues et par leur fournisseur de statistiques; ces serveurs voient donc votre adresse IP, votre navigateur et le fait que vous venez de Numbrrs lorsqu’une page les affiche.`,
 		contactTitle: 'Questions',
 		contactBody:
 			'Pour une question, une correction ou une demande de suppression, ouvrez un ticket dans le dépôt GitHub du projet.',
-		updated: (date) => `Dernière mise à jour : ${date}.`
+		updated: (date) => `Dernière mise à jour${NBSP}: ${date}.`
 	},
 
 	error: {

@@ -70,9 +70,10 @@ export const en: Messages = {
 		title: 'Privacy',
 		description: 'What Numbrrs records, why, and for how long.',
 		summary:
-			'Numbrrs counts page views so I can tell whether anyone is using it. There are no accounts, no advertising, no third-party trackers, and nothing here is sold or shared.',
+			'Numbrrs counts page views so I can tell whether anyone is using it. There are no accounts, no advertising and no third-party analytics or trackers, and nothing is sold. The companies that deliver the site to you necessarily handle your request; they are named below.',
 		collectedTitle: 'What a page view records',
 		collected: [
+			'The date and time of the visit',
 			'The page path and the route it matched',
 			'The league and team, when the page is a team page',
 			'The language the page was served in',
@@ -81,19 +82,19 @@ export const en: Messages = {
 		],
 		hashTitle: 'The visitor code',
 		hashBody:
-			'To tell two visitors apart within a single day, your IP address and browser are hashed together with a random value. That random value is generated fresh each day and is never written to disk — so once the day is over, nothing can link the code back to you, and today’s code cannot be matched to tomorrow’s. Your IP address itself is never stored.',
+			'To tell two visitors apart within a single day, your IP address and browser are hashed together with a random value. That random value is generated fresh each day and is never written to disk — so once the day is over, nothing can link the code back to you, and today’s code cannot be matched to tomorrow’s. Your IP address itself is never written to the site’s database. The one place the site writes an IP address down is its server log, which is kept only briefly: a refused or failed attempt to reach the site’s admin page is logged there with the address it came from.',
 		cookiesTitle: 'Cookies',
 		cookiesBody:
-			'None are used for analytics. Two cookies remember preferences you set — your language and the last league tab you opened — and nothing else reads them.',
+			'None are used for analytics. Two cookies remember preferences — your language (numbrrs_locale) and the last league tab you opened (numbrrs_league) — for one year each. Your difficulty setting is kept in your browser’s local storage (numbrrs_difficulty) and is never sent to the server. You can clear all three in your browser at any time.',
 		errorsTitle: 'Errors',
 		errorsBody:
-			'When something breaks, the error message, the page it happened on, and a technical stack trace are recorded so it can be fixed. Repeats of the same fault collapse into a single record.',
+			'When something breaks — on the server or in your browser — the error message, the page it happened on, and a technical stack trace are recorded so it can be fixed. Your IP address is not attached. Repeats of the same fault collapse into a single record.',
 		retentionTitle: 'How long it is kept',
 		retentionBody:
-			'90 days, after which it is deleted automatically. Older records are also removed once the store passes a fixed size.',
-		sharingTitle: 'Who else sees it',
+			'Page-view records are deleted automatically after 90 days, or sooner if the store passes a fixed size. An error record is deleted 90 days after the fault last occurred; records of browser errors go sooner if they pile up. Backups of the server’s disk can still contain a deleted record until they, too, age out and are discarded.',
+		sharingTitle: 'Who else is involved',
 		sharingBody:
-			'Nobody. Everything is stored on the server that runs the site, in Canada. The only thing that leaves is an error notification to a private channel I watch, which contains the error and no visitor information.',
+			'The records above are kept in the site’s own database, on a server in Toronto, Canada, and in backups of it, and I am the only person who reads them. Three companies handle data along the way: Fly.io (United States) runs that server and holds its backups; Cloudflare (United States) sits in front of it, so every request — including your IP address — passes through its network, which may process it outside Canada and keeps its own traffic and security logs; and Discord (United States) receives an alert when an error is recorded, containing the error text and no IP address. Player photos, and the team logos the site does not host itself, load directly from image servers run by the leagues and their statistics provider, so those servers see your IP address, your browser and that you came from Numbrrs when a page shows them.',
 		contactTitle: 'Questions',
 		contactBody:
 			'For a question, a correction, or a request to remove something, open an issue on the project’s GitHub repository.',
