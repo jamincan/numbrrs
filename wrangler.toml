@@ -6,11 +6,19 @@ main = "cloudflare/locale-cache-worker.ts"
 compatibility_date = "2026-07-28"
 
 # /game/* also matches the legacy /game/<TEAM> redirect route (no league
-# segment, kept for pre-PWHL bookmarks) — harmless, since that route's
-# response isn't `public` + `s-maxage` either, so the Worker never caches it.
+# segment, kept for pre-PWHL bookmarks) — harmless, since the Worker stores
+# only status-200 responses and that route answers with a 301, whatever
+# Cache-Control the redirect carries.
+#
+# The /privacy patterns are exact, so the page's data request — what a
+# client-side navigation to it fetches — needs patterns of its own. Those end in
+# a wildcard because SvelteKit always puts a query string on that request, and
+# a pattern only matches a URL with a query string if it ends in one.
 routes = [
 	{ pattern = "numbrrs.app/privacy", zone_name = "numbrrs.app" },
 	{ pattern = "numbrrs.app/fr/privacy", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/privacy/__data.json*", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/fr/privacy/__data.json*", zone_name = "numbrrs.app" },
 	{ pattern = "numbrrs.app/game/*", zone_name = "numbrrs.app" },
 	{ pattern = "numbrrs.app/fr/game/*", zone_name = "numbrrs.app" }
 ]
