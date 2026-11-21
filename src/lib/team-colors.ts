@@ -208,6 +208,8 @@ const NHL_TEAM_COLORS: Record<string, TeamColors> = {
 	}
 };
 
+// Seattle, Vancouver and the 2026-27 expansion teams (DET, HAM, SJ, VGS) take
+// their brand colors from their logos as the league's feed serves them.
 const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 	BOS: {
 		// Boston Fleet — fleet green & black
@@ -215,6 +217,21 @@ const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 		secondary: '#000000',
 		lightGradient: ['#00B388', '#00251c'],
 		darkGradient: ['#003d2e', '#0d0d0d']
+	},
+	DET: {
+		// Detroit Clutch — clutch chrome & motor black. Racing red is only a
+		// thin ring around the logo, and a red card would pass for Ottawa's.
+		primary: '#B7B7B8',
+		secondary: '#000000',
+		lightGradient: ['#6B6E72', '#0f1011'],
+		darkGradient: ['#26282a', '#0d0d0d']
+	},
+	HAM: {
+		// Hamilton Havoc — molten steel gold & rusted steel maroon
+		primary: '#F2A91E',
+		secondary: '#64111D',
+		lightGradient: ['#F2A91E', '#431118'],
+		darkGradient: ['#431118', '#0d0d0d']
 	},
 	MIN: {
 		// Minnesota Frost — frost purple & ice blue
@@ -245,11 +262,19 @@ const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 		darkGradient: ['#5c0016', '#0d0d0d']
 	},
 	SEA: {
-		// Seattle Torrent — torrent blue & deep navy
-		primary: '#3BA8C4',
-		secondary: '#001628',
-		lightGradient: ['#3BA8C4', '#001628'],
-		darkGradient: ['#0e3947', '#000d1a']
+		// Seattle Torrent — glacier & shadow blue over slate green. Blue leads
+		// the card because a slate one comes out the same teal as New York's.
+		primary: '#8CB7C9',
+		secondary: '#0A5458',
+		lightGradient: ['#6AA2B8', '#0A5458'],
+		darkGradient: ['#0A5458', '#060f10']
+	},
+	SJ: {
+		// San Jose Sea Lions — sunset orange & tidal navy
+		primary: '#F78F25',
+		secondary: '#0A233E',
+		lightGradient: ['#F78F25', '#0A233E'],
+		darkGradient: ['#0A233E', '#060b13']
 	},
 	TOR: {
 		// Toronto Sceptres — royal blue & gold
@@ -259,11 +284,20 @@ const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 		darkGradient: ['#122e5c', '#000d1f']
 	},
 	VAN: {
-		// Vancouver Goldeneyes — gold & deep blue
-		primary: '#C9A227',
-		secondary: '#1B3F6E',
-		lightGradient: ['#C9A227', '#12233d'],
-		darkGradient: ['#2b220a', '#0a0e16']
+		// Vancouver Goldeneyes — earthy bronze & Pacific blue. Bronze leads, since
+		// a blue card would pass for Toronto's; gold is only an accent in the logo.
+		primary: '#AF6C45',
+		secondary: '#10457F',
+		lightGradient: ['#AF6C45', '#10457F'],
+		darkGradient: ['#0c2a4d', '#060b14']
+	},
+	VGS: {
+		// Vegas Vanguards — cactus green & midnight navy. Navy tiles, because the
+		// logo's green lettering blends into a green one.
+		primary: '#8A9640',
+		secondary: '#0A1F41',
+		lightGradient: ['#687030', '#0A1F41'],
+		darkGradient: ['#0A1F41', '#090d0b']
 	}
 };
 

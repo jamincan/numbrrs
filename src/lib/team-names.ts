@@ -11,7 +11,8 @@ import type { Locale } from '$lib/i18n';
  * Sources:
  * - NHL: the API's own `teamName.fr` (`/v1/standings/now`), which is where the
  *   article agreement comes from — "d'Ottawa", "du Minnesota", "de la Caroline".
- * - PWHL: the LPHF's French site.
+ * - PWHL: the LPHF's French site. It writes "Détroit" and "San José" with
+ *   accents where the NHL's feed doesn't, so the two leagues differ on purpose.
  * - QMJHL: the LHJMQ's French site. These are the teams' real names; the
  *   HockeyTech feed reports an anglicized word order ("Baie-Comeau, Drakkar").
  * - WHL and OHL: fr.wikipedia.org, which is the only consistent published
@@ -54,13 +55,17 @@ const FRENCH_NAMES: Record<string, string> = {
 	'nhl:WSH': 'Capitals de Washington',
 
 	'pwhl:BOS': 'Fleet de Boston',
+	'pwhl:DET': 'Clutch de Détroit',
+	'pwhl:HAM': 'Havoc de Hamilton',
 	'pwhl:MIN': 'Frost du Minnesota',
 	'pwhl:MTL': 'Victoire de Montréal',
 	'pwhl:NY': 'Sirens de New York',
 	'pwhl:OTT': "Charge d'Ottawa",
 	'pwhl:SEA': 'Torrent de Seattle',
+	'pwhl:SJ': 'Sea Lions de San José',
 	'pwhl:TOR': 'Sceptres de Toronto',
 	'pwhl:VAN': 'Goldeneyes de Vancouver',
+	'pwhl:VGS': 'Vanguards de Vegas',
 
 	'whl:BDN': 'Wheat Kings de Brandon',
 	'whl:CGY': 'Hitmen de Calgary',
