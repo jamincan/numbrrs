@@ -37,10 +37,12 @@ pnpm dev
 `/admin`. It derives its origin from the `Host` header and assumes `https`, so form
 posts (the `/admin` login) fail the cross-site check over plain http. Set `ORIGIN`
 to match. It also requires a Cloudflare Access token on `/admin`, so set
-`ADMIN_DIRECT=1` to skip that:
+`ADMIN_DIRECT=1` to skip that. A server started with that switch raises an alert
+saying so, which is the point of it in production and noise here, hence the
+blank `ALERT_WEBHOOK_URL`: it keeps a webhook exported in the shell out of it.
 
 ```bash
-DATABASE_URL=scratch.db ADMIN_TOKEN=dev ADMIN_DIRECT=1 ORIGIN=http://localhost:3000 node build
+DATABASE_URL=scratch.db ADMIN_TOKEN=dev ADMIN_DIRECT=1 ALERT_WEBHOOK_URL= ORIGIN=http://localhost:3000 node build
 ```
 
 ## Hosting
@@ -59,7 +61,7 @@ fly deploy
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ADMIN_TOKEN`       | Password for the `/admin` dashboard, which is also what authorises a manual resync. Rotating it signs everyone out. Generate with `openssl rand -hex 32`. |
 | `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset.                                 |
-| `ADMIN_DIRECT`      | Emergency switch, normally unset. `1` lets `/admin` skip the Cloudflare Access check while Cloudflare is down; see below.                                 |
+| `ADMIN_DIRECT`      | Emergency switch, normally unset. `1` has `numbrrs.fly.dev` serve the site and `/admin` skip Cloudflare Access while Cloudflare is down; see below.       |
 
 `DATABASE_URL`, the path to the SQLite file, is not a secret: `fly.toml` sets it
 to `/data/numbrrs.db` on the volume. A Fly secret of the same name overrides it.
@@ -88,13 +90,15 @@ leagues' and HockeyTech's image servers.
 [The privacy page](https://numbrrs.app/privacy) says so; keep it in step with
 the code when any of this changes.
 
-The numbers are what the origin saw, which is less than what happened. `/privacy`
-and every `/game/…` page are served from the Worker's cache for up to five
-minutes at a time, and a cache hit never reaches the machine, so it records
-nothing. The home page is never cached, so visits that start there are counted;
-someone who arrives straight on a cached team page is not counted until they
-reach a page the origin serves, and "top teams" is closer to a count of cache
-misses than of views. Read it as a ranking, not a total.
+The home page, `/privacy` and every `/game/…` page are served from the Worker's
+cache for up to five minutes at a time, and a cache hit never reaches the
+machine. So the Worker reports those views itself: it gathers them and posts
+them to `/api/hit`, up to 25 at a time or every ten seconds, signed with
+`EDGE_TOKEN`, and the origin records each one exactly as it would have recorded
+a page it rendered. A batch is lost if the Worker is evicted before it sends or
+the post fails, so under load the numbers run slightly low. If `EDGE_TOKEN` is
+missing on either side nothing is reported, and the dashboard falls back to
+counting cache misses only.
 
 ## Operations
 
@@ -110,7 +114,10 @@ pnpm run deploy            # pnpm run deploy --dry-run does the checks and stops
 branch is `master`, `HEAD` is the tip of `origin/master`, and CI passed for that
 commit (it waits if the run is still going). It then runs `flyctl deploy` with
 the image labelled `git-<sha>` and checks what came up: `/api/health`, the home
-page and a game page on `numbrrs.app`, and a 403 from `numbrrs.fly.dev/admin`.
+page and a game page on `numbrrs.app`; then, asking Fly directly at
+`numbrrs.fly.dev`, that `/api/health` answers, that `/admin` redirects to
+`numbrrs.app/admin` (a 200 there means `ADMIN_DIRECT` is still set), and that
+`/admin` is refused with a 403 when the request names `numbrrs.app` as its host.
 Plain `flyctl deploy` does none of that — it ships whatever is in the working
 directory, committed or not.
 
@@ -154,7 +161,25 @@ deploy never updates it. Redeploy it whenever `cloudflare/locale-cache-worker.ts
 or `wrangler.toml` changes, and whenever the locale code it imports from
 `src/lib/i18n/index.ts` does (`negotiateLocale`, `localeFromPath`,
 `LOCALE_COOKIE`) — otherwise the edge sorts visitors into its per-language cache
-slots by rules the origin no longer follows.
+slots by rules the origin no longer follows. The same goes for the league rule
+in `src/lib/leagues.ts` (`resolveLeague`), which decides which copy of the home
+page a visitor gets, and for `src/lib/edge-hits.ts`, the shape of the page-view
+reports.
+
+The Worker holds one secret, `EDGE_TOKEN`, which must equal the Fly secret of
+the same name:
+
+```bash
+pnpm exec wrangler secret put EDGE_TOKEN
+```
+
+Without it the Worker still caches; it just reports no page views.
+
+English home-page URLs that carry a query string (`/?utm_…`, `/?league=pwhl`) do
+not pass through the Worker: a route pattern cannot contain a query string, and
+the only pattern that would match them is `numbrrs.app/*`, which would put every
+asset request through the Worker and its daily request limit. The origin renders
+and counts those itself.
 
 **After every Worker deploy, set each route back to fail open.** A deploy resets
 every route's failure mode, and neither `wrangler.toml` nor Cloudflare's routes
@@ -169,26 +194,131 @@ straight to the origin, which makes every language and caching decision itself;
 the site stays correct and loses only the edge cache. `pnpm run cf:deploy` puts
 the routes in `wrangler.toml` back.
 
+### Uptime monitoring
+
+A second Worker, `numbrrs-uptime` (`cloudflare/uptime-worker.ts`, configured by
+`wrangler.uptime.toml`), looks at the site from Cloudflare every five minutes and
+posts to Discord when a check starts failing and when it stops. It has no routes,
+so no visitor's request passes through it, and deploying it cannot touch the
+cache Worker.
+
+| Each run asks for            | and it is a failure when                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `numbrrs.fly.dev/api/health` | the machine does not answer, or cannot read its database.                                                                                                                                                                                                                                                                                                        |
+| `numbrrs.fly.dev/api/status` | a check in it failed (database read, database write, disk, rosters, alerts); under 15% of the volume is free; the oldest roster is more than 15 hours old (the 12-hour TTL plus 3), which is what a stopped sweep looks like; the app has no alert webhook, or its last alert in the past day did not post; or the machine has restarted three times in an hour. |
+| `numbrrs.app/`               | the answer is not a 200 with the app's own page in it, or the page carries Cloudflare's analytics script (`cloudflareinsights`), which the privacy page says it does not.                                                                                                                                                                                        |
+| `numbrrs.app/privacy`        | the same, for a page that comes through the cache Worker: a Worker that throws, or a 1027 page from a route left at fail closed.                                                                                                                                                                                                                                 |
+
+What the messages mean:
+
+- **uptime monitor started** — the first run after setup, with what it found.
+  This is the proof that the Worker can reach Discord.
+- **a check is failing** — it has failed two runs in a row, so five to ten
+  minutes after it broke. One failed run is not announced, which is what keeps a
+  deploy's restart quiet.
+- **still failing** — a reminder: 3 hours after the first message, 6 hours after
+  that, then once a day.
+- **recovered** — it has passed two runs in a row, with how long it was failing.
+- **the monitor cannot keep its state** — Workers KV, where it remembers what it
+  has already said, is not answering. It lists what is failing every half hour
+  until KV is back.
+
+One-time setup, in this order. Every command needs `-c wrangler.uptime.toml`;
+without it wrangler acts on the cache Worker.
+
+```bash
+pnpm exec wrangler kv namespace create numbrrs-uptime-state -c wrangler.uptime.toml
+# answer no if it offers to add the binding; paste the id it prints over
+# REPLACE_WITH_KV_NAMESPACE_ID in wrangler.uptime.toml and commit that
+pnpm exec wrangler secret put ALERT_WEBHOOK_URL -c wrangler.uptime.toml
+# paste a Discord webhook URL; answer yes when asked to create the Worker
+pnpm run cf:deploy:uptime
+```
+
+The "started" message should arrive within twenty minutes: a new Cron Trigger
+can take fifteen to reach Cloudflare's network. Redeploy with
+`pnpm run cf:deploy:uptime` whenever the Worker's file or config changes; a Fly
+deploy never updates it.
+
+To see a run without waiting for one, `pnpm exec wrangler dev -c wrangler.uptime.toml`
+and, in another terminal, `curl http://localhost:8787/cdn-cgi/local/scheduled`.
+That probes the live site from your machine and logs what it would have posted;
+it posts nothing unless a `.dev.vars` file supplies the webhook. To make the
+deployed Worker introduce itself again, and so test the path to Discord, delete
+what it remembers:
+
+```bash
+pnpm exec wrangler kv key delete state --binding UPTIME_STATE --remote -c wrangler.uptime.toml
+```
+
+To silence it for planned maintenance, set a key that expires by itself. While
+it exists the monitor does nothing, and afterwards it carries on from where it
+was, so nothing has to be remembered. Set it a few minutes ahead, since KV can
+take a minute to show a new key, and delete `silence` the same way as `state` to
+end it early.
+
+```bash
+pnpm exec wrangler kv key put silence 1 --ttl 3600 --binding UPTIME_STATE --remote -c wrangler.uptime.toml
+```
+
+What it cannot see:
+
+- **Itself.** If the Cron Trigger stops firing, the Worker is over its limits, or
+  the webhook is revoked, nothing says so, and a quiet channel looks the same as
+  a healthy site. Each run logs one line under Workers & Pages → `numbrrs-uptime`
+  → Observability; that is where to check that it is running.
+- **Anything shorter than about ten minutes**, or anything that fails for some
+  visitors only: it asks from one Cloudflare location, for two pages. A broken
+  game page is the app's own alerts' to report.
+- **Why a roster is old.** The roster check fires on the oldest one, so a single
+  team whose feed stays broken holds it open; the message gives the stale count
+  to tell that from a sweep that has stopped.
+
 ### `/admin` and Cloudflare Access
 
 Cloudflare Access guards `numbrrs.app/admin`, and the app enforces it as well:
 every `/admin` request must carry a token signed by Access for this application,
-or it gets a 403. That's what stops `numbrrs.fly.dev/admin`, or a direct
-connection to Fly, from walking around Access. The token login still applies on
-top. The team domain and the application's AUD tag are in
+or it gets a 403. That's what stops a direct connection to Fly that names
+`numbrrs.app` as its host from walking around Access. The token login still
+applies on top. The team domain and the application's AUD tag are in
 `src/lib/server/cloudflare-access.ts`. Recreating the Access application changes
 the AUD tag, so update it there.
 
-If Cloudflare is down, Access can't sign anyone in. To get into `/admin` anyway:
+Fly's own hostname, `numbrrs.fly.dev`, reaches the app without passing through
+Cloudflare, so it is not a second copy of the site: the app answers everything
+asked of it with a 308 to the same URL on `numbrrs.app`, `/admin` included. The
+exceptions are `/api/health` and `/api/status`, which Fly's health check, the
+deploy script and the uptime probe ask the machine itself.
+
+If Cloudflare is down, `numbrrs.app` is unreachable and Access can't sign anyone
+in. One switch covers both:
 
 ```bash
 flyctl secrets set ADMIN_DIRECT=1 -a numbrrs    # restarts the machine
-# sign in at https://numbrrs.fly.dev/admin with the token
+# the site is now served at https://numbrrs.fly.dev, and /admin there asks only for the token
 flyctl secrets unset ADMIN_DIRECT -a numbrrs    # once Cloudflare is back
 ```
 
-While the switch is on, `/admin` shows a warning banner and the server logs one at
-startup.
+While the switch is on, `numbrrs.fly.dev` serves the whole site itself instead of
+redirecting, and `/admin` skips the Access check on every hostname. `/admin`
+shows a warning banner, the server logs one at startup, and every start also
+raises an alert (`boot:admin-direct` on the dashboard). Discord is pinged for
+the start that turned the switch on, and after that for any start more than an
+hour after the last ping: a run of restarts is one ping, and a later deploy with
+the switch still on is a reminder. Nothing repeats it while the machine simply
+stays up, so unsetting it is still yours to remember.
+
+### Request limit
+
+Each address gets 120 requests a minute for anything the app has to work for —
+pages, their data, and URLs that match nothing — and a `429` with `Retry-After`
+beyond that. `/api/health`, `/api/status`, `/api/hit`, `/api/client-error` and
+`/admin` are not counted; neither are the built scripts, styles and fonts, which
+are served as files before the app's own code runs. The count is per visitor
+even behind Cloudflare, held in memory, and forgotten at a restart. An address
+over the limit shows up in `flyctl logs` as one `[rate-limit]` line a minute,
+and never as an alert. The numbers are `PAGE_RATE_LIMIT` in
+`src/lib/server/request-policy.ts`.
 
 ### Backups and restore
 
@@ -244,6 +374,8 @@ check it rather than trusting the table.
 | Cloudflare → Workers & Pages → `numbrrs-locale-cache` | Routes                             | Those in `wrangler.toml`.                                                                                                                                                                                                           |
 | Cloudflare → Workers & Pages → `numbrrs-locale-cache` | Each route's failure mode          | Fail open, so that past the plan's daily request limit visitors go straight to the origin instead of getting a Cloudflare 1027 error page. Reset by every `pnpm run cf:deploy`; set it again afterwards.                            |
 | Cloudflare → Workers & Pages                          | Plan                               | Workers Free: 100,000 requests a day across the account, resetting at midnight UTC. Every `/privacy` and `/game/…` request counts, cache hit or not.                                                                                |
+| Cloudflare → Workers & Pages → `numbrrs-uptime`       | Cron Trigger and KV binding        | Every five minutes, with `UPTIME_STATE` bound to the namespace whose id is in `wrangler.uptime.toml`. No routes, no workers.dev address. All of it is put back by `pnpm run cf:deploy:uptime`.                                      |
+| Cloudflare → Workers & Pages → `numbrrs-uptime`       | Secret `ALERT_WEBHOOK_URL`         | Set, to a Discord webhook. Nothing in the repo holds it; `pnpm exec wrangler secret list -c wrangler.uptime.toml` shows names only.                                                                                                 |
 | Fly → app `numbrrs`                                   | Secrets                            | `ADMIN_TOKEN` and `ALERT_WEBHOOK_URL`; `ADMIN_DIRECT` absent. A `DATABASE_URL` secret left from before `fly.toml` carried the path is harmless while it says `/data/numbrrs.db`. `flyctl secrets list -a numbrrs` shows names only. |
 | Fly → volume `vol_vjyk76mg6yz027zv`                   | Snapshot schedule and retention    | Daily, kept 5 days (Fly's default). `flyctl volumes show vol_vjyk76mg6yz027zv -a numbrrs`; change with `flyctl volumes update vol_vjyk76mg6yz027zv --snapshot-retention <days> -a numbrrs`.                                         |
 | Fly → app `numbrrs`                                   | Certificates                       | One for `numbrrs.app`, and one for each host the app redirects from (`REDIRECT_HOSTNAMES` in `src/lib/site.ts`) that should still answer. `flyctl certs list -a numbrrs`. Verify.                                                   |
@@ -258,8 +390,8 @@ check it rather than trusting the table.
   traffic spike would do to it, and the storage decisions behind both.
 - [`docs/audit-2026-11.md`](docs/audit-2026-11.md) — the current backlog, from
   the November 2026 audit.
-- [`docs/code-review/`](docs/code-review/) — the July 2026 hardening review,
-  since worked through; kept for its reasoning.
+- [`docs/decisions.md`](docs/decisions.md) — the choices that are not obvious
+  from the code, each with its date and its reason.
 
 ## License
 

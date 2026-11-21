@@ -7,17 +7,20 @@ Numbrrs keeps everything it stores in one SQLite file on one Fly volume.
 | App       | `numbrrs`                                                                     |
 | Volume    | `vol_vjyk76mg6yz027zv` — named `data`, 1 GB, region `yyz`, mounted at `/data` |
 | Database  | `/data/numbrrs.db`, in WAL mode                                               |
-| Snapshots | Taken by Fly daily and kept 5 days, as of 2026-11-21                          |
+| Snapshots | Taken by Fly daily and kept 30 days, as of 2026-11-21                         |
 
-**Last drilled: never.** After each [drill](#the-drill), replace this line with
-the date, how old the snapshot was, and how long the restore took.
+**Last drilled: 2026-11-21.** A snapshot taken 13 minutes earlier restored to a
+scratch volume in about 15 seconds and opened with `integrity_check` ok; the
+whole drill, cleanup included, took about three minutes. After each
+[drill](#the-drill), replace this line with the date, how old the snapshot was,
+and how long the restore took.
 
 > [!WARNING]
-> **Untested until the first drill.** No command on this page has been run
-> against production. The `flyctl` spellings were checked against `flyctl --help`
-> (v0.4.3) and Fly's documentation, and the two `node -e` lines were run against a
-> scratch database; the sequences as a whole have not been exercised. When the
-> drill finds something wrong, fix it here.
+> **Only the drill has been run.** It proved that a snapshot restores to a volume
+> and opens as a healthy database. Path A, path B's volume swap and the
+> production pull have not been exercised: their `flyctl` spellings were checked
+> against `flyctl --help` (v0.4.3) and Fly's documentation, nothing more. When a
+> real restore finds something wrong, fix it here.
 
 ## What is worth restoring
 
@@ -114,37 +117,43 @@ Afterwards, either way:
 This proves that a snapshot opens as a healthy database, and times it. It
 touches neither the live volume nor the app's machine.
 
+Run these from a directory other than the repo, so `flyctl` reads nothing from
+`fly.toml`:
+
 ```sh
 flyctl volumes snapshots list vol_vjyk76mg6yz027zv -a numbrrs
-flyctl volumes create restore_drill --snapshot-id <newest snapshot id> -s 1 -r yyz -a numbrrs
+flyctl volumes create restore_drill --snapshot-id <newest snapshot id> -s 1 -r yyz -a numbrrs --yes
 flyctl releases --image -a numbrrs            # the image reference of the newest release
-flyctl machine run <image reference> --shell -a numbrrs -r yyz -v <drill volume id>:/restore
+flyctl machine run <image reference> sleep 900 -a numbrrs -r yyz   -v <drill volume id>:/restore --rm --restart no --detach --name restore-drill
 ```
 
 The volume is named `restore_drill`, not `data`, so nothing looking for the
-app's volume can pick it up. `--shell` matters: it starts the throwaway machine
-on `sleep` instead of the server, opens a shell on it, and destroys the machine
-when the shell exits. Without it the image would start a second copy of the app,
-with the app's secrets.
+app's volume can pick it up. `sleep 900` matters: it replaces the image's
+command, so the throwaway machine idles instead of starting a second copy of the
+app with the app's secrets. With no `--port` it has no services, so Fly's proxy
+never sends it a visitor; `flyctl machine list` shows it with no process group
+and no checks.
 
-In that shell:
+Then, with the machine ID that `machine run` printed:
 
 ```sh
-ls -la /restore                               # numbrrs.db and its -wal and -shm
-cd /app
-node -e "const d=require('better-sqlite3')('/restore/numbrrs.db');console.log(d.pragma('integrity_check'),new Date(d.prepare('select max(at) as at from events').get().at).toISOString())"
-exit
+flyctl machine exec <drill machine id> -a numbrrs "node -e \"const d=require('/app/node_modules/better-sqlite3')('/restore/numbrrs.db');console.log(d.pragma('integrity_check'),new Date(d.prepare('select max(at) as at from events').get().at).toISOString())\""
 ```
 
 A good restore prints `[ { integrity_check: 'ok' } ]` and the time of the newest
-page view, which should fall shortly before the snapshot was taken. Then clean
-up, reading the ID twice — destroying a volume has no undo:
+page view, which should fall before the snapshot was taken. Then clean up,
+reading each ID twice — destroying a volume has no undo:
 
 ```sh
+flyctl machine destroy <drill machine id> --force -a numbrrs
 flyctl volumes destroy <drill volume id> -a numbrrs
 flyctl volumes list -a numbrrs                # only vol_vjyk76mg6yz027zv, attached
 flyctl machine list -a numbrrs                # only the app's machine
 ```
+
+From Git Bash on Windows, prefix the `machine run` and `machine exec` lines
+with `MSYS_NO_PATHCONV=1`, or the shell rewrites `/restore` and `/app` into
+Windows paths.
 
 Record the date, the snapshot's age and the minutes from the first command to
 the printed timestamp in the "Last drilled" line at the top.

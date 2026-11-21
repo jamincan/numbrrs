@@ -1,55 +1,32 @@
 # Hosting costs and launch scaling
 
-Analysis written 2026-07-27, ahead of posting Numbrrs to
-[r/hockey](https://reddit.com/r/hockey) (~1.4M members).
-
-> [!IMPORTANT]
-> **Revised later the same day.** Two inputs changed after this was written: the telemetry and
-> admin dashboard work landed (`586b5e4`, `ff92fdf`), and the analytics it added produced a real
-> traffic number for the first time. The revisions are marked inline. The one materially changed
-> conclusion is [Storage architecture](#storage-architecture) — the in-memory-rosters proposal
-> below rested on a premise that the dashboard commit invalidated.
->
-> **Decided:** do the [hardening review](./code-review/) first, then post. Nothing here is a
-> blocker for that ordering.
+What Numbrrs costs to run, what a large traffic spike does to it, and why the data is stored the
+way it is. First written on 2026-07-27, ahead of posting to
+[r/hockey](https://reddit.com/r/hockey) (~1.4M members); measurements and decisions made since
+carry their own dates. Prices and estimates are from that day unless marked otherwise.
 
 ## Context
 
-Numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz`, backed by SQLite on
-a Fly volume mounted at `/data` (`src/lib/server/db/index.ts`).
+Numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz`, always on
+(`min_machines_running = 1`), backed by SQLite on a Fly volume mounted at `/data`. `numbrrs.app`
+is proxied through Cloudflare, where a Worker caches pages at the edge
+([below](#the-cdn-in-front)).
 
-> [!NOTE]
-> **`min_machines_running` is now `1`, not `0`** — changed 2026-07-28, see
-> [step 3 below](#3-min_machines_running--1--one-line). The cold-start scenario this
-> section originally analyzed no longer applies as written, but the underlying CPU
-> ceiling it's really about is unaffected by that setting.
-
-Traffic at time of writing was estimated at **~19 unique visitors/day** — the app had only been
-shared with a few people and a small Discord server.
-
-> [!NOTE]
-> **Measured, 2026-07-27: ~51 unique visitors/day.** The estimate above predates the app having
-> any analytics at all; this is the first real number. It is 2.7× the guess, which moves nothing
-> in this document — every scenario below was already under a dollar — but the baseline is worth
-> correcting before someone quotes it back. Concretely, 51 visitors at ~6 pageviews is ~300 events
-> per day, or roughly 5 MB over the 90-day retention window.
-
-Three things prompted this analysis: the intent to post to r/hockey, a desire for
-horizontal-scaling headroom, and error logging (built separately, see
-[Not in this repo](#not-in-this-repo)) that would need somewhere to write.
+**Measured traffic, 2026-07-27: ~51 unique visitors/day.** At ~6 pageviews each that is ~300
+events per day, or roughly 5 MB over the 90-day retention window. Every scenario below is far
+above that baseline.
 
 ## The finding
 
 **Cost is not the risk. CPU during a 2–3 hour window is the risk.**
 
-A front-page r/hockey post will cost roughly **$1.35** in Fly bills, one time.
-Steady-state hosting is a few dollars a month under every option considered. The
-invoice is never the problem.
+A front-page r/hockey post will cost roughly **$1.35** in Fly bills, one time. Steady-state hosting
+is a few dollars a month under every option considered. The invoice is never the problem.
 
-What is the problem: a `shared-cpu-1x` gets a fraction of a physical core with a
-burst credit balance that **depletes under sustained load** — precisely the load
-shape a Reddit post produces. A well-received post takes the site down as currently
-configured, during the one window where being down actually costs something.
+What is the problem: a `shared-cpu-1x` gets a fraction of a physical core with a burst credit
+balance that **depletes under sustained load** — precisely the load shape a Reddit post produces.
+Left to serve every request itself, the origin degrades during the one window where that costs
+something. That is why the answer is a cache in front of it rather than a bigger bill.
 
 ## Measured page weights
 
@@ -60,21 +37,19 @@ From devtools, empty cache:
 | NHL teams page   | 75.25 kB       | none   | **75 kB**          |
 | Random game page | 273.86 kB      | 183 kB | **~91 kB**         |
 
-The game-page figure assumes the 183 kB of images are hot-linked from
-`assets.nhle.com` / HockeyTech (`src/lib/server/leagues/`) rather than served from
-`src/lib/assets/logos/`, which are baked into the container image. See
-[Open questions](#open-questions) — this is the one unverified input.
+The game-page figure assumes the 183 kB of images are hot-linked from `assets.nhle.com` /
+HockeyTech rather than served from `src/lib/assets/logos/`, which are baked into the container
+image. See [Open questions](#open-questions) — this is the one unverified input.
 
-Modelling a session as ~6 pageviews (land on teams → pick team → play several
-rounds), with fonts/JS/CSS cached after the first hit:
+Modelling a session as ~6 pageviews (land on teams → pick team → play several rounds), with
+fonts/JS/CSS cached after the first hit:
 
 **~300 kB of origin egress per visitor.**
 
 ## Spike scenarios
 
-Reddit traffic is heavily front-loaded — most arrives in the first 3–6 hours. Peak
-req/s assumes ~60% of the day's traffic in a 3-hour window, with a 2.5× peak-vs-average
-inside it.
+Reddit traffic is heavily front-loaded — most arrives in the first 3–6 hours. Peak req/s assumes
+~60% of the day's traffic in a 3-hour window, with a 2.5× peak-vs-average inside it.
 
 | r/hockey outcome        | Visitors/24h | Origin egress | Egress cost | Peak req/s |
 | ----------------------- | ------------ | ------------- | ----------- | ---------- |
@@ -83,282 +58,103 @@ inside it.
 | Good (~2k upvotes)      | ~40k         | 12 GB         | $0.24       | **~33**    |
 | Big (5k+, cross-posted) | ~120k        | 36 GB         | $0.72       | **~100**   |
 
-The entire bandwidth bill for a front-page post is under a dollar.
+The entire bandwidth bill for a front-page post is under a dollar. These are origin figures with
+nothing cached; with the CDN in front, the origin sees only the cache misses.
 
 ### Where it breaks
 
-SvelteKit SSR runs on every request via `src/hooks.server.ts` plus the route
-loaders. This section used to estimate **~5–15 req/s**, degrading as burst credits
-drain. **Measured 2026-07-29** against a throwaway app on identical hardware
-(`shared-cpu-1x`, 256MB, yyz, one machine) — see [`load-test/`](../load-test/).
-The estimate was the right shape and slightly pessimistic:
+SvelteKit renders on the server for every request that reaches the origin. **Measured 2026-07-29**
+against a throwaway app on identical hardware (`shared-cpu-1x`, 256MB, yyz, one machine) — see
+[`load-test/`](../load-test/):
 
 | State                         | Sustained rate   | p50  | p95   | Failures |
 | ----------------------------- | ---------------- | ---- | ----- | -------- |
 | Burst credits available       | **100 req/s**    | 12ms | 24ms  | 0%       |
 | Credits drained (~25min load) | **~17–20 req/s** | 12ms | 10.3s | 0.04%    |
 
-Two things this changes.
+Two things follow.
 
-**It does not fall over.** 20,207 requests across a 1→100 req/s ramp produced zero
-failures, zero restarts and no OOM, with the health check green throughout. The
-concurrency limits below were never approached: concurrency is rate × latency, so
-100 req/s at 12ms is ~1.5 simultaneous connections, nowhere near `hard_limit = 25`.
-"Good post" is survivable, not fatal.
+**It does not fall over.** 20,207 requests across a 1→100 req/s ramp produced zero failures, zero
+restarts and no OOM, with the health check green throughout. The concurrency limits were never
+approached: concurrency is rate × latency, so 100 req/s at 12ms is ~1.5 simultaneous connections,
+nowhere near `hard_limit = 25`. "Good post" is survivable, not fatal.
 
-**Degradation is a latency tail, not errors.** Once burst credits drain the median
-holds at 12ms while p90 goes to ~5.5s. Fly enforces shared-vCPU throttling by
-withholding CPU in slices, and Node is single-threaded — so requests landing in a
-scheduling window stay fast while those arriving mid-stall queue for seconds. The
-number to watch is the tail, and it is invisible in an average.
-
-> [!NOTE]
-> The sustained figure is the one that matters for a multi-hour Reddit spike, and
-> it is an origin number. With the CDN in front (below), the origin only sees cache
-> misses, so the arrival rate here is not the arrival rate at the edge.
-
-Three secondary failure modes compound it — the first two are now closed (see
-[Preparation](#preparation-in-priority-order)), kept here for why they mattered:
-
-- ~~**Cold start.**~~ With `min_machines_running = 0` (as it was when this was written),
-  the first visitor from Reddit paid a container boot _plus_ potentially the 8s
-  `BLOCKING_TIMEOUT` roster fetch in `src/lib/server/leagues/index.ts`, while everyone
-  behind them queued. **Fixed 2026-07-28** — `min_machines_running = 1`.
-- ~~**No concurrency limits.**~~ `fly.toml` had no `[http_service.concurrency]` block, so
-  Fly's defaults let many concurrent requests pile onto one 256MB box — which turns
-  slow into OOM. **Fixed 2026-07-28** — `soft_limit = 20`, `hard_limit = 25`.
-- **Cold roster cache.** Thousands of people hitting team pages with stale rosters
-  triggers upstream syncs. The `inFlight` coalescing in
-  `src/lib/server/leagues/index.ts` handles the thundering herd per-team, but each
-  first request can still block up to 8s.
-
-## Preparation, in priority order
-
-### 1. Put a CDN in front — highest leverage by a wide margin
-
-A Reddit spike is the most cache-friendly traffic pattern that exists: thousands of
-people hitting **the same handful of URLs** within minutes. Numbrrs serves
-identical public content on a 12-hour TTL (`ROSTER_TTL`) / 24-hour TTL
-(`TEAM_LIST_TTL`). A hit ratio north of 95% means the origin sees a trickle and the
-CPU problem stops existing.
-
-Cloudflare's free tier is sufficient, up to the Worker's daily request quota
-(item 7 of the [checklist](#pre-launch-checklist)). This converts "survive 100
-req/s" into "nothing happens."
-
-The real work is the cookie/locale interaction:
-
-- `src/hooks.server.ts` can 302 to `/fr/...` based on locale negotiation
-- `numbrrs_locale` and `numbrrs_league` cookies (`src/lib/leagues.ts`) vary behaviour
-- A naive `Vary: Cookie` destroys the hit ratio entirely — and Cloudflare's free tier
-  doesn't honor `Vary: Cookie` at all, so a Cache Rule can't solve this on its own
+**Degradation is a latency tail, not errors.** Once burst credits drain the median holds at 12ms
+while p90 goes to ~5.5s. Fly enforces shared-vCPU throttling by withholding CPU in slices, and
+Node is single-threaded — so requests landing in a scheduling window stay fast while those
+arriving mid-stall queue for seconds. The number to watch is the tail, and it is invisible in an
+average.
 
 > [!NOTE]
-> **Done 2026-07-28.** The canonical domain moved to numbrrs.app (numbrrs.ca redirects
-> there — see `hooks.server.ts`), proxied through Cloudflare (AAAA-only DNS, SSL/TLS
-> mode Full (strict)), with a Worker handling the cookie/locale problem above:
-> `wrangler.toml` + `cloudflare/locale-cache-worker.ts` (config-as-code, same shape as
-> `fly.toml` + `flyctl deploy` — `pnpm run cf:deploy` wraps `wrangler deploy`).
->
-> The Worker doesn't re-decide English-vs-French itself — it imports `negotiateLocale`
-> and `localeFromPath` straight from `src/lib/i18n` and uses them to compute which
-> **cache slot** a request belongs in, via the Workers Cache API (`caches.default`)
-> rather than Cloudflare's zone-level cache. That's what makes vary-by-cookie caching
-> work on the free plan without Business tier's custom cache keys, and it means there's
-> no hand-copied locale logic to drift out of sync — a change to `negotiateLocale` is
-> picked up here the next time this deploys. It only ever writes to cache when the
-> origin's own response says it's shareable (`public` + `s-maxage`), so it needs no
-> route list of its own; home and `/admin` are already excluded by their own
-> `Cache-Control`. Unit-tested directly against `Request`/`URL`
-> (`cloudflare/locale-cache-worker.test.ts`, run by the same `pnpm test`) rather than
-> through the full Workers runtime, and `cf:check` (a standalone `tsc` pass against
-> `@cloudflare/workers-types`) runs in CI.
->
-> Covers `/privacy` and every `/game/<league>/<team>` page, in both languages. The
-> plan had been to prove the mechanism on `/privacy` alone before trusting it with
-> team pages, but that didn't survive scrutiny: both routes run through the identical
-> Worker code path with no route-specific branching, and `/privacy` gets close to no
-> organic traffic, so waiting on it wouldn't have produced evidence a direct test
-> couldn't produce immediately.
->
-> Verified against the live site: a second request to a covered page returns
-> `cf-cache-status: HIT`; the `/fr` equivalent caches independently with the correct
-> content; and — the case that actually matters — a French-preferring request
-> (`Accept-Language: fr`, no cookie) redirects as before, and a plain English request
-> to the same unprefixed URL immediately afterward still returns English, confirming
-> the locale-bucketed cache key doesn't leak one visitor's outcome to another. The
-> redirect response itself is never cached — `hooks.server.ts` already marks it
-> `private, no-store`, a defensive choice made before this Worker existed — which is
-> fine: redirects are cheap to regenerate, and the expensive thing worth caching, the
-> full rendered HTML, is exactly what's covered.
+> The sustained figure is the one that matters for a multi-hour Reddit spike, and it is an origin
+> number. With the CDN in front, the origin only sees cache misses, so the arrival rate here is
+> not the arrival rate at the edge.
 
-### 2. Pre-scale before posting — cheap insurance, zero code
+Three secondary failure modes compound the CPU ceiling. Two are closed, and are listed for why the
+settings that closed them should stay:
 
-```sh
-fly scale vm shared-cpu-2x --vm-memory 1024    # restarts the machine
-fly scale vm shared-cpu-1x --vm-memory 256     # the next day
-```
+- **Cold start** — closed 2026-07-28 by `min_machines_running = 1`. With scale-to-zero, the first
+  visitor from Reddit paid a container boot plus potentially the 8s `BLOCKING_TIMEOUT` roster
+  fetch in `src/lib/server/leagues/index.ts`, while everyone behind them queued. An always-on
+  machine is also what lets the hourly roster sweep run at all. ~$1.94/mo instead of ~$0.55/mo.
+- **No concurrency limits** — closed 2026-07-28 by `[http_service.concurrency]` in `fly.toml`
+  (`soft_limit = 20`, `hard_limit = 25`). Fly's defaults let many concurrent requests pile onto
+  one 256MB box, which turns slow into OOM; degraded-but-up beats down. The limits are sized for
+  this machine, so revisit them with any `[[vm]]` change.
+- **Cold roster cache** — narrowed, not closed. A visit to a team whose roster has passed its
+  12-hour TTL triggers an upstream sync and can block up to 8s. The `inFlight` coalescing in
+  `src/lib/server/leagues/index.ts` handles the thundering herd per team, and the hourly sweep
+  refreshes stale rosters before most visitors can find one, but a roster that goes stale between
+  sweeps, or whose sync is failing, still costs its first visitor the wait.
 
-One `shared-cpu-2x` / 1GB machine for 24 hours costs about **$0.21**. It has not
-been load-tested at that size, so treat the [measured ceiling](#where-it-breaks)
-as the floor rather than assuming it doubles. The CDN in step 1 is still what
-covers a "good post"; this is headroom for the cache misses.
+## The CDN in front
 
-Two things in `fly.toml` go with it. A deploy applies the `[[vm]]` block again, so
-if one might happen while scaled up, change the size there instead and change it
-back afterwards. And the `[http_service.concurrency]` limits are sized for the
-small machine: raise them in the same edit if the bigger one should take more
-simultaneous connections, and restore them with the size.
+A Reddit spike is the most cache-friendly traffic pattern that exists: thousands of people hitting
+**the same handful of URLs** within minutes. Numbrrs serves identical public content on a 12-hour
+TTL (`ROSTER_TTL`) / 24-hour TTL (`TEAM_LIST_TTL`). A hit ratio north of 95% means the origin sees
+a trickle and the CPU problem stops existing. Cloudflare's free tier is sufficient, up to the
+Worker's daily request quota (see [Before a large post](#before-a-large-post)).
 
-> [!WARNING]
-> **Scale up, never out.** `fly scale count` must not be used while the database
-> is a file on a volume. A volume attaches to one machine, so for each machine it
-> adds Fly creates a new, **empty** volume and
-> [copies no data across](https://fly.io/docs/launch/scale-count/).
-> `fly scale count 3` would therefore produce three machines with three separate
-> SQLite databases: three sets of roster syncs, the visits split three ways, and
-> `/admin` showing whichever third a request happens to land on. Scaling back
-> down leaves the extra volumes unattached, with no guarantee that the machine
-> Fly keeps is the one holding the original.
+The difficulty is the cookie/locale interaction:
 
-Do **not** rely on `auto_start_machines` to absorb the spike either — it starts
-machines that already exist, and there is only the one.
+- `src/hooks.server.ts` can 302 to `/fr/...` based on locale negotiation.
+- The `numbrrs_locale` and `numbrrs_league` cookies vary what is served.
+- A naive `Vary: Cookie` destroys the hit ratio entirely — and Cloudflare's free tier doesn't
+  honour `Vary: Cookie` at all, so a Cache Rule can't solve this on its own.
 
-### 3. `min_machines_running = 1` — one line
+**In place since 2026-07-28.** `numbrrs.app` is proxied through Cloudflare (AAAA-only DNS, SSL/TLS
+mode Full (strict)), with a Worker handling the problem above: `wrangler.toml` +
+`cloudflare/locale-cache-worker.ts`, config-as-code in the same shape as `fly.toml` +
+`flyctl deploy` (`pnpm run cf:deploy` wraps `wrangler deploy`). Which pages it covers is the route
+list in `wrangler.toml`.
 
-Removes the cold-start failure mode entirely. ~$1.94/mo.
+The Worker doesn't re-decide English-vs-French itself. It imports `negotiateLocale` and
+`localeFromPath` straight from `src/lib/i18n` and uses them to compute which **cache slot** a
+request belongs in, via the Workers Cache API (`caches.default`) rather than Cloudflare's
+zone-level cache. That is what makes vary-by-cookie caching work on the free plan without the
+Business tier's custom cache keys, and it means there is no hand-copied locale logic to drift out
+of sync: a change to `negotiateLocale` is picked up the next time the Worker deploys. It only ever
+writes to the cache when the origin's own response says it is shareable (`public` + `s-maxage`), so
+the origin's `Cache-Control` decides what is cached and the Worker needs no list of its own.
 
-> [!NOTE]
-> **Done 2026-07-28**, ahead of the CDN and the load test — cheap, reversible, and no reason to
-> wait on either.
-
-### 4. Warm the roster cache immediately before posting — free
-
-Trigger a full sync right before the post goes up. It takes ~1–2 minutes and guarantees nobody
-arriving from Reddit eats an 8s upstream fetch.
-
-> [!IMPORTANT]
-> **Revised 2026-07-27.** This step originally read `POST /api/sync?wait=true` with `SYNC_TOKEN`.
-> That endpoint and that secret are being **removed** — the same capability behind a second
-> secret and a second public entry point is surface for no benefit, and nothing calls it on a
-> schedule. It is replaced by a resync action on `/admin`.
->
-> The replacement is also more likely to work. `?wait=true` blocks without sending any bytes
-> until the sync completes, and **Fly's proxy closes a connection idle for ~60 seconds** — so a
-> 1–2 minute sync plausibly gets cut, at which point the machine can be stopped for idleness
-> mid-sync, which is the exact failure `?wait=true` existed to prevent. A dashboard that fires
-> the sync and then polls generates a request every few seconds, which keeps the machine awake
-> far more reliably and shows progress besides. `sync_state` and `teams.rosterSyncedAt` already
-> hold everything that progress view needs.
-
-### 5. Set concurrency limits in `fly.toml`
-
-An `[http_service.concurrency]` block with sane `soft_limit` / `hard_limit` lets Fly
-spread load and shed excess rather than piling requests onto one box until it dies.
-Degraded-but-up beats OOM.
-
-> [!NOTE]
-> **Done 2026-07-28.** `type = 'connections'`, `soft_limit = 20`, `hard_limit = 25` — sized for the
-> current `shared-cpu-1x` / 256MB `[[vm]]`; revisit alongside any machine-size change, and
-> certainly before any pre-scale to `shared-cpu-2x`.
-
-## In-memory rosters
-
-> [!WARNING]
-> **The premise below no longer holds.** This section argues that the database can be deleted
-> because it contains only derived data. Migration `0007` (`586b5e4`) added `events` and `errors`,
-> which are neither derived nor re-fetchable — losing them on deploy means losing the analytics.
-> The reasoning about _rosters_ is still correct and still worth acting on eventually; what
-> changed is that acting on it no longer deletes the database. See
-> [Storage architecture](#storage-architecture) for where this landed.
-
-`src/lib/server/db/schema.ts` holds three tables — `teams`, `players`, `sync_state`
-— totalling ~100 teams and ~3,000 player rows, **total, forever**. Nothing grows
-per user: there are no accounts, sessions, or scores. It is entirely derived data,
-re-fetchable from league APIs in minutes. That is a cache, not a system of record.
-As JS objects it's roughly 2–5 MB of heap.
-
-Holding it in memory deletes `better-sqlite3`, `drizzle-orm`, the seven `drizzle/`
-migrations, and the `[mounts]` volume.
-
-It's easy — maybe half a day — because `src/lib/server/leagues/index.ts` **already
-owns the TTL logic, the `inFlight` request coalescing, and the lazy per-team
-`loadRoster()` flow**. You swap the storage backend underneath that file rather
-than restructuring it. And because `better-sqlite3` queries are already
-synchronous, in-memory Map reads are a drop-in — route loaders don't become async.
-That async conversion is the expensive part of most database migrations, and this
-approach skips it.
-
-It also makes the per-process `inFlight` / `fullSync` state a non-issue rather than
-a bug: each machine maintains its own copy, so horizontal scaling becomes
-`fly scale count`. No advisory locks, no LiteFS, no read replicas, no leader
-election, no session affinity.
-
-The one behaviour change: nothing survives a restart, so each deploy re-warms
-lazily from upstream. Given the existing per-team pattern that's mild — a new
-machine fetches the 5 league team lists on first home-page hit, then rosters one
-team at a time on demand. It does not need a ~100-team full sync at boot.
-
-**But this is not spike preparation.** SQLite reads are already sub-millisecond and
-in-process; they are not what falls over at 30 req/s. Do it because it's a genuine
-simplification.
-
-### Caveat if machine count goes high
-
-N machines means N× independent upstream syncs — and, since the hourly stale
-sweep (`startSweeps` in `leagues/index.ts`) runs per process, N× sweeps too. At
-N=4 with 12h/24h TTLs this is negligible. At N=20 it stops being negligible, and a
-shared warm store becomes worth revisiting. The HockeyTech key in `src/lib/server/leagues/chl.ts` is
-hardcoded and shared across CHL consumers — worth not hammering.
-
-## Error logging
-
-> [!IMPORTANT]
-> **Overtaken by events.** This section recommends a hosted error tracker instead of self-hosting.
-> First-party telemetry shipped the same day (`586b5e4`) — errors and usage events both write to
-> the existing SQLite database, with a Discord webhook for alerting. The recommendation was not
-> rejected on the merits; the work was simply already done. It is kept here because the
-> _reasoning_ about unmanaged Postgres is still sound and still the reason not to add one.
->
-> One correction the original missed: **Sentry is error tracking, not analytics.** It would
-> replace the `errors` table, not the `events` table, and it will not produce the per-league,
-> per-team, per-locale visitor breakdown the dashboard renders. "Drop the database and use Sentry"
-> was never a complete substitution — it needs a second vendor for usage analytics.
-
-Recommendation at current scale: **use a hosted free tier, not self-hosted
-Postgres.**
-
-Self-hosting means maintaining an instance, a volume, migrations, a connection
-pool, a retention/pruning job, and insert rate-limiting (one bad deploy can produce
-an error storm that fills a 1GB volume) — on infrastructure Fly explicitly will not
-support: _"We are not able to provide support or guidance for unmanaged
-Postgres."_ A single-node instance loses everything since the last snapshot if the
-SSD fails.
-
-Sentry's free tier is 5k errors/month at $0 and needs none of that. Axiom and
-Better Stack are comparable. Two lines of SDK setup.
-
-The case for running your own is wanting error logs joined to other data — but
-there is no other data yet. **Revisit if user accounts or persisted scores are
-added**, at which point durability requirements change and
-[Fly Managed Postgres](https://fly.io/docs/mpg/) ($38/mo, Basic) enters the picture.
-
-A spike is when error logging pays for itself — it surfaces the bugs 19 visitors
-never triggered. Worth having in place _before_ posting.
+Verified against the live site: a second request to a covered page returns `cf-cache-status: HIT`;
+the `/fr` equivalent caches independently with the correct content; and — the case that matters —
+a French-preferring request (`Accept-Language: fr`, no cookie) redirects as before, and a plain
+English request to the same unprefixed URL immediately afterward still returns English, so the
+locale-bucketed cache key doesn't leak one visitor's outcome to another. The redirect itself is
+never cached (`hooks.server.ts` marks it `private, no-store`), which is fine: redirects are cheap
+to regenerate, and the expensive thing worth caching is the rendered HTML.
 
 <a id="storage-architecture"></a>
 
 ## Storage architecture — decided 2026-07-27
 
-Written after this document's two storage proposals ([in-memory rosters](#in-memory-rosters),
-[hosted error logging](#error-logging)) collided with the telemetry work landing. This section
-supersedes both.
+The app stores two kinds of thing with different requirements: **rosters**, which are derived,
+~100 teams and ~3,000 player rows in total, and re-fetchable from the league APIs in minutes; and
+**telemetry** (the `events` and `errors` tables), which is not derived, grows with traffic, and is
+the only record of what happened.
 
 ### The four options
-
-The app now stores two kinds of thing with genuinely different requirements: **rosters**, which
-are derived, ~3,000 rows, and re-fetchable in minutes; and **telemetry**, which is not derived,
-grows with traffic, and is the only record of what happened.
 
 |                            | Rosters | Telemetry                | App stateless? | You operate a database? | Cost                |
 | -------------------------- | ------- | ------------------------ | -------------- | ----------------------- | ------------------- |
@@ -367,13 +163,19 @@ grows with traffic, and is the only record of what happened.
 | **C** — unmanaged Postgres | Memory  | Postgres on Fly          | Yes            | **Yes**                 | ~$6/mo + operations |
 | **D** — managed serverless | Memory  | Turso or Neon            | Yes            | No                      | $0 at this scale    |
 
+B needs two vendors because Sentry is error tracking, not analytics: it would replace the `errors`
+table but not the `events` table, and it does not produce the per-league, per-team, per-locale
+breakdown the dashboard renders.
+
 ### Why not C
 
 C makes the _app_ horizontally scalable — that part is real, and worth stating because it is easy
 to dismiss C for the wrong reason. What it does **not** do is remove the volume: Fly's unmanaged
 Postgres is itself a Fly app with its own volume. The volume relocates rather than disappearing,
-and it relocates onto infrastructure Fly says plainly it will not support, where a single node
-loses everything since the last snapshot if the SSD fails.
+and it relocates onto infrastructure Fly says plainly it will not support (_"We are not able to
+provide support or guidance for unmanaged Postgres"_), where a single node loses everything since
+the last snapshot if the SSD fails. It also brings an instance, migrations, a connection pool and
+a pruning job to maintain.
 
 So the choice between B, C, and D was never "volume or no volume". It is **who operates the
 durable store**, and C is the only option where the answer is you — in exchange for holding
@@ -387,38 +189,37 @@ and the existing migrations largely carry over as a dialect swap rather than a r
 
 There is a neat interaction worth recording. The objection to leaving `better-sqlite3` has always
 been that its queries are synchronous, and going async is the expensive part of most database
-migrations — the [in-memory section](#in-memory-rosters) makes exactly this point in favour of
-its own proposal. But that cost only applies to code that still talks to the database. **If
-rosters move to memory, the only remaining callers are `analytics.ts` and the `/admin` loader.**
-Route loaders on the hot path never become async at all. The two changes cancel each other's
-main objection, which is why D is coherent in a way that neither half is alone.
+migrations. But that cost only applies to code that still talks to the database. **If rosters move
+to memory, the only remaining callers are `analytics.ts` and the `/admin` loader.** Route loaders
+on the hot path never become async at all. The two changes cancel each other's main objection,
+which is why D is coherent in a way that neither half is alone.
 
 ### Decision: stay on A, treat D as the end state
 
 Not because A is better, but because **the migration cost does not compound.**
 
 `src/lib/server/leagues/index.ts` already owns the TTL logic, the `inFlight` coalescing, and the
-lazy per-team `loadRoster()` flow. Storage sits behind that boundary, which is why this document
-estimates the in-memory move at half a day. That estimate is the same in six months — rosters are
-~3,000 rows of derived data whenever you migrate. Nothing accumulates that makes the swap harder.
+lazy per-team `loadRoster()` flow. Storage sits behind that boundary, so moving rosters to memory
+is a swap of the backend underneath that file, estimated at half a day — and because
+`better-sqlite3` reads are already synchronous, in-memory `Map` reads are a drop-in. That estimate
+is the same in six months: rosters are ~3,000 rows of derived data whenever you migrate. Nothing
+accumulates that makes the swap harder.
 
-Compare the things that _do_ get more expensive with delay, all of which are in the
-[hardening review](./code-review/):
+What moving rosters to memory changes: nothing survives a restart, so each deploy re-warms lazily
+from upstream — the five team lists on the first home-page hit, then rosters one team at a time on
+demand. It is a simplification, **not spike preparation**: SQLite reads are already
+sub-millisecond and in-process, and are not what falls over at 30 req/s.
 
-- **Licensing and attribution** (LIC-1, LIC-3) — cheap now, awkward in proportion to how visible
-  the site becomes. Posting first inverts the cost.
-- **The `events` schema** — once there are 90 days of data, changing its shape means a backfill or
-  a visible discontinuity in the dashboard's own charts. Today there are two days. If any part of
-  the storage question deserves settling early, it is the schema, not the backend.
-- **Runtime validation** (VAL-1) — every day without it is a day an upstream schema change gets
-  misclassified as a transient blip.
+The work that _did_ get more expensive with delay went first, and is done: licensing and
+attribution, runtime validation of the league feeds, and settling the `events` schema while it
+held two days of data rather than ninety. Telemetry growth is bounded where it is, by the 90-day
+cutoff and a 500,000-row ceiling in `analytics.ts`; an unbounded table is unbounded on any
+backend, so that was never a reason to change backends.
 
-So the hardening work goes first, and D happens when it stops feeling premature. What is needed
-before then is a **retention bound**, not a new backend — see
-[ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4). An unbounded table is unbounded on any
-backend, and bounding it is an afternoon.
+**Revisit if user accounts or persisted scores are added.** Durability requirements change at that
+point, and [Fly Managed Postgres](https://fly.io/docs/mpg/) ($38/mo, Basic) enters the picture.
 
-### On GDPR, which points the same way
+### On privacy, which points the same way
 
 Counterintuitively, moving telemetry to a hosted provider makes the privacy position **harder**,
 not easier. The current implementation — a daily-rotated salt that is never written to disk, no
@@ -427,39 +228,40 @@ alerts — is the basis on which cookieless analytics tools claim they need no c
 processor adds a DPA, a transfer mechanism, and a processing record, and most error trackers
 capture IP addresses by default unless configured otherwise.
 
-What is missing is not a better architecture but a disclosure: see
-[PRIV-1](./code-review/10-privacy-and-telemetry.md#priv-1).
-
 ### What no option fixes
 
 Two per-process constraints survive in B, C, and D alike, and are worth knowing before "stateless"
 is read as "unconstrained":
 
-1. **N machines means N× independent upstream syncs.** Negligible at N=3, not at N=20. The CHL
-   HockeyTech key in `src/lib/server/leagues/chl.ts` is shared across consumers and worth not
-   hammering.
+1. **N machines means N× independent upstream syncs** — and N× hourly sweeps, since `startSweeps`
+   runs per process. Negligible at N=3, not at N=20, where a shared warm store becomes worth
+   revisiting. The CHL HockeyTech key in `src/lib/server/leagues/chl.ts` is shared across
+   consumers and worth not hammering.
 2. **In-memory rate limiting becomes per-instance.** A limiter on three machines is a 3× looser
-   limit. Fine at this scale; worth a comment in the code so it is not a surprise later. See
-   [ABUSE-1](./code-review/05-abuse-resistance.md#abuse-1).
+   limit. Fine at this scale.
 
 Neither is a reason to avoid scaling. Both are reasons the CDN remains the better answer to a
 spike than horizontal scaling is, regardless of where the data lives.
 
 ## What it costs
 
-| Scenario                                            | Monthly         |
-| --------------------------------------------------- | --------------- |
-| Today (scale-to-zero, ~5h/day runtime + 1GB volume) | **~$0.55**      |
-| Always-on 256MB, no volume, hosted error logging    | **~$1.94**      |
-| Always-on `shared-cpu-2x` 512MB (headroom)          | **~$3.89**      |
-| Above + self-hosted PG 256MB + 1GB volume           | **~$6**         |
-| One-day pre-scale to `shared-cpu-2x` 1GB            | **+$0.21 once** |
-| Egress for a front-page r/hockey post               | **+$0.72 once** |
+| Scenario                                                          | Monthly         |
+| ----------------------------------------------------------------- | --------------- |
+| Scale-to-zero, ~5h/day runtime + 1GB volume (as until 2026-07-28) | **~$0.55**      |
+| Always-on 256MB + 1GB volume (the current configuration)          | **~$2.09**      |
+| Always-on 256MB, no volume, hosted error logging                  | **~$1.94**      |
+| Always-on `shared-cpu-2x` 512MB (headroom)                        | **~$3.89**      |
+| Above + self-hosted PG 256MB + 1GB volume                         | **~$6**         |
+| One-day pre-scale to `shared-cpu-2x` 1GB                          | **+$0.21 once** |
+| Egress for a front-page r/hockey post                             | **+$0.72 once** |
+
+The current-configuration row is the machine and volume prices below added together, not a figure
+read off an invoice.
 
 ## Fly pricing reference
 
-Figures as of **2026-07-27**, North America / `yyz`. Pricing drifts — re-check
-before relying on these.
+Figures as of **2026-07-27**, North America / `yyz`. Pricing drifts — re-check before relying on
+these.
 
 | Resource                                | Price                                                 |
 | --------------------------------------- | ----------------------------------------------------- |
@@ -475,102 +277,68 @@ before relying on these.
 | Dedicated IPv4                          | $2/mo — **not needed**, `http_service` uses shared v4 |
 | Managed Postgres (Basic, shared-2x/1GB) | $38/mo + $0.28/GB storage                             |
 
-**There is no free tier and no free egress allowance** on current plans. Fly's cost
-management docs state plainly: _"There is no 'free account/free tier' on Fly.io."_
+**There is no free tier and no free egress allowance** on current plans. Fly's cost management
+docs state plainly: _"There is no 'free account/free tier' on Fly.io."_
 
 Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
 [cost management](https://fly.io/docs/about/cost-management/) ·
-[Managed Postgres](https://fly.io/docs/mpg/) ·
-[unmanaged Postgres](https://fly.io/docs/postgres/)
+[Managed Postgres](https://fly.io/docs/mpg/) · [unmanaged Postgres](https://fly.io/docs/postgres/)
 
-## Handoff notes
+## Before a large post
 
-### Pre-launch checklist
+Everything that could be done ahead of time is done: the cache headers, the CDN, the always-on
+machine, the concurrency limits and the retention bound. What is left are actions for the day, and
+one setting that has to be re-checked.
 
-> [!NOTE]
-> **Revised 2026-07-27.** The decision is to work the [hardening review](./code-review/) before
-> posting, so this is no longer a race against a post date. Step 2 is already done. The ordering
-> below is what remains.
-
-0. ~~Work the hardening review's P1 list.~~ **Done 2026-07-28** — P2 and P3 as well, not just P1.
-1. ~~Set `min_machines_running = 1` in `fly.toml`~~ — **done 2026-07-28**, along with concurrency
-   limits ([step 5](#5-set-concurrency-limits-in-flytoml)).
-2. ~~Wire up hosted error logging (Sentry free tier)~~ — **done differently**: first-party
-   telemetry with Discord alerting shipped in `586b5e4`. See
-   [Error logging](#error-logging) for why the recommendation was overtaken rather than rejected.
-3. ~~Add cache headers + Cloudflare~~ — **done 2026-07-28**. Cache headers with the `Vary` fix
-   ([PERF-1](./code-review/07-caching-and-scaling.md#perf-1)), the domain move to numbrrs.app,
-   Cloudflare proxying, and the locale-aware caching Worker — see
-   [step 1's note above](#1-put-a-cdn-in-front--highest-leverage-by-a-wide-margin) for the full
-   design. `/privacy` and every `/game/<league>/<team>` page are cached at the edge in both
-   languages, verified against the live site.
-4. Optional extra insurance, not required now that (3) is done: pre-scale the one machine to
-   `shared-cpu-2x` 1GB before a post and back after — see
-   [step 2 above](#2-pre-scale-before-posting--cheap-insurance-zero-code). $0.21, no code. Never
-   `fly scale count`.
-5. Warm the roster cache from `/admin` minutes before posting — see
-   [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free). A day-of action, not
-   something to do ahead of time.
-6. ~~Bound event retention~~ ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — **done**.
-7. Check the Worker's quota and what happens past it. The Worker runs on every `/privacy` and
-   `/game/…` request, cache hit or not, and Workers Free allows
+1. **Check the Worker's routes still fail open, and consider Workers Paid for the month.** The
+   Worker runs on every request to its routes, cache hit or not, and Workers Free allows
    [100,000 requests a day](https://developers.cloudflare.com/workers/platform/limits/) across the
-   account, resetting at midnight UTC. A "good post" (~40k visitors) reaches that at two or three
-   team pages each. What happens next is set per route in the Cloudflare dashboard: **fail open**
+   account, resetting at midnight UTC. The home page, the privacy page and every team page pass through it, so a "good post"
+   (~40k visitors) reaches that at two or three pages each. What happens next is set per route in the Cloudflare dashboard: **fail open**
    bypasses the Worker and sends the request to the origin uncached, where the
    [measured ceiling](#where-it-breaks) applies again; **fail closed** serves a Cloudflare 1027
-   error page. Every route in `wrangler.toml` should be set to fail open — a Worker deploy resets them, so
-   check after each one — and consider
-   Workers Paid for the month of a post, which is what keeps the cache in the path all day.
+   error page. Every route in `wrangler.toml` should be set to fail open, and a Worker deploy
+   resets them, so check after each one. Workers Paid is what keeps the cache in the path all day.
 
-What's left is item 7 and the day-of-posting actions. The origin's ceiling is no longer an
-estimate: it was measured on 2026-07-29 — see [Where it breaks](#where-it-breaks).
+2. **Warm the roster cache from `/admin` minutes before posting.** A full resync takes ~1–2
+   minutes and guarantees nobody arriving from Reddit waits on an 8s upstream fetch.
 
-Independently, whenever convenient: move rosters in-memory. This no longer deletes the SQLite
-layer — see [Storage architecture](#storage-architecture). Skip self-hosted Postgres regardless;
-if telemetry ever moves off the volume, managed serverless (Turso/Neon) is the destination.
+3. **Optionally, pre-scale the one machine.** Cheap insurance for the cache misses, with no code:
 
-### Open questions
+   ```sh
+   fly scale vm shared-cpu-2x --vm-memory 1024    # restarts the machine
+   fly scale vm shared-cpu-1x --vm-memory 256     # the next day
+   ```
 
-- **Are the game-page images hot-linked?** Check the Domain column in devtools on a
-  game page. If a meaningful share come from our own origin rather than
-  `assets.nhle.com` / HockeyTech, game-page egress is ~180 kB rather than ~91 kB,
-  which doubles the egress column. Doesn't change any conclusion — egress is under
-  a dollar either way — but it's the one unverified input.
-- ~~**What is the real req/s ceiling?**~~ **Measured 2026-07-29**: 100 req/s while
-  burst credits last, ~17–20 req/s sustained once they drain. See
-  [Where it breaks](#where-it-breaks) and [`load-test/`](../load-test/).
+   One `shared-cpu-2x` / 1GB machine for 24 hours costs about **$0.21**. It has not been
+   load-tested at that size, so treat the [measured ceiling](#where-it-breaks) as the floor rather
+   than assuming it doubles.
 
-Also worth checking: current RSS headroom against the 256MB cap
-(`fly machine status`), and actual current spend in the Fly dashboard to confirm
-the ~$0.55 baseline.
+   Two things in `fly.toml` go with it. A deploy applies the `[[vm]]` block again, so if one might
+   happen while scaled up, change the size there instead and change it back afterwards. And the
+   `[http_service.concurrency]` limits are sized for the small machine: raise them in the same
+   edit if the bigger one should take more simultaneous connections, and restore them with the
+   size.
 
-### Not in this repo
+> [!WARNING]
+> **Scale up, never out.** `fly scale count` must not be used while the database is a file on a
+> volume. A volume attaches to one machine, so for each machine it adds Fly creates a new,
+> **empty** volume and [copies no data across](https://fly.io/docs/launch/scale-count/).
+> `fly scale count 3` would therefore produce three machines with three separate SQLite
+> databases: three sets of roster syncs, the visits split three ways, and `/admin` showing
+> whichever third a request happens to land on. Scaling back down leaves the extra volumes
+> unattached, with no guarantee that the machine Fly keeps is the one holding the original.
+>
+> Do not rely on `auto_start_machines` to absorb a spike either — it starts machines that already
+> exist, and there is only the one.
 
-> [!NOTE]
-> **No longer true as of `ff92fdf`.** Everything described below has landed. Kept for the record
-> of what the analysis assumed.
+## Open questions
 
-The error-logging work referenced above lives on a separate machine and is not
-committed here. `ADMIN_TOKEN` and `ALERT_WEBHOOK_URL` were added to `.env.example`
-locally but deliberately left uncommitted; they are referenced nowhere in `src/`.
-
-There is also no observability in the app today — no `[metrics]` block in
-`fly.toml`, no structured logging, and no rate limiting on any route. The nearest
-thing is the deliberate guard in `ensureTeam()`, which 404s unknown team codes
-without hitting upstream. With a public, always-on, uncached origin, the absence of
-rate limiting is the most likely cause of a surprise bill; a CDN largely covers it.
-
-**What actually shipped:** first-party analytics and error tracking writing to the existing
-SQLite database (`src/lib/server/analytics.ts`, `alerts.ts`, `telemetry.ts`), a Discord webhook
-for alerts, and an `/admin` dashboard behind `ADMIN_TOKEN`. Both secrets are now real and
-documented in `README.md`.
-
-Two of the observations above became tracked findings, and both are now done:
-
-- ~~Still no `[metrics]` block in `fly.toml`, and still no health check~~ — **done**:
-  [PERF-3](./code-review/07-caching-and-scaling.md#perf-3) added `/api/health`, wired
-  into `fly.toml`.
-- ~~Rate limiting is still absent from every route that matters~~ — **done**:
-  [ABUSE-1](./code-review/05-abuse-resistance.md#abuse-1) put a limiter in front of the
-  `/admin` login.
+- **Are the game-page images hot-linked?** Check the Domain column in devtools on a game page. If
+  a meaningful share come from our own origin rather than `assets.nhle.com` / HockeyTech,
+  game-page egress is ~180 kB rather than ~91 kB, which doubles the egress column. Doesn't change
+  any conclusion — egress is under a dollar either way — but it's the one unverified input.
+- **How much memory headroom is there?** Current RSS against the 256MB cap (`fly machine status`)
+  has not been recorded.
+- **What is the actual spend?** The Fly dashboard has not been checked against the ~$2.09
+  estimate above.
