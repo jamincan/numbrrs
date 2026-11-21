@@ -519,7 +519,8 @@ Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
    team pages each. What happens next is set per route in the Cloudflare dashboard: **fail open**
    bypasses the Worker and sends the request to the origin uncached, where the
    [measured ceiling](#where-it-breaks) applies again; **fail closed** serves a Cloudflare 1027
-   error page. Confirm every route in `wrangler.toml` are set to fail open, and consider
+   error page. Every route in `wrangler.toml` should be set to fail open — a Worker deploy resets them, so
+   check after each one — and consider
    Workers Paid for the month of a post, which is what keeps the cache in the path all day.
 
 What's left is item 7 and the day-of-posting actions. The origin's ceiling is no longer an

@@ -156,6 +156,13 @@ or `wrangler.toml` changes, and whenever the locale code it imports from
 `LOCALE_COOKIE`) — otherwise the edge sorts visitors into its per-language cache
 slots by rules the origin no longer follows.
 
+**After every Worker deploy, set each route back to fail open.** A deploy resets
+every route's failure mode, and neither `wrangler.toml` nor Cloudflare's routes
+API has a setting for it: Cloudflare dashboard → Workers & Pages →
+`numbrrs-locale-cache` → Settings → Domains & Routes, then each route in turn.
+Left at fail closed, every game page becomes a Cloudflare 1027 error page once
+the account passes its daily request limit.
+
 To take it out of the path, delete its routes: Cloudflare dashboard → Workers &
 Pages → `numbrrs-locale-cache` → Settings → Domains & Routes. Requests then go
 straight to the origin, which makes every language and caching decision itself;
@@ -235,7 +242,7 @@ check it rather than trusting the table.
 | Cloudflare → Caching → Configuration                  | Browser Cache TTL                  | Respect Existing Headers. Any other value overrides the pages' `max-age=0`, and browsers then keep a page across a deploy, where no purge reaches it. Verify.                                                                       |
 | Cloudflare → Web Analytics                            | The injected RUM beacon            | Off for `numbrrs.app`. The privacy page says there are no third-party analytics, and that is only true while this is off. Verify.                                                                                                   |
 | Cloudflare → Workers & Pages → `numbrrs-locale-cache` | Routes                             | Those in `wrangler.toml`.                                                                                                                                                                                                           |
-| Cloudflare → Workers & Pages → `numbrrs-locale-cache` | Each route's failure mode          | Fail open, so that past the plan's daily request limit visitors go straight to the origin instead of getting a Cloudflare 1027 error page. Verify.                                                                                  |
+| Cloudflare → Workers & Pages → `numbrrs-locale-cache` | Each route's failure mode          | Fail open, so that past the plan's daily request limit visitors go straight to the origin instead of getting a Cloudflare 1027 error page. Reset by every `pnpm run cf:deploy`; set it again afterwards.                            |
 | Cloudflare → Workers & Pages                          | Plan                               | Workers Free: 100,000 requests a day across the account, resetting at midnight UTC. Every `/privacy` and `/game/…` request counts, cache hit or not.                                                                                |
 | Fly → app `numbrrs`                                   | Secrets                            | `ADMIN_TOKEN` and `ALERT_WEBHOOK_URL`; `ADMIN_DIRECT` absent. A `DATABASE_URL` secret left from before `fly.toml` carried the path is harmless while it says `/data/numbrrs.db`. `flyctl secrets list -a numbrrs` shows names only. |
 | Fly → volume `vol_vjyk76mg6yz027zv`                   | Snapshot schedule and retention    | Daily, kept 5 days (Fly's default). `flyctl volumes show vol_vjyk76mg6yz027zv -a numbrrs`; change with `flyctl volumes update vol_vjyk76mg6yz027zv --snapshot-retention <days> -a numbrrs`.                                         |

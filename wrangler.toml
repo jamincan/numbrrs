@@ -14,6 +14,11 @@ compatibility_date = "2026-07-28"
 # client-side navigation to it fetches — needs patterns of its own. Those end in
 # a wildcard because SvelteKit always puts a query string on that request, and
 # a pattern only matches a URL with a query string if it ends in one.
+#
+# Not expressible here: what a route does once the account is past its daily
+# request limit. That is set per route in the dashboard, and every deploy puts
+# it back to fail closed, so it has to be set to fail open again each time (the
+# README's Operations section has the path).
 routes = [
 	{ pattern = "numbrrs.app/privacy", zone_name = "numbrrs.app" },
 	{ pattern = "numbrrs.app/fr/privacy", zone_name = "numbrrs.app" },

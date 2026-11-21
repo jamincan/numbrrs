@@ -17,7 +17,7 @@
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
 		"cf:check": "tsc --noEmit -p cloudflare/tsconfig.json",
-		"cf:deploy": "wrangler deploy",
+		"cf:deploy": "wrangler deploy && echo Reminder: this deploy reset every route to fail closed. Set each one back to fail open in the Cloudflare dashboard.",
 		"deploy": "node scripts/deploy.mjs"
 	},
 	"devDependencies": {
