@@ -5,7 +5,8 @@ const NUMBER_PATTERN = /^#\d+$/;
 const GAME_PATH = `/game/${FIXTURE_TEAM.league}/${FIXTURE_TEAM.code}`;
 
 /** The front of the card in the draw pile. Once it is on screen the page has
- *  hydrated: the game only renders after the roster has streamed in. */
+ *  hydrated: the server's markup holds an undealt deck, and the first card is
+ *  only turned up by the browser. */
 function drawnCard(page: Page) {
 	return page.locator('.card-slot').first().getByText(NUMBER_PATTERN).first();
 }
@@ -140,7 +141,7 @@ test.describe('getting around the page', () => {
 		await page.keyboard.press('Enter');
 		await expect(page.locator('#content')).toBeFocused();
 		await page.keyboard.press('Tab');
-		await expect(page.getByRole('tab', { name: 'NHL' })).toBeFocused();
+		await expect(page.getByRole('link', { name: 'NHL', exact: true })).toBeFocused();
 	});
 
 	test('the two navigation landmarks can be told apart', async ({ page }) => {
@@ -172,7 +173,9 @@ test.describe('when there is no game to play', () => {
 	test.describe('with scripts off', () => {
 		test.use({ javaScriptEnabled: false });
 
-		test('the loading state explains itself', async ({ page }) => {
+		test('the undealt deck explains itself', async ({ page }) => {
+			// The roster is in the page as served, but the cards are only ever
+			// dealt by a script.
 			await page.goto(GAME_PATH);
 			// By selector, not by text: Playwright's text matching looks past
 			// <noscript> whether or not scripts are on.

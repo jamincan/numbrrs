@@ -25,6 +25,9 @@ export interface Messages {
 	/** Meta description for the home page (and link previews of it). */
 	description: string;
 	tagline: string;
+	/** Describes the link-preview image (static/og-image.png), whose own words
+	 *  are English in both languages. */
+	socialImageAlt: string;
 	/** Accessible name for the language switcher. */
 	language: string;
 	github: string;
@@ -68,8 +71,9 @@ export interface Messages {
 		accuracy: (percent: string) => string;
 		playAgain: string;
 		loadingRoster: string;
-		/** Shown under the loading spinner when scripts are off: the roster only
-		 *  ever arrives through one. */
+		/** Shown when scripts are off, under the undealt deck or the loading
+		 *  spinner: the cards are only ever dealt, and a roster still being
+		 *  fetched only ever arrives, through one. */
 		noScript: string;
 		noRoster: string;
 		retryRoster: string;

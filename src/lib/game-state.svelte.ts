@@ -48,11 +48,145 @@ function saveDifficulty(value: number): void {
 	}
 }
 
+/** The part of the Web Storage API a saved game needs. `sessionStorage` in the
+ *  browser; anything with these three methods in a test. */
+export type GameStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/**
+ * Where a game in progress is kept: the tab's session storage, so a refresh,
+ * back/forward or the language toggle (a full page load) picks the game back
+ * up, and closing the tab forgets it. Null on the server and wherever storage
+ * is blocked — even reading the `sessionStorage` property throws there — and
+ * the game then simply isn't kept.
+ */
+export function sessionGameStorage(): GameStorage | null {
+	if (!browser) return null;
+	try {
+		return sessionStorage;
+	} catch {
+		return null;
+	}
+}
+
+const SAVE_KEY_PREFIX = 'numbrrs_game:';
+// Bumped whenever the saved shape changes: a game written by an older build is
+// dropped rather than read as something it isn't.
+const SAVE_VERSION = 1;
+
+/**
+ * One entry per team. The id carries no locale, so /game/… and /fr/game/… share
+ * a saved game — switching language keeps it.
+ */
+export function saveKey(teamId: string): string {
+	return SAVE_KEY_PREFIX + teamId;
+}
+
+/** A game as it is written to storage: player ids only, in pile order. The
+ *  guessed pile is left out on purpose — see `restore`. */
+type SavedGame = {
+	v: typeof SAVE_VERSION;
+	roster: string;
+	identified: number[];
+	guesses: number;
+	deck: number[];
+	recycle: number[];
+	current: { id: number; options: number[] } | null;
+};
+
+/**
+ * Who is on the roster and what they wear, as one comparable string. A saved
+ * game only makes sense against the roster it was dealt from: after a trade or
+ * a number change its piles would hold a player who has left, or miss one who
+ * has arrived.
+ */
+function rosterSignature(roster: readonly Player[]): string {
+	return roster
+		.map((p) => `${p.id}:${p.sweaterNumber ?? ''}`)
+		.sort()
+		.join(',');
+}
+
+function isIdList(value: unknown): value is number[] {
+	return Array.isArray(value) && value.every((id) => Number.isSafeInteger(id));
+}
+
+/**
+ * Storage is outside the app's control — an older build, another tab, a
+ * hand-edited value, a roster that has since changed — so nothing read from it
+ * is trusted. Returns the saved game only if it is one this roster could
+ * actually have reached; a game restored from anything less could deal a card
+ * for a player who isn't there, or never end.
+ */
+function parseSavedGame(raw: string, roster: readonly Player[]): SavedGame | null {
+	let data: unknown;
+	try {
+		data = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (typeof data !== 'object' || data === null) return null;
+	const {
+		v,
+		roster: signature,
+		identified,
+		guesses,
+		deck,
+		recycle,
+		current
+	} = data as Record<string, unknown>;
+
+	const expected = rosterSignature(roster);
+	if (v !== SAVE_VERSION || signature !== expected) return null;
+	if (!isIdList(identified) || !isIdList(deck) || !isIdList(recycle)) return null;
+	if (typeof guesses !== 'number' || !Number.isSafeInteger(guesses) || guesses < 0) return null;
+
+	let card: SavedGame['current'] = null;
+	if (current !== null) {
+		if (typeof current !== 'object') return null;
+		const { id, options } = current as Record<string, unknown>;
+		if (typeof id !== 'number' || !Number.isSafeInteger(id) || !isIdList(options)) return null;
+		card = { id, options };
+	}
+
+	// Every player sits in exactly one place: identified, one of the two piles,
+	// or on the card that's up.
+	const placed = [...identified, ...deck, ...recycle, ...(card ? [card.id] : [])];
+	const rosterIds = new Set(roster.map((p) => p.id));
+	if (placed.length !== roster.length || new Set(placed).size !== placed.length) return null;
+	if (!placed.every((id) => rosterIds.has(id))) return null;
+
+	// Numberless players are never dealt, and each right guess identifies exactly
+	// one player — so there can't be more players found than guesses made.
+	const preIdentified = preIdentifiedIds(roster);
+	if (!preIdentified.every((id) => identified.includes(id))) return null;
+	if (guesses < identified.length - preIdentified.length) return null;
+
+	if (card) {
+		// The card's own player has to be among its answers, and nobody already
+		// identified can be offered as one.
+		if (!card.options.includes(card.id) || new Set(card.options).size !== card.options.length) {
+			return null;
+		}
+		if (!card.options.every((id) => rosterIds.has(id) && !identified.includes(id))) return null;
+	} else if (deck.length > 0 || recycle.length > 0) {
+		// No card up with cards still to draw is not a state the game passes through.
+		return null;
+	}
+
+	return { v: SAVE_VERSION, roster: expected, identified, guesses, deck, recycle, current: card };
+}
+
 /**
  * The quiz's state and the moves that change it: dealing, guessing, and
  * switching difficulty mid-game. `roster` is fixed for the life of an
  * instance — the page remounts this whenever the roster it's for changes
  * (see RosterGame.svelte), so nothing here needs to react to it changing.
+ *
+ * A new instance has dealt nothing. The page is rendered on the server and
+ * held at the edge for every visitor, so a deck shuffled during construction
+ * would hand them all the same first card — and the browser, shuffling its own
+ * while hydrating, would disagree with the markup it was given. The component
+ * calls `restore` or `reset` once it has mounted instead.
  */
 export class GameState {
 	#roster: Player[];
@@ -64,6 +198,10 @@ export class GameState {
 
 	difficulty = $state(savedDifficulty());
 
+	/** False until the first deal or a restore. `current` being null isn't
+	 *  enough to tell: it is also null once the game is over. */
+	dealt = $state(false);
+
 	/** Face-down draw pile; the top card gets dealt into `current`. */
 	deck = $state<Player[]>([]);
 	/** Players whose card resolved without them being identified; reshuffled
@@ -71,7 +209,8 @@ export class GameState {
 	recycle = $state<Player[]>([]);
 	identified = $state<number[]>([]);
 	guesses = $state(0);
-	/** The drawn card being guessed at; null once both piles run dry (game over). */
+	/** The drawn card being guessed at; null before the first deal, and again
+	 *  once both piles run dry (game over). */
 	current = $state<ActiveCard | null>(null);
 	/** The most recent guess, face-up on top of the guessed pile. */
 	resolved = $state<ResolvedCard | null>(null);
@@ -93,7 +232,9 @@ export class GameState {
 		// value in place of one savedDifficulty() had to discard.
 		saveDifficulty(this.difficulty);
 
-		this.reset();
+		// Known without shuffling anything, so the progress line is already right
+		// in the server's markup.
+		this.identified = preIdentifiedIds(roster);
 	}
 
 	// In the shuffled order the card chose — deriving this by filtering the
@@ -144,6 +285,93 @@ export class GameState {
 		this.current = this.#dealt(drawn, identified);
 		this.resolved = null;
 		this.previous = null;
+		this.dealt = true;
+	}
+
+	/**
+	 * Pick a saved game back up, if storage holds one this roster could have
+	 * reached. Returns whether it did; the caller deals a fresh game otherwise.
+	 * Anything unusable is removed on the way past rather than left to be
+	 * rejected on every visit.
+	 *
+	 * The guessed pile comes back empty: the last guess isn't news any more, and
+	 * a card arriving on the pile is what the page animates and announces.
+	 */
+	restore(storage: GameStorage | null, teamId: string): boolean {
+		if (!storage) return false;
+		let saved: SavedGame | null;
+		try {
+			const raw = storage.getItem(saveKey(teamId));
+			if (raw === null) return false;
+			saved = parseSavedGame(raw, this.#roster);
+			if (!saved) storage.removeItem(saveKey(teamId));
+		} catch {
+			return false;
+		}
+		if (!saved) return false;
+
+		const find = (id: number) => this.#roster.find((p) => p.id === id);
+		const players = (ids: number[]) => ids.flatMap((id) => find(id) ?? []);
+		const player = saved.current && find(saved.current.id);
+
+		this.deck = players(saved.deck);
+		this.recycle = players(saved.recycle);
+		this.identified = saved.identified;
+		this.guesses = saved.guesses;
+		this.resolved = null;
+		this.previous = null;
+		if (saved.current && player) {
+			// The saved answers are kept so a refresh shows the same card it left,
+			// unless the difficulty was changed in the meantime (in another tab, say)
+			// and they are no longer the right number of them.
+			const remaining = this.#roster.length - saved.identified.length;
+			const expected = Math.min(this.difficulty, remaining);
+			this.current = {
+				key: this.#nextKey++,
+				player,
+				optionIds:
+					saved.current.options.length === expected
+						? saved.current.options
+						: cardOptions(this.#roster, saved.identified, player, this.difficulty)
+			};
+		} else {
+			this.current = null;
+		}
+		this.dealt = true;
+		return true;
+	}
+
+	/**
+	 * Write the game to storage, or clear its entry while there is nothing to
+	 * keep — a game with no guesses in it, which is also what Play Again leaves.
+	 * So storage holds nothing for a team until somebody has actually played.
+	 *
+	 * Guarded like the difficulty setting above: a full or blocked store costs
+	 * the saved game, never the game being played.
+	 */
+	save(storage: GameStorage | null, teamId: string): void {
+		if (!storage || !this.dealt) return;
+		try {
+			if (this.guesses === 0) {
+				storage.removeItem(saveKey(teamId));
+				return;
+			}
+			const saved: SavedGame = {
+				v: SAVE_VERSION,
+				roster: rosterSignature(this.#roster),
+				identified: [...this.identified],
+				guesses: this.guesses,
+				deck: this.deck.map((p) => p.id),
+				recycle: this.recycle.map((p) => p.id),
+				current: this.current && {
+					id: this.current.player.id,
+					options: [...this.current.optionIds]
+				}
+			};
+			storage.setItem(saveKey(teamId), JSON.stringify(saved));
+		} catch {
+			// The game carries on in memory.
+		}
 	}
 
 	guess(playerId: number) {

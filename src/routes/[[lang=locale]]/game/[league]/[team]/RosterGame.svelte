@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import NavSlot from '#lib/components/NavSlot.svelte';
 	import DifficultyMenu from './DifficultyMenu.svelte';
 	import GameHeader from './GameHeader.svelte';
@@ -7,7 +7,7 @@
 	import RosterDrawer from './RosterDrawer.svelte';
 	import type { Player, Team } from '#lib/types.ts';
 	import { DrawerLayout } from '#lib/drawer-layout.svelte.ts';
-	import { DIFFICULTY_OPTIONS, GameState } from '#lib/game-state.svelte.ts';
+	import { DIFFICULTY_OPTIONS, GameState, sessionGameStorage } from '#lib/game-state.svelte.ts';
 	import { getI18n } from '#lib/i18n/state.svelte.ts';
 	import { leagueGender } from '#lib/leagues.ts';
 	import { getTeamColors } from '#lib/team-colors.ts';
@@ -15,9 +15,10 @@
 
 	const i18n = getI18n();
 
-	// Only mounted once the roster has arrived and has at least one numbered
+	// Only rendered once the roster has arrived and has at least one numbered
 	// player on it (the page checks isPlayable), so the game can assume it has
-	// someone to ask about.
+	// someone to ask about. For a roster the server already had, that includes
+	// the server's own render.
 	const { team, roster }: { team: Team; roster: Player[] } = $props();
 
 	const colors = $derived(getTeamColors(team.league, team.abbreviation));
@@ -28,11 +29,26 @@
 
 	// Quiz state and drawer layout are their own reactive classes (see
 	// #lib/game-state.svelte.ts and #lib/drawer-layout.svelte.ts) — neither
-	// needs to react to `roster` changing, since this component is only ever
-	// mounted once a roster has arrived (see above). `untrack` says so
+	// needs to react to `roster` changing, since the page mounts a new instance
+	// of this component for each roster it is given. `untrack` says so
 	// explicitly, rather than leaving it looking like an oversight.
 	const game = new GameState(untrack(() => roster));
 	const layout = new DrawerLayout(() => game.activeOptions.length);
+
+	// The same goes for the team, which is the roster's own. Its id names the
+	// saved game.
+	const teamId = untrack(() => team.id);
+	const storage = sessionGameStorage();
+
+	// The cards are dealt here rather than when the game is constructed. The
+	// server renders this component too, and its markup is shared by everyone
+	// the edge serves it to: nothing shuffled, and nothing read from this tab's
+	// storage, can be in it — or in the first client render, which has to match
+	// it. So both show an undealt deck, and the game in progress (or a fresh
+	// shuffle) arrives once the component has mounted.
+	onMount(() => {
+		if (!game.restore(storage, teamId)) game.reset();
+	});
 
 	// A guess removes the button that made it, the last guess removes the whole
 	// drawer, and Play Again removes itself — each time the control that held
@@ -55,12 +71,21 @@
 
 	function guess(playerId: number) {
 		game.guess(playerId);
+		game.save(storage, teamId);
 		void refocus();
 	}
 
+	// Saving a game with no guesses in it clears the finished one.
 	function playAgain() {
 		game.reset();
+		game.save(storage, teamId);
 		void refocus();
+	}
+
+	// Saved too, because the card that's up is kept along with its answers.
+	function setDifficulty(value: number) {
+		game.setDifficulty(value);
+		game.save(storage, teamId);
 	}
 </script>
 
@@ -73,11 +98,7 @@
 <!-- The difficulty menu rides in the site nav rather than a header of its own,
      keeping the play area clear. -->
 <NavSlot>
-	<DifficultyMenu
-		options={DIFFICULTY_OPTIONS}
-		value={game.difficulty}
-		onselect={(value) => game.setDifficulty(value)}
-	/>
+	<DifficultyMenu options={DIFFICULTY_OPTIONS} value={game.difficulty} onselect={setDifficulty} />
 </NavSlot>
 
 <!-- min-h-0 in the right-hand layout lets this shrink to the height the flex

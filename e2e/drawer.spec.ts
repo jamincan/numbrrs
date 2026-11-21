@@ -21,7 +21,6 @@ test('landscape: the drawer is a full-height side panel, expanded by default', a
 
 	await expect(page.getByText('hide roster', { exact: false })).toBeVisible();
 	await expect(page.getByText('Forwards')).toBeVisible();
-	// exact: HockeyCard's position label ("Defenseman") also contains "Defense".
-	await expect(page.getByText('Defense', { exact: true })).toBeVisible();
+	await expect(page.getByText('Defence', { exact: true })).toBeVisible();
 	await expect(page.getByText('Goalies')).toBeVisible();
 });

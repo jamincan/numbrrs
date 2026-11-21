@@ -84,7 +84,22 @@
 	<div class="flex w-full items-start justify-center gap-4">
 		<!-- Draw deck -->
 		<div class="card-slot">
-			{#if game.current}
+			{#if !game.dealt}
+				<!-- Not dealt yet: what the server renders, and what is on screen until
+				     the page has hydrated. Only backs — which card comes up first is
+				     decided in the browser, per visitor. The top one sits where the
+				     drawn card is about to land, so nothing moves when it does. -->
+				{@const backs = Math.min(game.guessableCount, 4)}
+				{#each { length: backs }, i}
+					<div
+						class="absolute inset-0"
+						style="transform: translate({(backs - 1 - i) * 4}px, {(backs - 1 - i) * 4}px);"
+						aria-hidden="true"
+					>
+						<CardBack {team} />
+					</div>
+				{/each}
+			{:else if game.current}
 				{@const backs = Math.min(game.deck.length, 3)}
 				{#each { length: backs }, i}
 					<div
@@ -177,6 +192,12 @@
 	<p class="text-sm text-gray-400">
 		{i18n.m.game.identified(game.identified.length, game.rosterLength, gender)}
 	</p>
+
+	<!-- The cards are dealt by a script, so without one the face-down deck above
+	     is all this page will ever show. -->
+	<noscript>
+		<p class="text-center text-sm text-gray-400">{i18n.m.game.noScript}</p>
+	</noscript>
 </div>
 
 <style>

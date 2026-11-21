@@ -5,8 +5,8 @@ const NUMBER_PATTERN = /^#\d+$/;
 const GAME_PATH = `/game/${SHORT_TEAM.league}/${SHORT_TEAM.code}`;
 
 /** The front of the card in the draw pile — the first of the two card slots.
- *  Once it is on screen the page has hydrated: the game only renders after the
- *  roster has streamed in. */
+ *  Once it is on screen the page has hydrated: the server's markup holds an
+ *  undealt deck, and the first card is only turned up by the browser. */
 function drawnCard(page: Page) {
 	return page.locator('.card-slot').first().getByText(NUMBER_PATTERN).first();
 }
@@ -170,6 +170,168 @@ test('two players on one number are each a right answer for it', async ({ page }
 	await expect(page.getByRole('button', { name: second, exact: true })).toHaveCount(0);
 	await page.getByRole('button', { name: first, exact: true }).click();
 	await expect(status).toContainText(`Correct — #11 is ${first}.`);
+});
+
+test.describe('a game in progress, kept for the tab', () => {
+	const SAVED_GAME = `numbrrs_game:${SHORT_TEAM.league}:${SHORT_TEAM.code}`;
+	const savedGame = (page: Page) => page.evaluate((key) => sessionStorage.getItem(key), SAVED_GAME);
+
+	/** Everyone on offer for the card that's up, in a stable order. */
+	async function offered(page: Page): Promise<string[]> {
+		const { right, wrong } = await choices(page);
+		return [...right, ...wrong].sort();
+	}
+
+	/** One right answer, then one miss where the card allows it — so the saved
+	 *  game has a card in the recycle pile as well as a player found. */
+	async function playTwoCards(page: Page) {
+		const first = await choices(page);
+		const found = first.right[0];
+		if (!found) throw new Error(`No answer to give for #${first.sweaterNumber}`);
+		await page.getByRole('button', { name: found, exact: true }).click();
+		await expect(page.getByText('1 / 6 identified')).toBeVisible();
+
+		const second = await choices(page);
+		// Easy offers two names, and on the shared number both of them are right.
+		if (second.wrong[0]) {
+			await page.getByRole('button', { name: second.wrong[0], exact: true }).click();
+			await expect(page.getByRole('status')).toContainText('Wrong');
+		}
+		return found;
+	}
+
+	test.beforeEach(async ({ page }) => {
+		await page.goto(GAME_PATH);
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+	});
+
+	test('nothing is stored until a guess is made', async ({ page }) => {
+		expect(await savedGame(page)).toBeNull();
+	});
+
+	test('a reload picks the game back up, on the same card, without announcing anything', async ({
+		page
+	}) => {
+		const found = await playTwoCards(page);
+		const sweaterNumber = await drawnNumber(page);
+		const answers = await offered(page);
+		const stored = await savedGame(page);
+		expect(stored).not.toBeNull();
+
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+
+		await expect(page.getByText('1 / 6 identified')).toBeVisible();
+		expect(await drawnNumber(page)).toBe(sweaterNumber);
+		expect(await offered(page)).toEqual(answers);
+		await expect(page.getByRole('button', { name: found, exact: true })).toHaveCount(0);
+		// The last guess is not replayed: nothing on the pile, nothing read out,
+		// and focus left where a fresh arrival leaves it.
+		await expect(page.getByRole('status')).toBeEmpty();
+		await expect(page.locator('.card-slot').nth(1).getByText(NUMBER_PATTERN)).toHaveCount(0);
+		expect(await focusedTag(page)).toBe('BODY');
+		expect(await savedGame(page)).toBe(stored);
+	});
+
+	test('switching language keeps the game', async ({ page }) => {
+		await playTwoCards(page);
+		const sweaterNumber = await drawnNumber(page);
+		const answers = await offered(page);
+
+		// A full page load to the same team's French URL.
+		await page.getByRole('link', { name: 'fr', exact: true }).click();
+		await expect(page).toHaveURL(`/fr${GAME_PATH}`);
+		await expect(drawnCard(page)).toBeVisible();
+
+		await expect(page.getByText('1 / 6 identifiés')).toBeVisible();
+		expect(await drawnNumber(page)).toBe(sweaterNumber);
+		expect(await offered(page)).toEqual(answers);
+		await expect(page.getByRole('status')).toBeEmpty();
+	});
+
+	test('a finished game comes back finished, and Play Again clears it', async ({ page }) => {
+		const playAgain = page.getByRole('button', { name: 'Play Again' });
+		for (let guesses = 0; (await playAgain.count()) === 0; guesses++) {
+			expect(guesses).toBeLessThan(6);
+			const { sweaterNumber, right } = await choices(page);
+			const pick = right[0];
+			if (!pick) throw new Error(`No answer to give for #${sweaterNumber}`);
+			await page.getByRole('button', { name: pick, exact: true }).click();
+			await expect(page.getByRole('status')).toContainText(
+				`Correct — #${sweaterNumber} is ${pick}.`
+			);
+		}
+
+		await page.reload();
+
+		const summary = page.getByRole('group', { name: 'Congratulations!' });
+		await expect(summary).toBeVisible();
+		await expect(summary).toContainText('Accuracy: 100%');
+		await expect(page.getByText('6 / 6 identified')).toBeVisible();
+		await expect(page.getByRole('status')).toBeEmpty();
+
+		await playAgain.click();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+		expect(await savedGame(page)).toBeNull();
+
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+		await expect(playAgain).toHaveCount(0);
+	});
+
+	test('a saved game that no longer fits is dropped, and a fresh one dealt', async ({ page }) => {
+		await playTwoCards(page);
+
+		// As after a roster change: the saved piles name someone who has left.
+		await page.evaluate((key) => {
+			const saved = JSON.parse(sessionStorage.getItem(key) ?? '{}') as { roster: string };
+			sessionStorage.setItem(key, JSON.stringify({ ...saved, roster: `999:99,${saved.roster}` }));
+		}, SAVED_GAME);
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+		expect(await savedGame(page)).toBeNull();
+
+		await page.evaluate((key) => sessionStorage.setItem(key, '{"v":1,'), SAVED_GAME);
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+		expect(await savedGame(page)).toBeNull();
+	});
+});
+
+test.describe('the page as served, before any script runs', () => {
+	test.use({ javaScriptEnabled: false });
+
+	test('names the whole roster, and gives away nothing about the cards', async ({
+		page,
+		request
+	}) => {
+		// The response itself, as a crawler reads it. Scripts are set aside first:
+		// the page's data is in one, so the names would be found there whether or
+		// not they are in the markup.
+		const html = await (await request.get(GAME_PATH)).text();
+		const markup = html.replace(/<script[\s\S]*?<\/script>/g, '');
+		for (const player of SHORT_PLAYERS) expect(markup).toContain(player.lastName);
+
+		await page.goto(GAME_PATH);
+		for (const player of SHORT_PLAYERS) {
+			await expect(page.locator('li').filter({ hasText: fullName(player) })).toHaveCount(1);
+		}
+		await expect(page.getByText('0 / 6 identified')).toBeVisible();
+
+		// The deck is face down and nobody's number is on the page: which card
+		// comes up first is decided in each visitor's browser, not here.
+		await expect(page.getByText(NUMBER_PATTERN)).toHaveCount(0);
+		await expect(page.getByText('Who wears this number?')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: fullName(SHORT_PLAYERS[0]) })).toHaveCount(0);
+
+		// Text matching skips <noscript>, so the note is found by where it is.
+		await expect(page.locator('noscript p')).toBeVisible();
+	});
 });
 
 test('a guess is announced in French', async ({ page }) => {

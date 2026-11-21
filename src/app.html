@@ -7,6 +7,14 @@
 		     (scrollbars, form controls, the canvas before the stylesheet arrives)
 		     dark too. -->
 		<meta name="color-scheme" content="dark" />
+		<!-- The nav's own colour, so a mobile browser's toolbar reads as part of
+		     the page rather than a band above it. -->
+		<meta name="theme-color" content="#030712" />
+		<!-- The layout links the SVG icon. These two are for what cannot use one:
+		     a home-screen icon on iOS, and crawlers and older browsers that want
+		     a bitmap. scripts/og-image.mjs draws both from that SVG. -->
+		<link rel="icon" type="image/png" sizes="48x48" href="%sveltekit.assets%/favicon-48.png" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

@@ -107,16 +107,24 @@
 {/snippet}
 
 <!--
-	The team comes from the database and renders straight away; the roster is a
-	promise the server streams in. A roster that's gone stale is refreshed from
-	the league before it resolves, so the game starts on current data rather than
-	swapping players out from under whoever's already playing.
+	The team comes from the database and renders straight away. A roster that is
+	stored and current arrives with it, already resolved, and the game is in the
+	server's markup. One that has to be fetched or has gone stale is a promise
+	the server streams in once the league has answered, so the game starts on
+	current data rather than swapping players out from under whoever's already
+	playing.
 -->
 {#await data.roster}
 	{@render placeholder(loading)}
 {:then roster}
 	{#if isPlayable(roster)}
-		<RosterGame {team} {roster} />
+		<!-- Keyed, because a roster that arrives already resolved doesn't pass
+		     through the pending state, and without that this block would hand a
+		     different roster — another team's, on a client-side navigation — to
+		     the game already on screen, which deals from its roster once. -->
+		{#key roster}
+			<RosterGame {team} {roster} />
+		{/key}
 	{:else if roster.length === 0 && retryCount < RETRY_DELAYS.length}
 		{@render placeholder(rechecking)}
 	{:else}

@@ -22,6 +22,7 @@ export const fr: Messages = {
 	description:
 		'Un jeu de cartes pour apprendre les numéros de chandail au hockey. Choisissez une équipe de la LNH, de la LPHF, de la WHL, de l’OHL ou de la LHJMQ et devinez qui porte chaque numéro.',
 	tagline: 'Apprenez les numéros de chandail, une carte à la fois',
+	socialImageAlt: `Numbrrs${NBSP}: un jeu de cartes pour apprendre les numéros de chandail au hockey`,
 	language: 'Langue',
 	github: 'GitHub',
 	skipToContent: 'Aller au contenu',
@@ -117,7 +118,7 @@ export const fr: Messages = {
 		hashBody: `Pour distinguer deux visiteurs au cours d’une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n’est jamais écrite sur disque${NBSP}: une fois la journée terminée, plus rien ne relie le code à vous, et le code d’aujourd’hui ne peut être rapproché de celui de demain. Votre adresse IP elle-même n’est jamais inscrite dans la base de données du site. Le seul endroit où le site consigne une adresse IP est le journal de son serveur, conservé peu de temps${NBSP}: une tentative refusée ou échouée d’accéder à la page d’administration du site y est notée avec l’adresse d’où elle provient.`,
 		cookiesTitle: 'Témoins (cookies)',
 		cookiesBody:
-			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de difficulté est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Vous pouvez effacer les trois en tout temps dans votre navigateur.',
+			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de difficulté est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Vous pouvez effacer les trois en tout temps dans votre navigateur. La partie en cours est gardée dans le stockage de session de l’onglet (sous des clés commençant par numbrrs_game, une par équipe), n’est jamais envoyée au serveur et disparaît à la fermeture de l’onglet.',
 		errorsTitle: 'Erreurs',
 		errorsBody:
 			'Lorsqu’une erreur survient — sur le serveur ou dans votre navigateur —, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Votre adresse IP n’y est pas jointe. Les occurrences répétées d’une même erreur sont regroupées en une seule entrée.',

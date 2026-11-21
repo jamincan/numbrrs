@@ -5,6 +5,7 @@ export const en: Messages = {
 	description:
 		'A flashcard game for learning hockey jersey numbers. Pick a team from the NHL, PWHL, WHL, OHL or QMJHL and guess who wears each number.',
 	tagline: 'Learn hockey jersey numbers, one card at a time',
+	socialImageAlt: 'Numbrrs: a flashcard game for learning hockey jersey numbers',
 	language: 'Language',
 	github: 'GitHub',
 	skipToContent: 'Skip to content',
@@ -53,18 +54,19 @@ export const en: Messages = {
 		showAll: 'show all',
 		groups: {
 			forwards: () => 'Forwards',
-			defense: () => 'Defense',
+			defense: () => 'Defence',
 			goalies: () => 'Goalies',
 			other: 'Other'
 		}
 	},
 
 	positions: {
-		C: () => 'Center',
+		C: () => 'Centre',
 		L: () => 'Left Wing',
 		R: () => 'Right Wing',
 		F: () => 'Forward',
-		D: () => 'Defenseman',
+		// The same word in every league, which is why it takes no gender.
+		D: () => 'Defender',
 		G: () => 'Goalie'
 	},
 
@@ -94,7 +96,7 @@ export const en: Messages = {
 			'To tell two visitors apart within a single day, your IP address and browser are hashed together with a random value. That random value is generated fresh each day and is never written to disk — so once the day is over, nothing can link the code back to you, and today’s code cannot be matched to tomorrow’s. Your IP address itself is never written to the site’s database. The one place the site writes an IP address down is its server log, which is kept only briefly: a refused or failed attempt to reach the site’s admin page is logged there with the address it came from.',
 		cookiesTitle: 'Cookies',
 		cookiesBody:
-			'None are used for analytics. Two cookies remember preferences — your language (numbrrs_locale) and the last league tab you opened (numbrrs_league) — for one year each. Your difficulty setting is kept in your browser’s local storage (numbrrs_difficulty) and is never sent to the server. You can clear all three in your browser at any time.',
+			'None are used for analytics. Two cookies remember preferences — your language (numbrrs_locale) and the last league tab you opened (numbrrs_league) — for one year each. Your difficulty setting is kept in your browser’s local storage (numbrrs_difficulty) and is never sent to the server. You can clear all three in your browser at any time. A game in progress is kept in the tab’s session storage (under keys beginning with numbrrs_game, one per team), is never sent to the server, and disappears when the tab is closed.',
 		errorsTitle: 'Errors',
 		errorsBody:
 			'When something breaks — on the server or in your browser — the error message, the page it happened on, and a technical stack trace are recorded so it can be fixed. Your IP address is not attached. Repeats of the same fault collapse into a single record.',

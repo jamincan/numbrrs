@@ -100,6 +100,15 @@
 	</div>
 {/snippet}
 
+{#snippet rosterByPosition()}
+	{@render rosterGroup(i18n.m.game.groups.forwards(gender), forwards)}
+	{@render rosterGroup(i18n.m.game.groups.defense(gender), defensemen)}
+	{@render rosterGroup(i18n.m.game.groups.goalies(gender), goalies)}
+	{#if other.length > 0}
+		{@render rosterGroup(i18n.m.game.groups.other, other)}
+	{/if}
+{/snippet}
+
 <!-- `choices` is where focus goes after a guess, whichever shape the drawer is
      in: the button that was pressed is usually gone by then, and focus left on
      nothing sends a keyboard or screen reader user back to the top of the
@@ -112,18 +121,14 @@
 		aria-label={i18n.m.game.answerChoices}
 		class="flex flex-col gap-4"
 	>
-		{@render rosterGroup(i18n.m.game.groups.forwards(gender), forwards)}
-		{@render rosterGroup(i18n.m.game.groups.defense(gender), defensemen)}
-		{@render rosterGroup(i18n.m.game.groups.goalies(gender), goalies)}
-		{#if other.length > 0}
-			{@render rosterGroup(i18n.m.game.groups.other, other)}
-		{/if}
+		{@render rosterByPosition()}
 	</div>
 {/snippet}
 
 <!-- The one roster surface, at every size; gone once the piles are empty and
-     there is nothing left to guess. -->
-{#if game.current}
+     there is nothing left to guess. Before the first deal it is here in the
+     shape the server has to assume — along the bottom, closed. -->
+{#if game.current || !game.dealt}
 	<div
 		bind:this={layout.drawerEl}
 		class="flex min-h-0 flex-col overflow-hidden bg-gray-900 {layout.rightDrawer
@@ -178,6 +183,17 @@
 						{@render optionButton(player, 'active:scale-95')}
 					{/each}
 				</div>
+				{#if !game.dealt}
+					<!-- The whole roster, in the page as the server sends it: what "show
+					     all" opens, there for a reader that never runs the script which
+					     would open it. Hidden like the rest of a closed drawer, and gone
+					     once the cards are dealt, when the toggle above takes over. It
+					     gives nothing away: no card is up yet, and nobody's number is
+					     shown until they have been identified. -->
+					<div hidden>
+						{@render rosterByPosition()}
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>

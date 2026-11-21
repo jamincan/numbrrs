@@ -75,7 +75,9 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<!-- Declared as scalable so a browser that can use it prefers it to the
+	     48px bitmap app.html offers the ones that can't. -->
+	<link rel="icon" type="image/svg+xml" sizes="any" href={favicon} />
 	<!-- Each language lives at its own URL, so tell search engines how the two
 	     relate — and that every host (numbrrs.app, numbrrs.fly.dev, the retired
 	     numbrrs.ca) canonically lives at numbrrs.app. Titles and descriptions
@@ -104,7 +106,20 @@
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content="Numbrrs" />
 	<meta property="og:locale" content={i18n.locale === 'fr' ? 'fr_CA' : 'en_CA'} />
-	<meta name="twitter:card" content="summary" />
+	<meta property="og:locale:alternate" content={i18n.locale === 'fr' ? 'en_CA' : 'fr_CA'} />
+	<!-- The card a shared link unfurls into. One image for every page and both
+	     languages (scripts/og-image.mjs draws it); only its description is
+	     translated. Absolute, because the services that fetch it do not resolve
+	     a relative address, and on the canonical host whichever one served the
+	     page. The dimensions let a card be laid out before the image arrives. -->
+	<meta property="og:image" content="{SITE_ORIGIN}/og-image.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content={i18n.m.socialImageAlt} />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:image" content="{SITE_ORIGIN}/og-image.png" />
+	<meta name="twitter:image:alt" content={i18n.m.socialImageAlt} />
 </svelte:head>
 
 <!-- One viewport-height column: nav plus whatever the page renders. Pages fill
