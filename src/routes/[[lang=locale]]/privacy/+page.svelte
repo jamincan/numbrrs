@@ -60,5 +60,5 @@
 		</p>
 	{/each}
 
-	<p class="text-sm text-gray-600">{i18n.m.privacy.updated(updated)}</p>
+	<p class="text-sm text-gray-450">{i18n.m.privacy.updated(updated)}</p>
 </main>

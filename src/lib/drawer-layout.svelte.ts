@@ -20,6 +20,11 @@ export class DrawerLayout {
 	// to spare, so there it becomes a full-height panel down the right side;
 	// portrait gets the bottom. That covers desktop too, which is just a wide
 	// landscape viewport.
+	//
+	// The arrangement itself is the stylesheet's doing — the `side` variant in
+	// app.css — so it is right in the server's markup, before any of this has
+	// run. This is the same answer for the script's benefit: whether the drawer
+	// starts open, and what its height is measured against.
 	rightDrawer = $state(false);
 
 	// Whether the drawer shows the whole roster or just the current options.
@@ -77,6 +82,7 @@ export class DrawerLayout {
 	 */
 	constructor(activeOptionCount: () => number) {
 		$effect(() => {
+			// The `side` variant's query, word for word.
 			const query = window.matchMedia('(min-width: 600px) and (orientation: landscape)');
 			const sync = () => (this.rightDrawer = query.matches);
 			sync();

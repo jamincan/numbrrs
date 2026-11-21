@@ -82,7 +82,7 @@
 					{@render optionButton(player, 'hover:scale-105')}
 				</li>
 			{:else}
-				<li class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600">
+				<li class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-450">
 					{player.firstName}
 					{player.lastName}
 				</li>
@@ -93,7 +93,7 @@
 
 {#snippet rosterGroup(heading: string, group: Player[])}
 	<div>
-		<h2 class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
+		<h2 class="mb-1.5 text-xs font-semibold tracking-wider text-gray-450 uppercase">
 			{heading}
 		</h2>
 		{@render playerGrid(group)}
@@ -126,14 +126,25 @@
 {/snippet}
 
 <!-- The one roster surface, at every size; gone once the piles are empty and
-     there is nothing left to guess. Before the first deal it is here in the
-     shape the server has to assume — along the bottom, closed. -->
+     there is nothing left to guess.
+
+     Along the bottom or down the right is the stylesheet's choice (the `side`
+     variant), so the server's markup is in the right place before any script
+     has run. Before the first deal the server cannot know which it will be,
+     and the pieces that differ between the two — the label, and whether the
+     roster is showing — are both here, with the stylesheet picking.
+
+     The right-hand panel grows with the window so a desktop gets a roster
+     several columns wide, but never past 34rem — beyond that it is just
+     stealing width from the cards. The floor keeps one readable column on a
+     landscape phone. Its height is measured by the script; until that has
+     run, the panel is held to what the measurement will come to — the
+     viewport less the nav, which is 3.25rem tall — so a long roster cannot
+     stretch the page in the meantime. -->
 {#if game.current || !game.dealt}
 	<div
 		bind:this={layout.drawerEl}
-		class="flex min-h-0 flex-col overflow-hidden bg-gray-900 {layout.rightDrawer
-			? 'drawer-right shrink-0 self-stretch'
-			: 'fixed right-0 bottom-0 left-0 z-40 rounded-t-2xl border-t border-white/10 shadow-2xl'}"
+		class="fixed right-0 bottom-0 left-0 z-40 flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl side:static side:z-auto side:max-h-[calc(100dvh-3.25rem)] side:w-[clamp(18rem,40vw,34rem)] side:shrink-0 side:self-stretch side:rounded-none side:border-t-0 side:shadow-none"
 		style:max-height={layout.drawerMax === null ? undefined : `${layout.drawerMax}px`}
 	>
 		<!-- Handle / toggle. The grab bar reads as "drag me" on the bottom sheet;
@@ -144,16 +155,21 @@
 		<button
 			onclick={() => layout.toggleDrawer()}
 			class="flex w-full shrink-0 flex-col items-center gap-1.5 px-4 pt-3 pb-2"
-			aria-label={toggleLabel}
-			aria-expanded={layout.drawerOpen}
+			aria-label={game.dealt ? toggleLabel : undefined}
+			aria-expanded={game.dealt ? layout.drawerOpen : undefined}
 			aria-controls="{uid}-roster"
 		>
-			{#if !layout.rightDrawer}
-				<div class="h-1 w-10 rounded-full bg-white/20"></div>
-			{/if}
-			<span class="text-xs text-gray-500">
-				{layout.drawerOpen ? '▼' : '▲'}
-				{toggleLabel}
+			<div class="h-1 w-10 rounded-full bg-white/20 side:hidden"></div>
+			<span class="text-xs text-gray-450">
+				{#if game.dealt}
+					{layout.drawerOpen ? '▼' : '▲'}
+					{toggleLabel}
+				{:else}
+					<!-- Not yet a working toggle, and not yet known to be open or
+					     closed: the button is named by whichever label shows. -->
+					<span class="side:hidden">▲ {i18n.m.game.showAll}</span>
+					<span class="hidden side:inline">▼ {i18n.m.game.hideRoster}</span>
+				{/if}
 			</span>
 		</button>
 
@@ -165,10 +181,12 @@
 				{@render rosterGroups()}
 			</div>
 		{:else}
-			<!-- Collapsed: active options only -->
+			<!-- Collapsed: active options only. Before the first deal it is a
+			     container as well, and padded like the open drawer in the
+			     right-hand arrangement, because there it is showing the roster. -->
 			<div
 				id="{uid}-roster"
-				class="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+				class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 {game.dealt ? '' : '@container side:pb-8'}"
 				bind:this={layout.optionsBox}
 			>
 				<div
@@ -186,11 +204,12 @@
 				{#if !game.dealt}
 					<!-- The whole roster, in the page as the server sends it: what "show
 					     all" opens, there for a reader that never runs the script which
-					     would open it. Hidden like the rest of a closed drawer, and gone
-					     once the cards are dealt, when the toggle above takes over. It
-					     gives nothing away: no card is up yet, and nobody's number is
-					     shown until they have been identified. -->
-					<div hidden>
+					     would open it. Along the bottom it is hidden like the rest of a
+					     closed drawer; down the right it shows, as the open panel it is
+					     about to become. Gone once the cards are dealt, when the toggle
+					     above takes over. It gives nothing away: no card is up yet, and
+					     nobody's number is shown until they have been identified. -->
+					<div class="hidden flex-col gap-4 side:flex">
 						{@render rosterByPosition()}
 					</div>
 				{/if}
@@ -198,13 +217,3 @@
 		{/if}
 	</div>
 {/if}
-
-<style>
-	/* The right-hand panel grows with the window so a desktop gets a roster
-	   several columns wide, but never past 34rem — beyond that it is just
-	   stealing width from the cards. The floor keeps one readable column on a
-	   landscape phone. */
-	.drawer-right {
-		width: clamp(18rem, 40vw, 34rem);
-	}
-</style>

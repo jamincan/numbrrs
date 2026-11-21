@@ -83,7 +83,8 @@ const NHL_TEAM_COLORS: Record<string, TeamColors> = {
 		darkGradient: ['#122b4e', '#070b14']
 	},
 	FLA: {
-		primary: '#C8102E',
+		// A shade over the brand red, which falls just short on the navy back.
+		primary: '#CF1130',
 		secondary: '#B9975B',
 		lightGradient: ['#C8102E', '#041E42'],
 		darkGradient: ['#122444', '#070b14']
@@ -243,8 +244,8 @@ const PWHL_TEAM_COLORS: Record<string, TeamColors> = {
 		darkGradient: ['#2c1650', '#120a1f']
 	},
 	MTL: {
-		// Montréal Victoire — burgundy
-		primary: '#A6304C',
+		// Montréal Victoire — burgundy, lifted until it reads on its own card back
+		primary: '#BE3757',
 		secondary: '#000000',
 		lightGradient: ['#862633', '#1f080c'],
 		darkGradient: ['#4a1520', '#0d0d0d']
@@ -312,6 +313,17 @@ type Hsl = { h: number; s: number; l: number };
 /** Near-black the cards and page sit on; every palette is built to read on it. */
 const CARD_BLACK = '#0d0d0d';
 
+/** The game page behind the team name and the answer buttons: Tailwind's gray-900. */
+const GAME_PAGE = '#101828';
+
+/**
+ * How far along the card back's gradient the number starts, at the earliest:
+ * on the smallest card, for a player with no picture above the name. The back
+ * is at its lightest there. scripts/contrast-check.mjs works the figure out
+ * from the card's markup and fails if the card outgrows this one.
+ */
+const BACK_NUMBER_STOP = 0.35;
+
 // Loosest contrast the hand-tuned palettes sit at (Carolina's red is ~3.3), so
 // deriving to this keeps the CHL tiles consistent with the NHL/PWHL ones.
 const MIN_CONTRAST = 3.5;
@@ -364,21 +376,57 @@ function hslToHex({ h, s, l }: Hsl): string {
 	);
 }
 
-function luminance(hex: string): number {
+type Rgb = [number, number, number];
+
+const WHITE: Rgb = [255, 255, 255];
+const BLACK: Rgb = [0, 0, 0];
+
+function toRgb(hex: string): Rgb {
 	const n = parseInt(hex.slice(1), 16);
+	return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** `top` at `alpha` over `under`, composited the way a browser does it. */
+function over(top: Rgb, alpha: number, under: Rgb): Rgb {
+	return [
+		under[0] + (top[0] - under[0]) * alpha,
+		under[1] + (top[1] - under[1]) * alpha,
+		under[2] + (top[2] - under[2]) * alpha
+	];
+}
+
+function luminance([r, g, b]: Rgb): number {
 	const channel = (v: number) => {
 		const c = v / 255;
 		return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 	};
-	return (
-		0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
-	);
+	return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-function contrastOnBlack(hex: string): number {
-	const a = luminance(hex);
-	const b = luminance(CARD_BLACK);
-	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+/** WCAG contrast ratio between two colors. */
+function contrast(a: Rgb, b: Rgb): number {
+	const x = luminance(a);
+	const y = luminance(b);
+	return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** A gradient's color a fraction `t` of the way along it. */
+function gradientStop(gradient: [string, string], t: number): Rgb {
+	return over(toRgb(gradient[1]), t, toRgb(gradient[0]));
+}
+
+/**
+ * Whether `primary` can be read wherever it is drawn as text or as the edge of
+ * a control: the number on its own card back, and the team name and the answer
+ * buttons on the game page. 3:1 is the WCAG floor for large text and for a
+ * control's boundary; the little over it keeps a rounded hex value clear.
+ */
+function primaryReads(primary: string, darkGradient: [string, string]): boolean {
+	const color = toRgb(primary);
+	return (
+		contrast(color, gradientStop(darkGradient, BACK_NUMBER_STOP)) >= 3.05 &&
+		contrast(color, toRgb(GAME_PAGE)) >= 3.05
+	);
 }
 
 /**
@@ -395,9 +443,22 @@ function brandPalette(brand: string, secondary: string): TeamColors {
 	// golds are already clear and come through untouched. Saturation is capped
 	// while brightening, because a fully saturated navy lifted to a legible
 	// lightness turns electric — the hand-tuned equivalents sit around 0.72.
+	// Card back and team tiles: a muted deep tint falling into the page.
+	const darkGradient: [string, string] = [
+		hslToHex({ ...hsl, s: Math.min(hsl.s, 0.8), l: 0.16 }),
+		CARD_BLACK
+	];
+
+	// The tint is lighter than the black the first test measures against, and
+	// for a green a good deal lighter, so the second test is the one a dark
+	// green or teal has to keep climbing for.
 	let primary = brand;
 	let l = hsl.l;
-	while (contrastOnBlack(primary) < MIN_CONTRAST && l < 0.75) {
+	while (
+		(contrast(toRgb(primary), toRgb(CARD_BLACK)) < MIN_CONTRAST ||
+			!primaryReads(primary, darkGradient)) &&
+		l < 0.75
+	) {
 		l = Math.min(0.75, l + 0.02);
 		primary = hslToHex({ ...hsl, s: Math.min(hsl.s, 0.72), l });
 	}
@@ -413,8 +474,7 @@ function brandPalette(brand: string, secondary: string): TeamColors {
 			hsl.l < 0.38 ? hslToHex({ ...hsl, s: Math.min(hsl.s, 0.85), l: 0.38 }) : brand,
 			hslToHex({ ...hsl, s: Math.min(hsl.s, 0.95), l: 0.07 })
 		],
-		// Card back and team tiles: a muted deep tint falling into the page.
-		darkGradient: [hslToHex({ ...hsl, s: Math.min(hsl.s, 0.8), l: 0.16 }), CARD_BLACK]
+		darkGradient
 	};
 }
 
@@ -531,7 +591,9 @@ export type DisplayColors = TeamColors & {
  * would tint a border, a glow or the card front, over a plain dark card back.
  */
 const FALLBACK_COLORS: DisplayColors = {
-	primary: '#555555',
+	// A step lighter than the rest, so the number on the card back and the
+	// answer buttons' edges can be made out.
+	primary: '#6b6b6b',
 	secondary: '#555555',
 	lightGradient: ['#555555', '#555555'],
 	darkGradient: ['#1a1a2e', '#16213e'],
@@ -541,4 +603,77 @@ const FALLBACK_COLORS: DisplayColors = {
 export function getTeamColors(league: string, abbreviation: string): DisplayColors {
 	const palette = isLeagueId(league) ? TEAM_COLORS[league][abbreviation] : undefined;
 	return palette ? { ...palette, heading: palette.primary } : FALLBACK_COLORS;
+}
+
+/** Every team with a palette, as `<league>:<CODE>`. */
+export const TEAM_IDS: string[] = Object.entries(TEAM_COLORS).flatMap(([league, teams]) =>
+	Object.keys(teams).map((code) => `${league}:${code}`)
+);
+
+/**
+ * How one line of the card front is drawn: white at `alpha`, over black at
+ * `scrim` laid directly behind the line. A scrim of 0 is no scrim.
+ */
+export type Ink = { alpha: number; scrim: number };
+
+type FrontLine = { alpha: number; contrast: number; stop: number };
+
+/**
+ * The three lines of the card front. For each: the opacity it was designed
+ * with, the WCAG AA contrast its size calls for (plus a little, so rounding
+ * cannot land it under), and the earliest point of the gradient it can sit
+ * over — which is where the gradient is lightest and white fares worst.
+ *
+ * The stops are for the smallest card. The type has a floor there, so the
+ * captions wrap and the stack spreads towards the top of the card, well above
+ * where it sits on a desktop. scripts/contrast-check.mjs works each one out
+ * from the card's markup and fails if the card outgrows these.
+ */
+const FRONT_LINES = {
+	name: { alpha: 0.7, contrast: 4.6, stop: 0.1 },
+	number: { alpha: 1, contrast: 3.1, stop: 0.28 },
+	prompt: { alpha: 0.5, contrast: 4.6, stop: 0.48 }
+} satisfies Record<string, FrontLine>;
+
+/** Opacity of the logo watermark that lies between the gradient and the text. */
+const WATERMARK = 0.07;
+
+/**
+ * The least that has to change for a line to be readable on this team's
+ * gradient. Most teams only need the white a little more opaque than it was
+ * designed. Where even solid white is not enough — gold, yellow, silver, the
+ * lighter oranges and teals — the line gets just enough black behind it.
+ */
+function inkFor(gradient: [string, string], line: FrontLine): Ink {
+	// A white patch of the logo is the worst thing the watermark can put under
+	// white text.
+	const under = over(WHITE, WATERMARK, gradientStop(gradient, line.stop));
+	for (let percent = Math.round(line.alpha * 100); percent < 100; percent += 5) {
+		const alpha = percent / 100;
+		if (contrast(over(WHITE, alpha, under), under) >= line.contrast) return { alpha, scrim: 0 };
+	}
+	for (let percent = 0; percent < 100; percent += 5) {
+		const scrim = percent / 100;
+		if (contrast(WHITE, over(BLACK, scrim, under)) >= line.contrast) return { alpha: 1, scrim };
+	}
+	return { alpha: 1, scrim: 1 };
+}
+
+/**
+ * The points of each gradient the colours here are worked out for, where
+ * scripts/contrast-check.mjs can compare them with the card's real layout.
+ */
+export const CARD_STOPS = {
+	name: FRONT_LINES.name.stop,
+	number: FRONT_LINES.number.stop,
+	prompt: FRONT_LINES.prompt.stop,
+	backNumber: BACK_NUMBER_STOP
+};
+
+export function frontInk(colors: TeamColors): Record<keyof typeof FRONT_LINES, Ink> {
+	return {
+		name: inkFor(colors.lightGradient, FRONT_LINES.name),
+		number: inkFor(colors.lightGradient, FRONT_LINES.number),
+		prompt: inkFor(colors.lightGradient, FRONT_LINES.prompt)
+	};
 }

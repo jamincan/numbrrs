@@ -92,7 +92,7 @@
 						class="font-condensed rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
-							: 'text-gray-500 hover:text-gray-300'}"
+							: 'text-gray-450 hover:text-gray-300'}"
 					>
 						{option.label[i18n.locale]}
 					</a>

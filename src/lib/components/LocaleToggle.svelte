@@ -62,7 +62,7 @@
 			class="font-condensed rounded px-2 py-0.5 text-xs font-bold tracking-widest uppercase transition-colors {i18n.locale ===
 			locale
 				? 'bg-white/15 text-white'
-				: 'text-gray-500 hover:text-gray-300'}"
+				: 'text-gray-450 hover:text-gray-300'}"
 		>
 			{locale}
 		</a>

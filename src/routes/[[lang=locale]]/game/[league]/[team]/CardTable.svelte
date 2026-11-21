@@ -79,9 +79,11 @@
 <!-- The card table: draw deck on the left, guessed pile on the right. One row
      at every breakpoint — the cards scale down instead of re-stacking, which
      also keeps the fly-to-pile animation a constant "one zone-width plus the
-     gap". -->
+     gap". The row can wrap all the same, for the one case scaling down cannot
+     serve: a viewport too narrow for two cards at the smallest size their text
+     fits in, which is under 320px wide and so only ever a zoomed-in one. -->
 <div bind:this={layout.cardTable} class="flex w-full max-w-xl flex-col items-center gap-4">
-	<div class="flex w-full items-start justify-center gap-4">
+	<div class="flex w-full flex-wrap items-start justify-center gap-4">
 		<!-- Draw deck -->
 		<div class="card-slot">
 			{#if !game.dealt}
@@ -205,7 +207,12 @@
 	.card-slot {
 		position: relative;
 		flex: 1 1 0;
-		min-width: 0;
+		/* The narrowest a card can be and still hold its text at the sizes the
+		   type bottoms out at, so the height rule below stops here rather than
+		   shrinking the card towards nothing as the viewport gets shorter —
+		   which is what zooming in does to it. Two of these and the gap between
+		   them fit across 320px. */
+		min-width: 8.25rem;
 		aspect-ratio: 3 / 4;
 		/* Width normally leads, capped at 18rem. When the viewport is short the
 		   cap follows the height instead, so a phone in landscape shrinks the

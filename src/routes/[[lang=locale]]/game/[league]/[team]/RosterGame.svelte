@@ -101,19 +101,16 @@
 	<DifficultyMenu options={DIFFICULTY_OPTIONS} value={game.difficulty} onselect={setDifficulty} />
 </NavSlot>
 
-<!-- min-h-0 in the right-hand layout lets this shrink to the height the flex
+<!-- Which arrangement this is in is decided by the stylesheet (the `side`
+     variant: see app.css), not by the script, so that the markup the server
+     sends is already the page the visitor will see.
+
+     min-h-0 in the right-hand layout lets this shrink to the height the flex
      chain gives it rather than to its content, which is what hands the overflow
      to the drawer's own scroller instead of the page. The bottom layout keeps
      the default so a page that genuinely outgrows the viewport can still scroll
      rather than clip. -->
-<div class="flex flex-1 flex-col bg-gray-900 text-white {layout.rightDrawer ? 'min-h-0' : ''}">
-	<!-- With the drawer on the right the title moves down into the card column
-	     instead of spanning the width, so the panel gets the full height under
-	     the nav to work with. -->
-	{#if !layout.rightDrawer}
-		<GameHeader {name} color={colors.heading} />
-	{/if}
-
+<div class="flex flex-1 flex-col bg-gray-900 text-white side:min-h-0">
 	<!-- Two arrangements of the same pieces. The right-hand panel is meant to
 	     sit flush against the nav and the screen edge, so that layout takes no
 	     padding or max width of its own — the breathing room goes on the card
@@ -121,18 +118,16 @@
 	     case where the page is forced to scroll anyway; the drawer otherwise
 	     sizes itself to the space under the cards. -->
 	<main
-		class="flex w-full flex-1 {layout.rightDrawer
-			? 'min-h-0 flex-row'
-			: 'mx-auto max-w-6xl flex-col px-4 pb-40'}"
+		class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-40 side:mx-0 side:min-h-0 side:max-w-none side:flex-row side:px-0 side:pb-0"
 	>
 		<div
-			class="flex min-w-0 flex-1 flex-col items-center {layout.rightDrawer
-				? 'min-h-0 justify-start gap-3 px-4 py-3'
-				: 'gap-8'}"
+			class="flex min-w-0 flex-1 flex-col items-center side:min-h-0 side:justify-start side:gap-3 side:px-4 side:py-3"
 		>
-			{#if layout.rightDrawer}
-				<GameHeader {name} color={colors.heading} compact />
-			{/if}
+			<!-- The title heads the card column in both arrangements. Over a
+			     bottom drawer it spans the page; with the drawer on the right it
+			     stays within the column, so the panel gets the full height under
+			     the nav to work with. -->
+			<GameHeader {name} color={colors.heading} inCardColumn />
 
 			<CardTable {team} {game} {gender} {layout} onplayagain={playAgain} bind:summary />
 		</div>

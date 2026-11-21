@@ -63,7 +63,7 @@
 	<p class="max-w-prose text-gray-400">{body}</p>
 
 	{#if detail && detail !== title}
-		<p class="text-sm text-gray-500">{detail}</p>
+		<p class="text-sm text-gray-450">{detail}</p>
 	{/if}
 
 	<a
@@ -76,7 +76,7 @@
 	{#if page.error?.id}
 		<!-- The fingerprint of the recorded error. Quoting it back points at one
 		     row in /admin, which is the whole reason it's on screen. -->
-		<p class="mt-4 font-mono text-xs text-gray-600">
+		<p class="mt-4 font-mono text-xs text-gray-450">
 			{i18n.m.error.reference}{colon}{page.error.id}
 		</p>
 	{/if}

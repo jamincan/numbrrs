@@ -195,7 +195,7 @@
 	     and aren't endorsed by anyone; NOTICE has the long form. mt-auto pins it
 	     to the bottom on short pages without making it sticky. -->
 	{#if !fillsViewport}
-		<footer class="mt-auto border-t border-gray-900 px-6 py-6 text-xs text-gray-500">
+		<footer class="mt-auto border-t border-gray-900 px-6 py-6 text-xs text-gray-450">
 			<div
 				class="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
 			>
