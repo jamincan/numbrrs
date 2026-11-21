@@ -13,6 +13,11 @@
 # workerd is wrangler's local runtime, wanted only by `wrangler dev`. The Worker
 # is deployed with `wrangler deploy`, which bundles and uploads without it, so it
 # stays false — see cloudflare/locale-cache-worker.ts.
+# package.json asks for Node 26, the version production and CI run. With this on,
+# an install under an older Node stops instead of warning: a native module built
+# for the wrong Node fails only when the server first opens the database.
+engineStrict: true
+
 allowBuilds:
   better-sqlite3: true
   esbuild: true
