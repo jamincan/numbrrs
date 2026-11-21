@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { reportError } from '../alerts';
 import { fetchWithTimeout } from './http';
-import { parseFeed } from './validate';
+import {
+	imageUrlSchema,
+	parseFeed,
+	PLAYER_ID_MAX,
+	playerNameSchema,
+	positionSchema,
+	sweaterNumber,
+	TEAM_CODE,
+	teamNameSchema
+} from './validate';
 import type { LeagueAdapter, LeagueTeam, RosterResult } from './types';
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
@@ -84,24 +93,33 @@ const TEAM_NAMES: Record<TEAM_CODE, string> = {
 
 // The NHL wraps display strings in a per-language object rather than returning
 // a bare string, which is the shape most likely to change under us.
+//
+// One unusable team fails the whole list rather than dropping out of it: a
+// team missing from the list is a team deleted, so there is no such thing as
+// skipping a row here. The failure lands on the static list below.
 const standingsSchema = z.object({
 	standings: z.array(
 		z.object({
-			teamAbbrev: z.object({ default: z.string() }),
-			teamName: z.object({ default: z.string(), fr: z.string().optional() }),
-			// A constructed URL covers a missing logo, so it isn't worth failing over.
-			teamLogo: z.string().catch('')
+			// Used as it comes, as a URL segment and in the database id.
+			teamAbbrev: z.object({ default: z.string().regex(TEAM_CODE) }),
+			teamName: z.object({ default: teamNameSchema, fr: teamNameSchema.optional() }),
+			// A constructed URL covers a missing or unusable logo, so it isn't worth
+			// failing over.
+			teamLogo: imageUrlSchema
 		})
 	)
 });
 
 const playerSchema = z.object({
-	id: z.number(),
-	headshot: z.string().catch(''),
-	firstName: z.object({ default: z.string() }),
-	lastName: z.object({ default: z.string() }),
+	id: z.number().int().min(1).max(PLAYER_ID_MAX),
+	headshot: imageUrlSchema,
+	firstName: z.object({ default: playerNameSchema }),
+	lastName: z.object({ default: playerNameSchema }),
+	// Only the type is checked here. A number of the wrong type is a changed feed
+	// and costs the row; a number no sweater carries just goes unused (see
+	// `sweaterNumber`).
 	sweaterNumber: z.number().optional(),
-	positionCode: z.string()
+	positionCode: positionSchema
 });
 
 type NHLPlayer = z.infer<typeof playerSchema>;
@@ -201,7 +219,7 @@ async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
 			id: p.id,
 			firstName: p.firstName.default,
 			lastName: p.lastName.default,
-			sweaterNumber: p.sweaterNumber ?? null,
+			sweaterNumber: sweaterNumber(p.sweaterNumber),
 			positionCode: p.positionCode,
 			headshotUrl: p.headshot
 		}))

@@ -1,6 +1,6 @@
 import { getDb, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
-import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { and, count, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
 import { LEAGUE_IDS, teamDbId, type LeagueId } from '#lib/leagues.ts';
 import { nhlAdapter } from './nhl';
@@ -182,6 +182,10 @@ export function isFresh(syncedAt: number | null | undefined, ttl: number): boole
 	return syncedAt != null && syncedAt > Date.now() - ttl;
 }
 
+function storedTeamCount(league: LeagueId): number {
+	return getDb().select({ n: count() }).from(teams).where(eq(teams.league, league)).get()?.n ?? 0;
+}
+
 /** Refresh a league's teams: names, logos, and which teams still exist. */
 export async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	let leagueTeams: LeagueTeam[];
@@ -210,6 +214,39 @@ export async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 	}
 
 	const activeIds = leagueTeams.map((t) => teamDbId(adapter.id, t.code));
+
+	// A list that would cost the league more than half its teams is refused the
+	// same way: it is far likelier a partial response than a real contraction,
+	// and trusting it deletes the missing teams and their players, then marks
+	// the result fresh for a day while their pages 404.
+	//
+	// "More than half" so that a real contraction still goes through, even in an
+	// eight-team league, and a first sync is never held up: with nothing stored
+	// there is nothing to lose. The NHL's static fallback is always the whole
+	// league, so it passes; a partial live list is what gets stopped here.
+	// Distinct codes are counted, so a list can't make up its length by
+	// repeating a team.
+	//
+	// Nothing lifts a refusal on its own. If a league really did lose most of
+	// its teams at once, their rows have to be removed by hand.
+	//
+	// Rosters have no equivalent on purpose: one legitimately shrinks by more
+	// than half when training camp ends.
+	const stored = storedTeamCount(adapter.id);
+	const listed = new Set(activeIds).size;
+	if (listed * 2 < stored) {
+		markFailed(teamListKey(adapter.id));
+		// The counts go in the stack, not the message: the message is part of the
+		// fingerprint, and a list that comes back a different length each time
+		// would otherwise raise a new alert each time.
+		reportError({
+			source: 'sync',
+			message: `${adapter.id} team list lost more than half its teams; keeping existing teams`,
+			stack: `stored teams: ${stored}\nlisted teams: ${listed} (${leagueTeams.map((t) => t.code).join(', ')})`,
+			route: `sync:teams:${adapter.id}`
+		});
+		return;
+	}
 
 	writeOrMarkFailed(teamListKey(adapter.id), () =>
 		getDb().transaction((tx) => {

@@ -242,6 +242,140 @@ describe('syncTeamList', () => {
 		expect(state?.failedAt).toBeNull();
 		expect(state?.failureCount).toBe(0);
 	});
+
+	describe('a list that would shrink the league', () => {
+		// The PWHL, the smallest league there is: the guard has to stop a partial
+		// response here without also stopping a real contraction.
+		const PWHL = ['BOS', 'MIN', 'MTL', 'NY', 'OTT', 'SEA', 'TOR', 'VAN'];
+		const DAY = 24 * 60 * 60 * 1000;
+
+		/** Eight PWHL teams with a player each, and an NHL team that shares a code. */
+		function seedLeagues() {
+			PWHL.forEach((code, i) => seedPlayer(seedTeam('pwhl', code), 'pwhl', i + 1));
+			seedPlayer(seedTeam('nhl', 'TOR'), 'nhl', 1);
+			seedPlayer(seedTeam('nhl', 'UTA'), 'nhl', 2);
+		}
+
+		const listing = (codes: string[]) =>
+			fakeAdapter('pwhl', {
+				fetchTeams: vi.fn().mockResolvedValue(codes.map((code) => leagueTeam(code)))
+			});
+
+		const codesOf = (league: string) =>
+			getDb()
+				.select()
+				.from(teams)
+				.where(eq(teams.league, league))
+				.all()
+				.map((t) => t.abbreviation)
+				.sort();
+
+		const playerIdsOf = (league: string) =>
+			getDb()
+				.select()
+				.from(players)
+				.where(eq(players.league, league))
+				.all()
+				.map((p) => p.id)
+				.sort((a, b) => a - b);
+
+		it('changes nothing and records a failure when more than half the teams are missing', async () => {
+			seedLeagues();
+			const lastGood = Date.now() - 2 * DAY;
+			seedSyncState('teams:pwhl', { syncedAt: lastGood });
+
+			await syncTeamList(listing(['BOS', 'MIN', 'MTL']));
+
+			expect(codesOf('pwhl')).toEqual([...PWHL].sort());
+			expect(playerIdsOf('pwhl')).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+			expect(codesOf('nhl')).toEqual(['TOR', 'UTA']);
+			expect(playerIdsOf('nhl')).toEqual([1, 2]);
+			// Not marked fresh, and backing off like any other failed sync.
+			const state = getDb().select().from(syncState).where(eq(syncState.key, 'teams:pwhl')).get();
+			expect(state?.syncedAt).toBe(lastGood);
+			expect(state?.failureCount).toBe(1);
+			expect(inBackoff(state, Date.now())).toBe(true);
+		});
+
+		it('does not rename or re-logo the teams it was sent, either', async () => {
+			seedLeagues();
+
+			await syncTeamList(
+				fakeAdapter('pwhl', {
+					fetchTeams: vi.fn().mockResolvedValue([leagueTeam('BOS', { name: 'Renamed' })])
+				})
+			);
+
+			const bos = getDb().select().from(teams).where(eq(teams.id, 'pwhl:BOS')).get();
+			expect(bos?.name).toBe('BOS Team');
+		});
+
+		it('still deletes a single dropped team and its players', async () => {
+			seedLeagues();
+			const before = Date.now();
+
+			await syncTeamList(listing(PWHL.filter((code) => code !== 'TOR')));
+
+			expect(codesOf('pwhl')).toEqual(PWHL.filter((code) => code !== 'TOR').sort());
+			// TOR was the seventh team seeded, so its player is number 7.
+			expect(playerIdsOf('pwhl')).toEqual([1, 2, 3, 4, 5, 6, 8]);
+			// The NHL has a TOR of its own, which is none of this sync's business.
+			expect(codesOf('nhl')).toEqual(['TOR', 'UTA']);
+			expect(playerIdsOf('nhl')).toEqual([1, 2]);
+			const state = getDb().select().from(syncState).where(eq(syncState.key, 'teams:pwhl')).get();
+			expect(state?.syncedAt).toBeGreaterThanOrEqual(before);
+			expect(state?.failureCount).toBe(0);
+			expect(reportError).not.toHaveBeenCalled();
+		});
+
+		it('draws the line at more than half: four of eight goes through, three does not', async () => {
+			seedLeagues();
+
+			await syncTeamList(listing(['BOS', 'MIN', 'MTL']));
+			expect(codesOf('pwhl')).toHaveLength(8);
+
+			await syncTeamList(listing(['BOS', 'MIN', 'MTL', 'NY']));
+			expect(codesOf('pwhl')).toEqual(['BOS', 'MIN', 'MTL', 'NY']);
+		});
+
+		it('counts each team once, however often the list repeats it', async () => {
+			seedLeagues();
+
+			await syncTeamList(listing(['BOS', 'BOS', 'BOS', 'MIN', 'MIN', 'MTL']));
+
+			expect(codesOf('pwhl')).toHaveLength(8);
+		});
+
+		it('never holds up a first sync, which has nothing to lose', async () => {
+			seedPlayer(seedTeam('nhl', 'TOR'), 'nhl', 1);
+
+			await syncTeamList(listing(['BOS']));
+
+			expect(codesOf('pwhl')).toEqual(['BOS']);
+			expect(reportError).not.toHaveBeenCalled();
+		});
+
+		it('reports under one fingerprint per league, with the counts in the stack', async () => {
+			seedLeagues();
+
+			await syncTeamList(listing(['BOS', 'MIN', 'MTL']));
+			await syncTeamList(listing(['VAN']));
+
+			expect(reportError).toHaveBeenCalledTimes(2);
+			const [first, second] = reportError.mock.calls.map(([report]) => report);
+			expect(first.source).toBe('sync');
+			expect(first.route).toBe('sync:teams:pwhl');
+			expect(first.message).toBe(
+				'pwhl team list lost more than half its teams; keeping existing teams'
+			);
+			// Message and route are the fingerprint, so neither may carry a count.
+			expect(second.message).toBe(first.message);
+			expect(second.route).toBe(first.route);
+			expect(first.stack).toContain('stored teams: 8');
+			expect(first.stack).toContain('listed teams: 3 (BOS, MIN, MTL)');
+			expect(second.stack).toContain('listed teams: 1 (VAN)');
+		});
+	});
 });
 
 /** A roster containing just one player, for tests that need a non-empty sync. */
@@ -735,7 +869,9 @@ describe('syncStale', () => {
 	});
 });
 
-describe('backoff integration (ABUSE-2)', () => {
+// Without the backoff a league that is down looks like one never synced, and is
+// asked again on every request.
+describe('backoff integration', () => {
 	it('a failing team-list sync is left alone by ensureTeam until its backoff expires', async () => {
 		nhlFetchTeams.mockRejectedValueOnce(new Error('upstream down'));
 

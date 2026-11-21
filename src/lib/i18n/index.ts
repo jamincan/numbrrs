@@ -34,8 +34,8 @@ export function localizePath(pathname: string, locale: Locale): string {
  * Normally the route param answers this and this function isn't needed. The
  * exception is a URL that matched no route at all: no params, no layout load,
  * and so no locale in the layout data. That is exactly the case the error page
- * has to render, and defaulting it to English would show a French visitor an
- * English 404 — the thing ERR-1 set out to fix.
+ * has to render, and defaulting it to English would show a French visitor on
+ * a `/fr` URL an English 404.
  */
 export function localeFromPath(pathname: string): Locale {
 	return pathname === '/fr' || pathname.startsWith('/fr/') ? 'fr' : DEFAULT_LOCALE;

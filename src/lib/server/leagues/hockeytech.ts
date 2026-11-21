@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import type { LeagueId } from '#lib/leagues.ts';
 import { fetchWithTimeout } from './http';
-import { FeedSchemaError, parseFeed } from './validate';
+import {
+	FeedSchemaError,
+	imageUrlSchema,
+	parseFeed,
+	playerNameSchema,
+	positionSchema,
+	sweaterNumber,
+	TEAM_CODE,
+	teamNameSchema
+} from './validate';
 import type { LeagueAdapter, LeaguePlayer, LeagueTeam, RosterResult } from './types';
 
 // HockeyTech/LeagueStat hosts the feeds for several leagues (PWHL, the three
@@ -34,17 +43,39 @@ const seasonSchema = z.object({
 
 const seasonsSchema = z.array(seasonSchema);
 
-/** A team as the `teamsbyseason` view reports it. */
+/**
+ * A team as the `teamsbyseason` view reports it. Only the shape is checked
+ * here, because this list also carries visiting teams and is what roster
+ * requests get their ids from: one odd row must not stop every roster in the
+ * league refreshing. What a team may contain is checked on the way into the
+ * team list instead (see `storedTeamsSchema`). `id` and the season fields are
+ * only ever sent back to the feed as query parameters.
+ */
 const teamSchema = z.object({
 	id: z.string(),
 	code: z.string(),
 	name: z.string(),
 	city: z.string(),
 	nickname: z.string(),
-	team_logo_url: z.string().catch('')
+	team_logo_url: imageUrlSchema
 });
 
 const teamsSchema = z.array(teamSchema);
+
+/**
+ * The teams about to be stored, checked as the app will use them: the code
+ * after any normalizing (the QMJHL's mixed-case "BaC" is fine once uppercased)
+ * and the name as it will be displayed. One unusable team fails the whole list
+ * rather than dropping out of it, since a team left out of the list is a team
+ * deleted.
+ */
+const storedTeamsSchema = z.array(
+	z.object({
+		code: z.string().regex(TEAM_CODE),
+		name: teamNameSchema,
+		logoUrl: z.string()
+	})
+);
 
 /**
  * A row of the standings (`statviewtype`) view. Only the scheduled-games counts
@@ -62,24 +93,43 @@ const standingsRowSchema = z
 
 const standingsSchema = z.array(standingsRowSchema);
 
+/** A player id: digits only, within `PLAYER_ID_MAX`. The largest real one is 30,456. */
+const PLAYER_ID = /^[1-9]\d{0,8}$/;
+
+/**
+ * Whether a rejected roster entry was a player's row rather than the junk the
+ * feed appends, which has no id or no name. Only a player's row is worth a line
+ * in the log.
+ */
+function looksLikePlayer(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) return false;
+	const { player_id, last_name } = value as Record<string, unknown>;
+	return Boolean(player_id) && Boolean(last_name);
+}
+
 /**
  * Every field is optional and unknown keys are kept, because `parseRosterEntries`
  * below is what actually decides who counts — and it already copes with the junk
  * this feed appends. An entry that isn't even an object becomes `{}` rather than
  * failing the whole roster, which is the same thing that function does with a
  * row that has no `last_name`.
+ *
+ * A player's row with a field past its limit is dropped the same way, and the
+ * rest of the team kept. It is marked `unreadable` on the way out so the
+ * adapter can say how many went: a roster that quietly loses players should
+ * leave a trace.
  */
 const rosterEntrySchema = z
 	.looseObject({
-		player_id: z.string().optional(),
-		first_name: z.string().optional(),
-		last_name: z.string().optional(),
+		player_id: z.string().regex(PLAYER_ID).optional(),
+		first_name: playerNameSchema.optional(),
+		last_name: playerNameSchema.optional(),
 		tp_jersey_number: z.string().optional(),
-		position: z.string().optional(),
-		player_image: z.string().optional(),
+		position: positionSchema.optional(),
+		player_image: imageUrlSchema.optional(),
 		active: z.string().optional() // "1" while the player is still on the roster
 	})
-	.catch({});
+	.catch((ctx) => (looksLikePlayer(ctx.value) ? { unreadable: true } : {}));
 
 /**
  * The envelope is strict — a roster that isn't a list has changed shape and
@@ -207,16 +257,12 @@ export function parseRosterEntries(
 		const id = parseInt(entry.player_id ?? '', 10);
 		if (isNaN(id) || !entry.last_name) continue;
 
-		const sweaterNumber = parseInt(entry.tp_jersey_number ?? '', 10);
 		const position = entry.position ?? '';
 		players.push({
 			id,
 			firstName: entry.first_name ?? '',
 			lastName: entry.last_name,
-			// Real sweaters run 0–99. Training-camp rosters list everyone still
-			// waiting on a number as #999, which the game would otherwise quiz as
-			// one number with dozens of right answers.
-			sweaterNumber: sweaterNumber >= 0 && sweaterNumber <= 99 ? sweaterNumber : null,
+			sweaterNumber: sweaterNumber(parseInt(entry.tp_jersey_number ?? '', 10)),
 			positionCode: POSITION_MAP[position] ?? position,
 			headshotUrl: entry.player_image ?? ''
 		});
@@ -231,7 +277,11 @@ export interface HockeyTechConfig {
 	apiKey: string;
 	/** Display name for a team. Defaults to the feed's own `name`. */
 	teamName?: (team: HockeyTechTeam) => string;
-	/** Code used in URLs and DB IDs. Defaults to the feed's own `code`. */
+	/**
+	 * Code used in URLs and DB IDs. Defaults to the feed's own `code`. Whatever
+	 * this returns has to match `TEAM_CODE`, capitals included, or the league's
+	 * team list is refused.
+	 */
 	teamCode?: (team: HockeyTechTeam) => string;
 }
 
@@ -336,11 +386,15 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		if (visitors.length > 0) {
 			console.log(`${label} team list leaves out visitors: ${visitors.map(teamCode).join(', ')}`);
 		}
-		return members.map((t) => ({
-			code: teamCode(t),
-			name: teamName(t),
-			logoUrl: t.team_logo_url
-		}));
+		return parseFeed(
+			storedTeamsSchema,
+			members.map((t) => ({
+				code: teamCode(t),
+				name: teamName(t),
+				logoUrl: t.team_logo_url
+			})),
+			`${label} team list`
+		);
 	}
 
 	async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
@@ -389,6 +443,11 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 				}
 				console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
 				return { ok: false, reason: 'transient', detail: errorMessage(err) };
+			}
+
+			const unreadable = entries.filter((e) => e.unreadable === true).length;
+			if (unreadable > 0) {
+				console.warn(`${label} roster for ${team.code}: skipped ${unreadable} unreadable entries`);
 			}
 
 			players = parseRosterEntries(entries, () =>

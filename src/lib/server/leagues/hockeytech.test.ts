@@ -353,6 +353,209 @@ describe('createHockeyTechAdapter', () => {
 		expect(noParams).toMatchObject({ ok: false, reason: 'transient' });
 		expect(!noParams.ok && noParams.detail).toContain('503');
 	});
+
+	describe('content limits on the team list', () => {
+		/** The usual three members and their visitor, with one of them altered. */
+		const teamsWith = (changed: Partial<HockeyTechTeam> & { id: string }): View => {
+			const list = [team('2', 'KGN'), team('5', 'OTT'), team('75', 'BLB'), team('6', 'PBO')];
+			return () =>
+				Response.json({
+					SiteKit: {
+						Teamsbyseason: list.map((t) => (t.id === changed.id ? { ...t, ...changed } : t))
+					}
+				});
+		};
+
+		const qmjhl = () =>
+			createHockeyTechAdapter({
+				id: 'qmjhl',
+				clientCode: 'lhjmq',
+				apiKey: 'key',
+				teamCode: (t) => t.code.toUpperCase()
+			});
+
+		it.each([
+			['punctuation', 'O-T'],
+			['a path separator', 'OT/T'],
+			['a space', 'O T'],
+			['nothing in it', ''],
+			['one character', 'O'],
+			['nine characters', 'OTTAWA67S'],
+			// No normalizer here, as for the PWHL: the game route only ever looks up
+			// capitals, so this team could be listed but never opened.
+			['lowercase letters and nothing to uppercase them', 'Ott']
+		])('refuses the whole list over a code with %s', async (_name, code) => {
+			serveFeed({ teamsbyseason: teamsWith({ id: '5', code }) });
+			vi.spyOn(console, 'log').mockImplementation(() => {});
+
+			await expect(adapter().fetchTeams()).rejects.toThrow(
+				/OHL team list schema mismatch.*1\.code/
+			);
+		});
+
+		it('judges a code after normalizing it, so the QMJHL’s mixed case passes', async () => {
+			serveFeed({
+				teamsbyseason: () =>
+					Response.json({ SiteKit: { Teamsbyseason: [team('19', 'BaC'), team('5', 'VdO')] } }),
+				statviewtype: () => Response.json({ SiteKit: { Statviewtype: [] } })
+			});
+
+			const teams = await qmjhl().fetchTeams();
+
+			expect(teams.map((t) => t.code)).toEqual(['BAC', 'VDO']);
+		});
+
+		it('accepts codes of two and eight characters, and digits', async () => {
+			serveFeed({
+				teamsbyseason: () =>
+					Response.json({ SiteKit: { Teamsbyseason: [team('1', 'NY'), team('2', 'OTT67SXY')] } }),
+				statviewtype: () => Response.json({ SiteKit: { Statviewtype: [] } })
+			});
+
+			expect((await adapter().fetchTeams()).map((t) => t.code)).toEqual(['NY', 'OTT67SXY']);
+		});
+
+		it('refuses a name past the cap, measured as it will be displayed', async () => {
+			vi.spyOn(console, 'log').mockImplementation(() => {});
+
+			serveFeed({ teamsbyseason: teamsWith({ id: '5', name: 'N'.repeat(80) }) });
+			expect((await adapter().fetchTeams())[1]?.name).toHaveLength(80);
+
+			serveFeed({ teamsbyseason: teamsWith({ id: '5', name: 'N'.repeat(81) }) });
+			await expect(adapter().fetchTeams()).rejects.toThrow(
+				/OHL team list schema mismatch.*1\.name/
+			);
+
+			// The CHL leagues display city and nickname, so that is what is measured.
+			serveFeed({
+				teamsbyseason: teamsWith({ id: '5', city: 'C'.repeat(40), nickname: 'N'.repeat(40) })
+			});
+			const chl = createHockeyTechAdapter({
+				id: 'ohl',
+				clientCode: 'ohl',
+				apiKey: 'key',
+				teamName: (t) => `${t.city} ${t.nickname}`
+			});
+			await expect(chl.fetchTeams()).rejects.toThrow(/1\.name/);
+		});
+
+		it('does not care what a visitor looks like, since it is never stored', async () => {
+			serveFeed({ teamsbyseason: teamsWith({ id: '75', code: 'B/B', name: 'N'.repeat(500) }) });
+			vi.spyOn(console, 'log').mockImplementation(() => {});
+
+			expect((await adapter().fetchTeams()).map((t) => t.code)).toEqual(['KGN', 'OTT', 'PBO']);
+		});
+
+		it('still fetches the other teams’ rosters when one team’s code is unusable', async () => {
+			serveFeed({ teamsbyseason: teamsWith({ id: '2', code: 'K/N' }) });
+
+			const result = await adapter().fetchRoster({ code: 'OTT', name: "Ottawa 67's", logoUrl: '' });
+
+			expect(result.ok && result.players).toHaveLength(1);
+		});
+
+		it('lists a team without its logo when the logo address is unusable', async () => {
+			vi.spyOn(console, 'log').mockImplementation(() => {});
+
+			serveFeed({
+				teamsbyseason: teamsWith({ id: '5', team_logo_url: 'http://example.com/5.png' })
+			});
+			expect((await adapter().fetchTeams())[1]?.logoUrl).toBe('');
+
+			// Any https host will do: a league may move its images.
+			serveFeed({
+				teamsbyseason: teamsWith({ id: '5', team_logo_url: 'https://cdn.example.net/5.png' })
+			});
+			expect((await adapter().fetchTeams())[1]?.logoUrl).toBe('https://cdn.example.net/5.png');
+		});
+	});
+
+	describe('content limits on a roster', () => {
+		const ott = { code: 'OTT', name: "Ottawa 67's", logoUrl: '' };
+
+		async function rosterOf(...entries: unknown[]) {
+			serveFeed({ roster: () => Response.json({ SiteKit: { Roster: entries } }) });
+			const result = await adapter().fetchRoster(ott);
+			if (!result.ok) throw new Error(`roster failed: ${result.reason}`);
+			return result.players;
+		}
+
+		it('keeps names of the lengths and characters the leagues really publish', async () => {
+			const real: [string, string][] = [
+				['Emile-Alexandro', 'Morrissette-Richer'],
+				['Jean-Cristoph', 'McConnell-Barker'],
+				['Jamie Lee', 'Coyne Schofield'],
+				['Noa', "Ta'amu"],
+				['Jordin', 'St. Louis'],
+				['Louis-François', 'Šťřžčěýï'],
+				['Kaiden', 'O’Brien']
+			];
+
+			const players = await rosterOf(
+				...real.map(([first_name, last_name], i) =>
+					entry({ player_id: String(i + 1), first_name, last_name })
+				)
+			);
+
+			expect(players.map((p) => [p.firstName, p.lastName])).toEqual(real);
+		});
+
+		it('drops a player with a field past its limit, keeps the rest, and says how many went', async () => {
+			const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+			const players = await rosterOf(
+				entry({ player_id: '1', first_name: 'A'.repeat(64), last_name: 'B'.repeat(64) }),
+				entry({ player_id: '2', last_name: 'B'.repeat(65) }),
+				entry({ player_id: '3', first_name: 'A'.repeat(65) }),
+				entry({ player_id: '4', position: 'GOALTENDER' }),
+				entry({ player_id: '5', position: '' }),
+				// The junk the feed appends is not a player and is not counted as one.
+				{ active: '1' },
+				[{ coach: 'yes' }]
+			);
+
+			expect(players.map((p) => p.id)).toEqual([1, 5]);
+			expect(warn).toHaveBeenCalledWith('OHL roster for OTT: skipped 3 unreadable entries');
+		});
+
+		it('says nothing when only the feed’s usual junk was skipped', async () => {
+			const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+			await rosterOf(entry({}), { active: '1' }, [{ coach: 'yes' }], null);
+
+			expect(warn).not.toHaveBeenCalled();
+		});
+
+		it('drops a player whose id is not a positive integer in range', async () => {
+			vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+			const players = await rosterOf(
+				entry({ player_id: '0' }),
+				entry({ player_id: '-5' }),
+				entry({ player_id: '12abc' }),
+				entry({ player_id: '1.5' }),
+				entry({ player_id: '1000000000' }),
+				entry({ player_id: '999999999' }),
+				entry({ player_id: '30456' })
+			);
+
+			expect(players.map((p) => p.id)).toEqual([999_999_999, 30_456]);
+		});
+
+		it('keeps a player whose headshot is unusable, without the headshot', async () => {
+			const players = await rosterOf(
+				entry({ player_id: '1', player_image: 'http://example.com/1.jpg' }),
+				entry({ player_id: '2', player_image: `https://example.com/${'x'.repeat(500)}` }),
+				entry({ player_id: '3', player_image: 'https://lscluster.hockeytech.com/img/nophoto.png' })
+			);
+
+			expect(players.map((p) => p.headshotUrl)).toEqual([
+				'',
+				'',
+				'https://lscluster.hockeytech.com/img/nophoto.png'
+			]);
+		});
+	});
 });
 
 function entry(overrides: Partial<HockeyTechRosterEntry>): HockeyTechRosterEntry {

@@ -188,6 +188,120 @@ describe('nhlAdapter.fetchRoster', () => {
 		const network = await nhlAdapter.fetchRoster(TOR);
 		expect(!network.ok && network.detail).toContain('socket hang up');
 	});
+
+	describe('content limits', () => {
+		const name = (first: string, last: string) => ({
+			firstName: { default: first },
+			lastName: { default: last }
+		});
+
+		async function rosterOf(...forwards: unknown[]) {
+			serve(() => Response.json({ forwards, defensemen: [], goalies: [] }));
+			const result = await nhlAdapter.fetchRoster(TOR);
+			if (!result.ok) throw new Error(`roster failed: ${result.reason}`);
+			return result.players;
+		}
+
+		it('keeps names of the lengths and characters the leagues really publish', async () => {
+			// The longest first and last names across all five leagues, and one of
+			// each kind of punctuation and accent found in them.
+			const real: [string, string][] = [
+				['Charle-Edouard', "D'Astous"],
+				['Emile-Alexandro', 'Morrissette-Richer'],
+				['Adam', 'Gustafsson Nyberg'],
+				["K'Andre", 'Miller'],
+				['J.T.', 'St. Ivany'],
+				['Paulo', 'Gualberto Jr.'],
+				['Élizabeth', 'Nylén Persson'],
+				['Louis-François', 'Šťřžčěýï'],
+				['Liam', 'O’Brien']
+			];
+
+			const players = await rosterOf(...real.map(([f, l], i) => player(i + 1, name(f, l))));
+
+			expect(players.map((p) => [p.firstName, p.lastName])).toEqual(real);
+		});
+
+		it('drops a player with a name past the cap, and keeps one exactly at it', async () => {
+			const players = await rosterOf(
+				player(1, name('A'.repeat(64), 'B'.repeat(64))),
+				player(2, name('A'.repeat(65), 'Fine')),
+				player(3, name('Fine', 'B'.repeat(65))),
+				player(4)
+			);
+
+			expect(players.map((p) => p.id)).toEqual([1, 4]);
+			expect(console.warn).toHaveBeenCalledWith('NHL roster TOR: skipped 2 unreadable entries');
+		});
+
+		it('drops a player whose id is not a positive integer in range', async () => {
+			const players = await rosterOf(
+				player(0),
+				player(-7),
+				player(1.5),
+				player(1_000_000_000),
+				player(999_999_999),
+				player(8_486_166)
+			);
+
+			expect(players.map((p) => p.id)).toEqual([999_999_999, 8_486_166]);
+		});
+
+		it('drops a player whose position is not a short code, but allows an empty one', async () => {
+			const players = await rosterOf(
+				player(1, { positionCode: '' }),
+				player(2, { positionCode: 'DEFENSEMAN' }),
+				player(3, { positionCode: 'LW' })
+			);
+
+			expect(players.map((p) => [p.id, p.positionCode])).toEqual([
+				[1, ''],
+				[3, 'LW']
+			]);
+		});
+
+		it('keeps a player whose headshot is unusable, without the headshot', async () => {
+			const players = await rosterOf(
+				player(1, { headshot: 'http://assets.nhle.com/mugs/1.png' }),
+				player(2, { headshot: 'javascript:alert(1)' }),
+				player(3, { headshot: `https://assets.nhle.com/${'x'.repeat(500)}` }),
+				player(4, { headshot: 'https://assets.nhle.com/mugs/4 .png' }),
+				// Any host, as long as it is https: a league may move its images.
+				player(5, { headshot: 'https://cdn.example.net/mugs/5.png' }),
+				player(6, { headshot: `https://assets.nhle.com/${'x'.repeat(512 - 24)}` })
+			);
+
+			expect(players.map((p) => p.headshotUrl)).toEqual([
+				'',
+				'',
+				'',
+				'',
+				'https://cdn.example.net/mugs/5.png',
+				`https://assets.nhle.com/${'x'.repeat(512 - 24)}`
+			]);
+		});
+
+		it('keeps a player whose number no sweater carries, without the number', async () => {
+			const players = await rosterOf(
+				player(1, { sweaterNumber: 0 }),
+				player(2, { sweaterNumber: 99 }),
+				player(3, { sweaterNumber: 100 }),
+				player(4, { sweaterNumber: 999 }),
+				player(5, { sweaterNumber: -1 }),
+				player(6, { sweaterNumber: 34.5 })
+			);
+
+			expect(players.map((p) => p.sweaterNumber)).toEqual([0, 99, null, null, null, null]);
+		});
+
+		it('still drops a player whose number has changed type', async () => {
+			// Kept without a number, a feed that started sending every number as a
+			// string would empty the game without anything failing.
+			const players = await rosterOf(player(1, { sweaterNumber: '34' }), player(2));
+
+			expect(players.map((p) => p.id)).toEqual([2]);
+		});
+	});
 });
 
 describe('retryAfterMs', () => {
@@ -287,5 +401,68 @@ describe('nhlAdapter.fetchTeams', () => {
 		expect(second.route).toBe(first.route);
 		expect(first.stack).toContain('500');
 		expect(second.stack).toContain('no teams');
+	});
+
+	// A team can't be skipped the way a player can: a team missing from the list
+	// is deleted. So one unusable row fails the live list as a whole, and the
+	// static list — always all 32, so never a shrunken league — takes over.
+	it.each([
+		['is lowercase', standing('tor')],
+		['has punctuation in it', standing('T/R')],
+		['is a single character', standing('T')],
+		['is longer than eight characters', standing('TORONTOML')],
+		['is empty', standing('')],
+		['comes with a name past the cap', standing('TOR', { teamName: { default: 'T'.repeat(81) } })],
+		[
+			'comes with a French name past the cap',
+			standing('TOR', { teamName: { default: 'Toronto', fr: 'T'.repeat(81) } })
+		]
+	])('falls back to the static team list when a team code %s', async (_name, bad) => {
+		serve(() => Response.json({ standings: [standing('BOS'), bad, standing('MTL')] }));
+
+		const teams = await nhlAdapter.fetchTeams();
+
+		expect(teams).toHaveLength(32);
+		expect(teams.map((t) => t.code)).toContain('TOR');
+		expect(reportError).toHaveBeenCalledTimes(1);
+		expect(reportError.mock.calls[0]?.[0].stack).toContain('NHL standings schema mismatch');
+	});
+
+	it('accepts codes and names at the edges of what is allowed', async () => {
+		serve(() =>
+			Response.json({
+				standings: [
+					standing('NY'),
+					standing('ABCD1234'),
+					standing('MTL', {
+						teamName: { default: 'N'.repeat(80), fr: 'Canadiens de Montréal' }
+					})
+				]
+			})
+		);
+
+		const teams = await nhlAdapter.fetchTeams();
+
+		expect(teams.map((t) => t.code)).toEqual(['ABCD1234', 'MTL', 'NY']);
+		expect(teams[1]?.name).toHaveLength(80);
+		expect(reportError).not.toHaveBeenCalled();
+	});
+
+	it('builds the logo address itself when the feed’s is unusable', async () => {
+		serve(() =>
+			Response.json({
+				standings: [
+					standing('TOR', { teamLogo: 'http://assets.nhle.com/logos/TOR.svg' }),
+					standing('BOS', { teamLogo: 'https://cdn.example.net/logos/BOS.svg' })
+				]
+			})
+		);
+
+		const teams = await nhlAdapter.fetchTeams();
+
+		expect(teams.map((t) => t.logoUrl)).toEqual([
+			'https://cdn.example.net/logos/BOS.svg',
+			'https://assets.nhle.com/logos/nhl/svg/TOR_light.svg'
+		]);
 	});
 });
