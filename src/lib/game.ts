@@ -31,6 +31,15 @@ export function preIdentifiedIds(roster: readonly GamePlayer[]): number[] {
 }
 
 /**
+ * Whether a roster gives the quiz anything to ask: at least one player with a
+ * sweater number. A league can publish a roster before it has assigned any, and
+ * a game dealt from one would open already finished.
+ */
+export function isPlayable(roster: readonly GamePlayer[]): boolean {
+	return roster.some((p) => p.sweaterNumber != null);
+}
+
+/**
  * A fresh draw pile: one card per player who can be asked about (numberless
  * players start pre-identified instead of getting a card), in shuffled order.
  */

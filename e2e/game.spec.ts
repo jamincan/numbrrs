@@ -89,3 +89,20 @@ test('changing difficulty mid-game re-deals options without changing the drawn c
 
 	expect(await drawnNumber(page)).toBe(before);
 });
+
+test('the difficulty in play is kept in local storage, from the first game on', async ({
+	page
+}) => {
+	const stored = () => page.evaluate(() => localStorage.getItem('numbrrs_difficulty'));
+
+	// Before anything is chosen: the default is written as soon as a game starts.
+	expect(await stored()).toBe('2');
+
+	await page.getByRole('button', { name: 'Difficulty' }).click();
+	await page.getByRole('menuitemradio', { name: 'Expert' }).click();
+	expect(await stored()).toBe('Infinity');
+
+	await page.reload();
+	await expect(page.getByRole('button', { name: 'Difficulty: Expert' })).toBeVisible();
+	expect(await stored()).toBe('Infinity');
+});

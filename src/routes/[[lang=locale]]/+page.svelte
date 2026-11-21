@@ -85,7 +85,6 @@
 			>
 				{#each leagueTeams as team (team.id)}
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
-					{@const primary = colors?.primary ?? '#555'}
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
 					{@const name = teamName(i18n.locale, team)}
 					<a
@@ -95,12 +94,13 @@
 							team: team.abbreviation
 						})}
 						class="team-tile group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
-						style="--glow: {primary}44; border-color: {primary}44; background: linear-gradient(160deg, {colors
-							?.darkGradient[0] ?? '#1a1a2e'}, {colors?.darkGradient[1] ?? '#16213e'});"
+						style="--glow: {colors.primary}44; border-color: {colors.primary}44; background: linear-gradient(160deg, {colors
+							.darkGradient[0]}, {colors.darkGradient[1]});"
 					>
+						<!-- Decorative: the name is right below, inside the same link. -->
 						<img
 							src={logo.url}
-							alt={name}
+							alt=""
 							class="h-14 w-14 object-contain drop-shadow-lg {logo.opaque
 								? 'rounded-lg bg-white/95 p-1'
 								: ''}"

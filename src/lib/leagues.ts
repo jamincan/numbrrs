@@ -1,7 +1,7 @@
 import type { Gender, Locale } from '#lib/i18n/index.ts';
 
 // League identifiers shared between server and client code. Server-only
-// adapter code lives in $lib/server/leagues.
+// adapter code lives in #lib/server/leagues.
 //
 // `gender` is the grammatical gender French needs for the nouns used to talk
 // about a league's players; it has no effect in English. The WHL and OHL keep

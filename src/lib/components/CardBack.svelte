@@ -6,8 +6,6 @@
 	const { team }: { team: Team } = $props();
 
 	const colors = $derived(getTeamColors(team.league, team.abbreviation));
-	const primaryColor = $derived(colors?.primary ?? '#555555');
-	const darkGradient = $derived(colors?.darkGradient ?? ['#1a1a2e', '#16213e']);
 	// Same constraint as the card faces: an opaque logo reads as a pale square,
 	// not a watermark.
 	const logo = $derived(teamLogo(team.league, team.abbreviation, team.logoUrl));
@@ -18,7 +16,8 @@
      back may hint at the number underneath, or expert mode leaks answers. -->
 <div
 	class="h-full w-full overflow-clip rounded-2xl border-2 shadow-xl"
-	style="border-color: {primaryColor}44; background: linear-gradient(160deg, {darkGradient[0]}, {darkGradient[1]});"
+	style="border-color: {colors.primary}44; background: linear-gradient(160deg, {colors
+		.darkGradient[0]}, {colors.darkGradient[1]});"
 >
 	{#if watermarkUrl}
 		<img

@@ -1,8 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { isLeagueId } from '#lib/leagues.ts';
 import { ensureTeam, hasStoredRoster, loadRoster } from '#lib/server/leagues/index.ts';
 
-export async function load({ params, locals, depends }) {
+export async function load({ params, url, locals, depends }) {
 	// Lets the page re-run just this load while it waits for a roster to arrive.
 	depends('app:roster');
 
@@ -14,6 +14,16 @@ export async function load({ params, locals, depends }) {
 
 	const team = await ensureTeam(params.league, code);
 	if (!team) throw error(404, 'Team not found');
+
+	// Only the stored casing is the team's address, though. Left to answer in
+	// place, every other casing is a second copy of the page that names itself
+	// as canonical. Checked after the lookup so a code that doesn't exist is
+	// still a plain 404 rather than a redirect to one. Only the last segment
+	// changes, so a /fr prefix and any query string carry over.
+	if (params.team !== code) {
+		const base = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1);
+		throw redirect(308, base + encodeURIComponent(code) + url.search);
+	}
 
 	// Headers go out before the streamed roster resolves, so whether it will be
 	// empty has to be judged from what's stored now. An empty page must not be

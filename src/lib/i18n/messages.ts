@@ -28,6 +28,13 @@ export interface Messages {
 	/** Accessible name for the language switcher. */
 	language: string;
 	github: string;
+	/** The link that jumps past the site nav, first in the tab order. */
+	skipToContent: string;
+	/** Accessible names that tell the page's two navigation landmarks apart. */
+	nav: {
+		main: string;
+		footer: string;
+	};
 
 	home: {
 		league: string;
@@ -44,8 +51,11 @@ export interface Messages {
 	game: {
 		/** Meta description for a team's page; `team` arrives already localized. */
 		description: (team: string) => string;
-		/** Accessible name for the difficulty selector. */
+		/** Accessible name for the difficulty menu. */
 		difficultyLabel: string;
+		/** Accessible name for the button that opens it; `level` is the current
+		 *  setting, which is also the button's visible text. */
+		difficultyCurrent: (level: string) => string;
 		difficulty: {
 			easy: string;
 			medium: string;
@@ -58,11 +68,21 @@ export interface Messages {
 		accuracy: (percent: string) => string;
 		playAgain: string;
 		loadingRoster: string;
+		/** Shown under the loading spinner when scripts are off: the roster only
+		 *  ever arrives through one. */
+		noScript: string;
 		noRoster: string;
 		retryRoster: string;
 		identified: (found: number, total: number, gender: Gender) => string;
-		collapseRoster: string;
-		expandRoster: string;
+		/** Accessible name for the group of answer buttons. */
+		answerChoices: string;
+		/**
+		 * Spoken after a guess, in place of the card flip: the verdict, then who
+		 * wears the number. `name` is whoever the flipped card shows.
+		 */
+		guessResult: (correct: boolean, sweaterNumber: number, name: string) => string;
+		/** Follows `guessResult` while there are cards left: the number now up. */
+		nextNumber: (sweaterNumber: number) => string;
 		hideRoster: string;
 		showAll: string;
 		groups: {
@@ -110,6 +130,9 @@ export interface Messages {
 		/** A URL that doesn't exist, or a league or team code that doesn't. */
 		notFoundTitle: string;
 		notFoundBody: string;
+		/** Shown under the title when it was a league or team code that doesn't exist, to say which. */
+		leagueNotFound: string;
+		teamNotFound: string;
 		/** Anything else — a thrown server error, rendered without detail. */
 		genericTitle: string;
 		genericBody: string;

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import '../app.css';
-	import { browser } from '$app/env';
 	import { beforeNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page, updated } from '$app/state';
@@ -49,7 +48,7 @@
 	// The server stamps <html lang> on the first render; client-side
 	// navigations between /... and /fr/... have to keep it honest themselves.
 	$effect(() => {
-		if (browser) document.documentElement.lang = i18n.locale;
+		document.documentElement.lang = i18n.locale;
 	});
 
 	// Only pages under the locale route exist in both languages. On the others
@@ -63,6 +62,16 @@
 	// already has to handle. The disclaimer it would carry is on every route
 	// that leads here, and in NOTICE.
 	const fillsViewport = $derived(page.route.id?.includes('/game/') ?? false);
+
+	// Where the skip link lands. Focused from script rather than left to the
+	// link's own #fragment: the router answers a second visit to a fragment that
+	// is already in the URL by scrolling to it, which moves the page and leaves
+	// keyboard focus where it was.
+	let content = $state<HTMLElement>();
+	function skipToContent(event: MouseEvent) {
+		event.preventDefault();
+		content?.focus();
+	}
 </script>
 
 <svelte:head>
@@ -71,17 +80,29 @@
 	     relate — and that every host (numbrrs.app, numbrrs.fly.dev, the retired
 	     numbrrs.ca) canonically lives at numbrrs.app. Titles and descriptions
 	     are per page. -->
-	<link rel="canonical" href={SITE_ORIGIN + page.url.pathname} />
-	<link rel="alternate" hreflang="en" href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')} />
-	<link rel="alternate" hreflang="fr" href={SITE_ORIGIN + localizePath(page.url.pathname, 'fr')} />
-	<link
-		rel="alternate"
-		hreflang="x-default"
-		href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')}
-	/>
+	<!-- Not on an error page: its URL is by definition not the address of
+	     anything, in either language. -->
+	{#if !page.error}
+		<link rel="canonical" href={SITE_ORIGIN + page.url.pathname} />
+		<link
+			rel="alternate"
+			hreflang="en"
+			href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')}
+		/>
+		<link
+			rel="alternate"
+			hreflang="fr"
+			href={SITE_ORIGIN + localizePath(page.url.pathname, 'fr')}
+		/>
+		<link
+			rel="alternate"
+			hreflang="x-default"
+			href={SITE_ORIGIN + localizePath(page.url.pathname, 'en')}
+		/>
+		<meta property="og:url" content={SITE_ORIGIN + page.url.pathname} />
+	{/if}
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content="Numbrrs" />
-	<meta property="og:url" content={SITE_ORIGIN + page.url.pathname} />
 	<meta property="og:locale" content={i18n.locale === 'fr' ? 'fr_CA' : 'en_CA'} />
 	<meta name="twitter:card" content="summary" />
 </svelte:head>
@@ -96,8 +117,21 @@
      outside any page's own background div, and the privacy and error pages
      never set one at all — their light text was rendering on the browser's
      default white background until this covered the whole column. -->
+<!-- First in the tab order, and parked above the top edge until it has focus:
+     someone on a keyboard gets past the nav in one key instead of five. -->
+<a
+	href="#content"
+	onclick={skipToContent}
+	class="absolute top-2 left-2 z-50 -translate-y-16 rounded bg-white px-4 py-2 text-sm font-semibold text-gray-950 focus:translate-y-0"
+>
+	{i18n.m.skipToContent}
+</a>
+
 <div class="flex min-h-dvh flex-col bg-gray-950">
-	<nav class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300">
+	<nav
+		class="flex items-center justify-between bg-gray-950 px-6 py-3 text-sm text-gray-300"
+		aria-label={i18n.m.nav.main}
+	>
 		<a
 			href={resolve('/[[lang=locale]]', { lang: i18n.lang })}
 			class="font-condensed flex items-center gap-2 text-lg font-black text-white"
@@ -134,6 +168,12 @@
 		</div>
 	</nav>
 
+	<!-- The skip link's target. A marker ahead of the page rather than a wrapper
+	     around it, because each page is itself a flex child of this column and
+	     sizes against it. It takes no space, so it shows no focus ring either:
+	     the next Tab lands on the page's first control. -->
+	<div id="content" tabindex="-1" class="outline-none" bind:this={content}></div>
+
 	{@render children()}
 
 	<!-- The pages that show club marks carry the statement that we don't own them
@@ -145,7 +185,7 @@
 				class="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
 			>
 				<p class="max-w-prose">{i18n.m.footer.disclaimer}</p>
-				<nav class="flex shrink-0 gap-4">
+				<nav class="flex shrink-0 gap-4" aria-label={i18n.m.nav.footer}>
 					<a
 						href={resolve('/[[lang=locale]]/privacy', { lang: i18n.lang })}
 						class="transition-colors hover:text-gray-300">{i18n.m.footer.privacy}</a

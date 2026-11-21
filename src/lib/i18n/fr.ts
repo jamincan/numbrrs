@@ -20,10 +20,15 @@ const NBSP = String.fromCharCode(0xa0);
 export const fr: Messages = {
 	title: 'Numbrrs - Apprenez les numéros de chandail',
 	description:
-		'Un jeu de cartes pour apprendre les numéros de chandail au hockey. Choisissez une équipe de la LNH, de la LPHF, de la WHL, de la OHL ou de la LHJMQ et devinez qui porte chaque numéro.',
+		'Un jeu de cartes pour apprendre les numéros de chandail au hockey. Choisissez une équipe de la LNH, de la LPHF, de la WHL, de l’OHL ou de la LHJMQ et devinez qui porte chaque numéro.',
 	tagline: 'Apprenez les numéros de chandail, une carte à la fois',
 	language: 'Langue',
 	github: 'GitHub',
+	skipToContent: 'Aller au contenu',
+	nav: {
+		main: 'Principale',
+		footer: 'Pied de page'
+	},
 
 	home: {
 		league: 'Ligue',
@@ -41,8 +46,9 @@ export const fr: Messages = {
 		// The team name leads the sentence rather than sitting inside it, which
 		// would need the team's grammatical gender for the article.
 		description: (team) =>
-			`${team} — devinez qui porte chaque numéro et complétez l'alignement, une carte à la fois.`,
+			`${team} — devinez qui porte chaque numéro et complétez l’alignement, une carte à la fois.`,
 		difficultyLabel: 'Difficulté',
+		difficultyCurrent: (level) => `Difficulté${NBSP}: ${level}`,
 		difficulty: {
 			easy: 'Facile',
 			medium: 'Moyen',
@@ -56,14 +62,18 @@ export const fr: Messages = {
 				: 'Vous avez identifié tous les joueurs de cette équipe!',
 		accuracy: (percent) => `Précision${NBSP}: ${percent}`,
 		playAgain: 'Rejouer',
-		loadingRoster: "Chargement de l'alignement",
-		noRoster: "L'alignement n'est pas disponible pour le moment.",
+		loadingRoster: 'Chargement de l’alignement',
+		noScript:
+			'Numbrrs a besoin de JavaScript pour distribuer les cartes. Activez-le, puis rechargez la page.',
+		noRoster: 'L’alignement n’est pas disponible pour le moment.',
 		retryRoster: 'Réessayer',
 		identified: (found, total, gender) =>
 			`${found} / ${total} ${gender === 'f' ? 'identifiées' : 'identifiés'}`,
-		collapseRoster: "Réduire l'alignement",
-		expandRoster: "Afficher l'alignement",
-		hideRoster: "masquer l'alignement",
+		answerChoices: 'Choix de réponse',
+		guessResult: (correct, sweaterNumber, name) =>
+			`${correct ? 'Exact' : 'Raté'} — le numéro ${sweaterNumber}, c’est ${name}.`,
+		nextNumber: (sweaterNumber) => `Prochain numéro${NBSP}: ${sweaterNumber}.`,
+		hideRoster: 'masquer l’alignement',
 		showAll: 'tout afficher',
 		groups: {
 			forwards: (gender) => (gender === 'f' ? 'Attaquantes' : 'Attaquants'),
@@ -84,7 +94,7 @@ export const fr: Messages = {
 
 	footer: {
 		disclaimer:
-			"Projet indépendant réalisé par un amateur. Sans lien avec la LNH, la PWHL, la WHL, l'OHL ou la LHJMQ, et sans leur approbation. Les noms et logos d'équipe appartiennent à leurs clubs respectifs.",
+			'Projet indépendant réalisé par un amateur. Sans lien avec la LNH, la LPHF, la WHL, l’OHL ou la LHJMQ, et sans leur approbation. Les noms et logos d’équipe appartiennent à leurs clubs respectifs.',
 		privacy: 'Confidentialité',
 		source: 'Code source'
 	},
@@ -125,7 +135,9 @@ export const fr: Messages = {
 	error: {
 		notFoundTitle: 'Page introuvable',
 		notFoundBody:
-			"Cette page n'existe pas. Le lien est peut-être périmé, ou une équipe a peut-être changé.",
+			'Cette page n’existe pas. Le lien est peut-être périmé, ou une équipe a peut-être changé.',
+		leagueNotFound: 'Ligue introuvable',
+		teamNotFound: 'Équipe introuvable',
 		genericTitle: 'Une erreur est survenue',
 		genericBody: 'Désolé, cette requête a échoué de notre côté. Réessayer fonctionne souvent.',
 		home: 'Retour aux équipes',

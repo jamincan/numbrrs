@@ -3,6 +3,7 @@ import {
 	buildDeck,
 	cardOptions,
 	drawCard,
+	isPlayable,
 	preIdentifiedIds,
 	shuffle,
 	type GamePlayer
@@ -43,6 +44,18 @@ describe('preIdentifiedIds', () => {
 
 	it('is empty when everyone has a number', () => {
 		expect(preIdentifiedIds(roster)).toEqual([]);
+	});
+});
+
+describe('isPlayable', () => {
+	it('needs at least one player with a number', () => {
+		expect(isPlayable(roster)).toBe(true);
+		expect(isPlayable([player(1, null), player(2, 22)])).toBe(true);
+	});
+
+	it('is false for a numberless or empty roster', () => {
+		expect(isPlayable([player(1, null), player(2, null)])).toBe(false);
+		expect(isPlayable([])).toBe(false);
 	});
 });
 

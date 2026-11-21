@@ -6,7 +6,7 @@ export const LOCALES = ['en', 'fr'] as const;
 
 export type Locale = (typeof LOCALES)[number];
 
-export const DEFAULT_LOCALE: Locale = 'en';
+const DEFAULT_LOCALE: Locale = 'en';
 
 /**
  * Grammatical gender for the nouns French uses to talk about players

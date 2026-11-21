@@ -7,6 +7,11 @@ export const en: Messages = {
 	tagline: 'Learn hockey jersey numbers, one card at a time',
 	language: 'Language',
 	github: 'GitHub',
+	skipToContent: 'Skip to content',
+	nav: {
+		main: 'Main',
+		footer: 'Footer'
+	},
 
 	home: {
 		league: 'League',
@@ -24,6 +29,7 @@ export const en: Messages = {
 		description: (team) =>
 			`Learn ${team} jersey numbers, one card at a time — guess who wears each number and work through the full roster.`,
 		difficultyLabel: 'Difficulty',
+		difficultyCurrent: (level) => `Difficulty: ${level}`,
 		difficulty: {
 			easy: 'Easy',
 			medium: 'Medium',
@@ -35,11 +41,14 @@ export const en: Messages = {
 		accuracy: (percent) => `Accuracy: ${percent}`,
 		playAgain: 'Play Again',
 		loadingRoster: 'Loading roster',
+		noScript: 'Numbrrs needs JavaScript to deal the cards. Turn it on, then reload this page.',
 		noRoster: "The roster isn't available right now.",
 		retryRoster: 'Try again',
 		identified: (found, total) => `${found} / ${total} identified`,
-		collapseRoster: 'Collapse roster',
-		expandRoster: 'Expand roster',
+		answerChoices: 'Answer choices',
+		guessResult: (correct, sweaterNumber, name) =>
+			`${correct ? 'Correct' : 'Wrong'} — #${sweaterNumber} is ${name}.`,
+		nextNumber: (sweaterNumber) => `Next: #${sweaterNumber}.`,
 		hideRoster: 'hide roster',
 		showAll: 'show all',
 		groups: {
@@ -104,6 +113,8 @@ export const en: Messages = {
 	error: {
 		notFoundTitle: 'Page not found',
 		notFoundBody: "That page doesn't exist. The link may be out of date, or a team may have moved.",
+		leagueNotFound: 'League not found',
+		teamNotFound: 'Team not found',
 		genericTitle: 'Something went wrong',
 		genericBody: 'Sorry — that request failed on our end. Trying again often works.',
 		home: 'Back to the teams',

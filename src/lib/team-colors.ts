@@ -1,3 +1,5 @@
+import { isLeagueId, type LeagueId } from '#lib/leagues.ts';
+
 export type TeamColors = {
 	primary: string;
 	secondary: string;
@@ -500,7 +502,12 @@ function derivePalettes(brands: Record<string, BrandPair>): Record<string, TeamC
 	);
 }
 
-export const TEAM_COLORS: Record<string, Record<string, TeamColors>> = {
+/**
+ * Keyed by league rather than by any string, so a league added to `LEAGUES`
+ * without a table here fails to compile. The teams inside one stay open-ended:
+ * their codes come from the league's feed.
+ */
+const TEAM_COLORS: Record<LeagueId, Record<string, TeamColors>> = {
 	nhl: NHL_TEAM_COLORS,
 	pwhl: PWHL_TEAM_COLORS,
 	whl: derivePalettes(WHL_BRANDS),
@@ -508,6 +515,30 @@ export const TEAM_COLORS: Record<string, Record<string, TeamColors>> = {
 	qmjhl: derivePalettes(QMJHL_BRANDS)
 };
 
-export function getTeamColors(league: string, abbreviation: string): TeamColors | undefined {
-	return TEAM_COLORS[league]?.[abbreviation];
+/** A palette as the UI reads it: never missing, whatever the team. */
+export type DisplayColors = TeamColors & {
+	/**
+	 * The team name over the page, and the roster spinner. A team's own
+	 * `primary`, except for a team with no palette: the grey that stands in for
+	 * its brand color is too dim to read as a title, so that one is white.
+	 */
+	heading: string;
+};
+
+/**
+ * For a team the tables above have no entry for — a club that joined its
+ * league after this file was last edited. Neutral grey wherever a brand color
+ * would tint a border, a glow or the card front, over a plain dark card back.
+ */
+const FALLBACK_COLORS: DisplayColors = {
+	primary: '#555555',
+	secondary: '#555555',
+	lightGradient: ['#555555', '#555555'],
+	darkGradient: ['#1a1a2e', '#16213e'],
+	heading: '#fff'
+};
+
+export function getTeamColors(league: string, abbreviation: string): DisplayColors {
+	const palette = isLeagueId(league) ? TEAM_COLORS[league][abbreviation] : undefined;
+	return palette ? { ...palette, heading: palette.primary } : FALLBACK_COLORS;
 }

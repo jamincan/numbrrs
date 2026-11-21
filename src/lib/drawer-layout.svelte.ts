@@ -1,3 +1,5 @@
+import { untrack } from 'svelte';
+
 /** `gap-1.5` between option buttons, in px. */
 const OPTION_GAP = 6;
 /** Narrower than this and a third column stops being worth reading. */
@@ -60,8 +62,11 @@ export class DrawerLayout {
 		const box = anchor.getBoundingClientRect();
 		const next = Math.max(window.innerHeight - (this.rightDrawer ? box.top : box.bottom + 8), 96);
 		// Only on a real change: the ResizeObserver watches the very element this
-		// resizes, so an unconditional write would loop.
-		if (next !== this.drawerMax) this.drawerMax = next;
+		// resizes, so an unconditional write would loop. Compared untracked, because
+		// the effect that owns that observer calls this: reading the value there
+		// would make the effect depend on what it writes, and it would tear the
+		// observer down and rebuild it after every measurement that moved.
+		if (next !== untrack(() => this.drawerMax)) this.drawerMax = next;
 	}
 
 	/**

@@ -18,9 +18,9 @@
 	let { player, team, correct = null }: Props = $props();
 
 	let colors = $derived(getTeamColors(team.league, team.abbreviation));
-	let primaryColor = $derived(colors?.primary ?? '#555555');
-	let lightGradient = $derived(colors?.lightGradient ?? [primaryColor, primaryColor]);
-	let darkGradient = $derived(colors?.darkGradient ?? ['#1a1a2e', '#16213e']);
+	let primaryColor = $derived(colors.primary);
+	let lightGradient = $derived(colors.lightGradient);
+	let darkGradient = $derived(colors.darkGradient);
 	let displayTeamName = $derived(teamName(i18n.locale, team));
 	let playerName = $derived(`${player.firstName} ${player.lastName}`);
 	let sweaterNumber = $derived(player.sweaterNumber);
@@ -37,7 +37,13 @@
      and every internal measurement is in cqw, so two cards can share a phone
      screen. The @container sits on its own wrapper rather than the perspective
      element — containment on an ancestor of the 3D chain risks flattening the
-     flip. -->
+     flip.
+
+     Both faces stay in the DOM for the flip, so the one turned away is hidden
+     from assistive technology: it is still painted (the turn shows it on the
+     way round), but a screen reader browsing the card being asked about must
+     not find the answer on its back. inert does that in current browsers;
+     aria-hidden says the same to anything that predates it. -->
 <div class="@container aspect-[3/4] w-full">
 	<div class="group h-full w-full bg-transparent perspective-midrange">
 		<div
@@ -46,6 +52,8 @@
 		>
 			<section
 				class="absolute inset-0 h-full w-full overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
+				inert={flipped}
+				aria-hidden={flipped}
 				style="border-color: {primaryColor}66; box-shadow: 0 0 24px 4px {primaryColor}33; background: linear-gradient(160deg, {lightGradient[0]}, {lightGradient[1]});"
 			>
 				<!-- Watermark logo -->
@@ -79,6 +87,8 @@
 			</section>
 			<section
 				class="absolute h-full w-full rotate-y-180 overflow-clip rounded-2xl border-2 shadow-2xl backface-hidden"
+				inert={!flipped}
+				aria-hidden={!flipped}
 				style="border-color: {correct === true
 					? '#22c55e'
 					: correct === false
@@ -104,9 +114,10 @@
 					class="relative flex h-full flex-col items-center justify-center gap-[1.5cqw] p-[8cqw]"
 				>
 					{#if headshotUrl}
+						<!-- Decorative: the name is the next line down. -->
 						<img
 							src={headshotUrl}
-							alt={playerName}
+							alt=""
 							class="h-[38cqw] w-[38cqw] rounded-full border-2 object-cover shadow-lg"
 							style="border-color: {primaryColor};"
 						/>

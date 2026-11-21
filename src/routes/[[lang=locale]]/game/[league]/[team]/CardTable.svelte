@@ -9,31 +9,70 @@
 
 	const i18n = getI18n();
 
-	const {
+	let {
 		team,
 		game,
 		gender,
-		layout
-	}: { team: Team; game: GameState; gender: Gender; layout: DrawerLayout } = $props();
+		layout,
+		onplayagain,
+		summary = $bindable()
+	}: {
+		team: Team;
+		game: GameState;
+		gender: Gender;
+		layout: DrawerLayout;
+		onplayagain: () => void;
+		/** The end-of-game summary, for the parent to move focus to. */
+		summary?: HTMLElement;
+	} = $props();
+
+	const uid = $props.id();
 
 	// The resolved card mounts still showing its number, then flips a frame
 	// later — a CSS transition can't animate on initial render, and the card
 	// needs to fly to the pile face-front before turning over.
-	let shownCorrect = $state<boolean | null>(null);
+	//
+	// What's remembered is which card has turned, not the verdict it turned to:
+	// a verdict would still be set from the last guess while the next card
+	// mounts, so that card would arrive already turned and never flip.
+	let turnedKey = $state<number | null>(null);
 	$effect(() => {
-		const outcome = game.resolved?.correct;
-		shownCorrect = null;
-		if (outcome === undefined) return;
+		const key = game.resolved?.key;
+		if (key === undefined) return;
 		let secondFrame = 0;
 		const firstFrame = requestAnimationFrame(() => {
 			secondFrame = requestAnimationFrame(() => {
-				shownCorrect = outcome;
+				turnedKey = key;
 			});
 		});
 		return () => {
 			cancelAnimationFrame(firstFrame);
 			cancelAnimationFrame(secondFrame);
 		};
+	});
+	const shownCorrect = $derived(
+		game.resolved && game.resolved.key === turnedKey ? game.resolved.correct : null
+	);
+
+	const accuracy = $derived(i18n.m.game.accuracy(i18n.percent(game.guessableCount / game.guesses)));
+
+	// The guess in words, for whoever can't see the card turn: the verdict, who
+	// wears the number, then either the number now up or how the game went.
+	const announcement = $derived.by(() => {
+		const resolved = game.resolved;
+		// Only numbered players get cards, so the number is always there; the
+		// type just can't say so.
+		const sweaterNumber = resolved?.player.sweaterNumber;
+		if (!resolved || sweaterNumber == null) return '';
+		const result = i18n.m.game.guessResult(
+			resolved.correct,
+			sweaterNumber,
+			`${resolved.player.firstName} ${resolved.player.lastName}`
+		);
+		const next = game.current?.player.sweaterNumber;
+		return next != null
+			? `${result} ${i18n.m.game.nextNumber(next)}`
+			: `${result} ${i18n.m.game.allIdentified(gender)} ${accuracy}`;
 	});
 </script>
 
@@ -62,25 +101,31 @@
 					</div>
 				{/key}
 			{:else}
-				<!-- Game over: the summary takes the emptied deck's spot. -->
+				<!-- Game over: the summary takes the emptied deck's spot. Focusable from
+				     script only: the last guess removes the button that made it, and
+				     focus lands here rather than on Play Again so that a key still
+				     held down from that guess can't start a new game. -->
 				<div
+					bind:this={summary}
+					role="group"
+					tabindex="-1"
+					aria-labelledby="{uid}-summary"
 					class="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-green-500/30 bg-green-500/5 p-4 text-center"
 				>
-					<h2 class="text-xl font-bold text-green-400 sm:text-2xl">
+					<h2 id="{uid}-summary" class="text-xl font-bold text-green-400 sm:text-2xl">
 						{i18n.m.game.congratulations}
 					</h2>
 					<!-- The team name is in the header rather than this sentence: French
 					     would need the team's gender to pick the right article. -->
 					<p class="text-xs text-gray-400 sm:text-sm">{i18n.m.game.allIdentified(gender)}</p>
-					<!-- No accuracy to report when there was nothing to guess (a roster
-					     where nobody has a number starts complete). -->
+					<!-- No accuracy to report when there was nothing to guess. The page
+					     doesn't start a game for a roster like that, but GameState
+					     allows one, and it would divide by zero here. -->
 					{#if game.guesses > 0}
-						<p class="text-xs text-gray-400 sm:text-sm">
-							{i18n.m.game.accuracy(i18n.percent(game.guessableCount / game.guesses))}
-						</p>
+						<p class="text-xs text-gray-400 sm:text-sm">{accuracy}</p>
 					{/if}
 					<button
-						onclick={() => game.reset()}
+						onclick={onplayagain}
 						class="mt-2 rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
 					>
 						{i18n.m.game.playAgain}
@@ -118,13 +163,14 @@
 	</div>
 
 	<!-- The visual verdict is the card flip; this announces it to screen
-	     readers. -->
+	     readers. The region itself is here from the start, empty — one that
+	     arrives with its text already in it is not reliably read out. Keying the
+	     text on the card swaps the node on every guess, so each is announced as
+	     a new message whether or not its wording differs from the last. -->
 	<p class="sr-only" role="status">
-		{#if game.resolved}
-			{game.resolved.correct ? i18n.m.card.correct : i18n.m.card.wrong}
-			{game.resolved.player.firstName}
-			{game.resolved.player.lastName}
-		{/if}
+		{#key game.resolved?.key}
+			<span>{announcement}</span>
+		{/key}
 	</p>
 
 	<!-- Progress -->

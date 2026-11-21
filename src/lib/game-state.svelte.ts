@@ -21,8 +21,8 @@ export type ResolvedCard = { key: number; player: Player; correct: boolean };
 
 // Reading and writing are both wrapped because localStorage throws rather
 // than degrading when storage is unavailable — Safari private browsing, site
-// data blocked, iOS under storage pressure. The write happens inside an
-// $effect during initialisation, so an unguarded throw wouldn't just lose the
+// data blocked, iOS under storage pressure. The first write happens while the
+// game is being constructed, so an unguarded throw wouldn't just lose the
 // setting, it would take the whole game down with it. Someone who can't
 // persist a preference should still be able to play.
 //
@@ -35,6 +35,16 @@ function savedDifficulty(): number {
 		return DIFFICULTY_OPTIONS.some((o) => o.value === stored) ? stored : DEFAULT_DIFFICULTY;
 	} catch {
 		return DEFAULT_DIFFICULTY;
+	}
+}
+
+function saveDifficulty(value: number): void {
+	if (!browser) return;
+	try {
+		localStorage.setItem(DIFFICULTY_KEY, String(value));
+	} catch {
+		// Nothing else reads this, so the setting simply stays in memory for
+		// the session rather than surviving a reload.
 	}
 }
 
@@ -78,14 +88,10 @@ export class GameState {
 		this.guessableCount = roster.length - preIdentifiedIds(roster).length;
 		this.rosterLength = roster.length;
 
-		$effect(() => {
-			try {
-				localStorage.setItem(DIFFICULTY_KEY, String(this.difficulty));
-			} catch {
-				// Nothing else reads this, so the setting simply stays in memory for
-				// the session rather than surviving a reload.
-			}
-		});
+		// Stored from the first game, before anything is chosen, so storage always
+		// holds the difficulty in play: the default on a first visit, and a valid
+		// value in place of one savedDifficulty() had to discard.
+		saveDifficulty(this.difficulty);
 
 		this.reset();
 	}
@@ -124,8 +130,9 @@ export class GameState {
 
 	/**
 	 * A fresh game: nothing guessed yet beyond the numberless players. A roster
-	 * where nobody has a number deals no cards, so it starts (and stays) on the
-	 * summary instead of crashing on a question that can't be built.
+	 * where nobody has a number deals no cards, so it starts (and stays) with no
+	 * current card instead of crashing on a question that can't be built. The
+	 * page doesn't start a game for one — see isPlayable in game.ts.
 	 */
 	reset() {
 		const identified = preIdentifiedIds(this.#roster);
@@ -182,6 +189,7 @@ export class GameState {
 	 */
 	setDifficulty(value: number) {
 		this.difficulty = value;
+		saveDifficulty(value);
 		if (!this.current) return;
 		this.current = {
 			...this.current,

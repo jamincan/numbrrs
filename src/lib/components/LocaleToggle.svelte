@@ -6,6 +6,10 @@
 
 	const i18n = getI18n();
 
+	// Each language named in itself, whatever language the page is in: it is the
+	// reader of that language who needs to recognize it.
+	const LOCALE_NAMES: Record<Locale, string> = { en: 'English', fr: 'Français' };
+
 	// resolve()'s typed overloads want a literal route id; this link is built
 	// from whatever route is current, so the types can't help here.
 	const resolveRoute = resolve as (route: string, params?: Record<string, string>) => string;
@@ -35,7 +39,11 @@
      lost: hooks.server.ts saw the stale French cookie and redirected the
      client-side navigation straight back to /fr. A full navigation runs this
      onclick as part of the same click event, before the browser's default
-     action (following the link) fires, so the cookie is written first. -->
+     action (following the link) fires, so the cookie is written first.
+
+     The two-letter code stays the link's name, since that is what is on
+     screen; the title spells the language out as its description. lang makes
+     a screen reader pronounce both in the right language. -->
 <div
 	class="flex items-center rounded-md border border-white/10 bg-white/5 p-0.5"
 	role="group"
@@ -46,6 +54,9 @@
 		<a
 			href={localized(locale) + page.url.search}
 			data-sveltekit-reload
+			hreflang={locale}
+			lang={locale}
+			title={LOCALE_NAMES[locale]}
 			onclick={() => i18n.remember(locale)}
 			aria-current={i18n.locale === locale ? 'true' : undefined}
 			class="font-condensed rounded px-2 py-0.5 text-xs font-bold tracking-widest uppercase transition-colors {i18n.locale ===

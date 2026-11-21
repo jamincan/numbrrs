@@ -8,19 +8,29 @@
 
 	const i18n = getI18n();
 
-	const {
+	let {
 		roster,
 		game,
 		gender,
 		layout,
-		primaryColor
+		primaryColor,
+		onguess,
+		choices = $bindable()
 	}: {
 		roster: Player[];
 		game: GameState;
 		gender: Gender;
 		layout: DrawerLayout;
-		primaryColor?: string;
+		primaryColor: string;
+		onguess: (playerId: number) => void;
+		/** Whatever currently wraps the answer buttons, for the parent to move
+		 *  focus to. */
+		choices?: HTMLElement;
 	} = $props();
+
+	const uid = $props.id();
+
+	const toggleLabel = $derived(layout.drawerOpen ? i18n.m.game.hideRoster : i18n.m.game.showAll);
 
 	const forwards = $derived(
 		roster.filter((player) =>
@@ -38,10 +48,9 @@
 
 {#snippet optionButton(player: Player, interaction: string)}
 	<button
-		onclick={() => game.guess(player.id)}
+		onclick={() => onguess(player.id)}
 		class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all {interaction}"
-		style="border-color: {primaryColor ?? '#555'}; background: {primaryColor ??
-			'#555'}22; color: white;"
+		style="border-color: {primaryColor}; background: {primaryColor}22; color: white;"
 	>
 		{player.firstName}
 		{player.lastName}
@@ -52,12 +61,12 @@
 	<!-- Columns follow the container, not the viewport: this grid renders at
 	     widths from a narrow landscape-phone panel to a full-width bottom
 	     drawer on a tablet. -->
-	<div class="grid grid-cols-1 gap-1.5 @min-[20rem]:grid-cols-2 @min-[30rem]:grid-cols-3">
+	<ul class="grid grid-cols-1 gap-1.5 @min-[20rem]:grid-cols-2 @min-[30rem]:grid-cols-3">
 		{#each group as player (player.id)}
 			{@const identified = game.identified.includes(player.id)}
 			{@const selectable = game.current?.optionIds.includes(player.id) ?? false}
 			{#if identified}
-				<div
+				<li
 					class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
 				>
 					<div>
@@ -65,46 +74,49 @@
 						{player.lastName}
 					</div>
 					{player.sweaterNumber ?? '--'}
-				</div>
+				</li>
 			{:else if selectable}
-				{@render optionButton(player, 'hover:scale-105')}
+				<!-- A one-cell grid, so the button still stretches to the height of
+				     its row the way it would as the grid item itself. -->
+				<li class="grid">
+					{@render optionButton(player, 'hover:scale-105')}
+				</li>
 			{:else}
-				<div class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600">
+				<li class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-600">
 					{player.firstName}
 					{player.lastName}
-				</div>
+				</li>
 			{/if}
 		{/each}
+	</ul>
+{/snippet}
+
+{#snippet rosterGroup(heading: string, group: Player[])}
+	<div>
+		<h2 class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
+			{heading}
+		</h2>
+		{@render playerGrid(group)}
 	</div>
 {/snippet}
 
+<!-- `choices` is where focus goes after a guess, whichever shape the drawer is
+     in: the button that was pressed is usually gone by then, and focus left on
+     nothing sends a keyboard or screen reader user back to the top of the
+     page. tabindex -1 keeps the wrapper itself out of the tab order. -->
 {#snippet rosterGroups()}
-	<div class="flex flex-col gap-4">
-		<div>
-			<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-				{i18n.m.game.groups.forwards(gender)}
-			</p>
-			{@render playerGrid(forwards)}
-		</div>
-		<div>
-			<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-				{i18n.m.game.groups.defense(gender)}
-			</p>
-			{@render playerGrid(defensemen)}
-		</div>
-		<div>
-			<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-				{i18n.m.game.groups.goalies(gender)}
-			</p>
-			{@render playerGrid(goalies)}
-		</div>
+	<div
+		bind:this={choices}
+		role="group"
+		tabindex="-1"
+		aria-label={i18n.m.game.answerChoices}
+		class="flex flex-col gap-4"
+	>
+		{@render rosterGroup(i18n.m.game.groups.forwards(gender), forwards)}
+		{@render rosterGroup(i18n.m.game.groups.defense(gender), defensemen)}
+		{@render rosterGroup(i18n.m.game.groups.goalies(gender), goalies)}
 		{#if other.length > 0}
-			<div>
-				<p class="mb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
-					{i18n.m.game.groups.other}
-				</p>
-				{@render playerGrid(other)}
-			</div>
+			{@render rosterGroup(i18n.m.game.groups.other, other)}
 		{/if}
 	</div>
 {/snippet}
@@ -120,17 +132,23 @@
 		style:max-height={layout.drawerMax === null ? undefined : `${layout.drawerMax}px`}
 	>
 		<!-- Handle / toggle. The grab bar reads as "drag me" on the bottom sheet;
-		     on the side panel the label carries it alone. -->
+		     on the side panel the label carries it alone. The button's name is the
+		     words it shows and nothing else, so what a voice-control user reads
+		     out is what activates it, and a screen reader isn't left to describe
+		     the arrow. -->
 		<button
 			onclick={() => layout.toggleDrawer()}
 			class="flex w-full shrink-0 flex-col items-center gap-1.5 px-4 pt-3 pb-2"
-			aria-label={layout.drawerOpen ? i18n.m.game.collapseRoster : i18n.m.game.expandRoster}
+			aria-label={toggleLabel}
+			aria-expanded={layout.drawerOpen}
+			aria-controls="{uid}-roster"
 		>
 			{#if !layout.rightDrawer}
 				<div class="h-1 w-10 rounded-full bg-white/20"></div>
 			{/if}
 			<span class="text-xs text-gray-500">
-				{layout.drawerOpen ? `▼ ${i18n.m.game.hideRoster}` : `▲ ${i18n.m.game.showAll}`}
+				{layout.drawerOpen ? '▼' : '▲'}
+				{toggleLabel}
 			</span>
 		</button>
 
@@ -138,13 +156,21 @@
 			<!-- Expanded: full roster, scrolling only once the drawer has taken
 			     all the space available to it. The number being asked about isn't
 			     repeated here — the drawer does not cover the card that shows it. -->
-			<div class="@container min-h-0 flex-1 overflow-y-auto px-4 pb-8">
+			<div id="{uid}-roster" class="@container min-h-0 flex-1 overflow-y-auto px-4 pb-8">
 				{@render rosterGroups()}
 			</div>
 		{:else}
 			<!-- Collapsed: active options only -->
-			<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4" bind:this={layout.optionsBox}>
+			<div
+				id="{uid}-roster"
+				class="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+				bind:this={layout.optionsBox}
+			>
 				<div
+					bind:this={choices}
+					role="group"
+					tabindex="-1"
+					aria-label={i18n.m.game.answerChoices}
 					class="grid gap-1.5"
 					style="grid-template-columns: repeat({layout.optionColumns}, minmax(0, 1fr));"
 				>
