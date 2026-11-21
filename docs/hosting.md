@@ -1,6 +1,6 @@
 # Hosting costs and launch scaling
 
-Analysis written 2026-07-27, ahead of posting numbrrs to
+Analysis written 2026-07-27, ahead of posting Numbrrs to
 [r/hockey](https://reddit.com/r/hockey) (~1.4M members).
 
 > [!IMPORTANT]
@@ -15,7 +15,7 @@ Analysis written 2026-07-27, ahead of posting numbrrs to
 
 ## Context
 
-numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz`, backed by SQLite on
+Numbrrs runs as a single `shared-cpu-1x` / 256MB machine in `yyz`, backed by SQLite on
 a Fly volume mounted at `/data` (`src/lib/server/db/index.ts`).
 
 > [!NOTE]
@@ -137,13 +137,14 @@ Three secondary failure modes compound it — the first two are now closed (see
 ### 1. Put a CDN in front — highest leverage by a wide margin
 
 A Reddit spike is the most cache-friendly traffic pattern that exists: thousands of
-people hitting **the same handful of URLs** within minutes. numbrrs serves
+people hitting **the same handful of URLs** within minutes. Numbrrs serves
 identical public content on a 12-hour TTL (`ROSTER_TTL`) / 24-hour TTL
 (`TEAM_LIST_TTL`). A hit ratio north of 95% means the origin sees a trickle and the
 CPU problem stops existing.
 
-Cloudflare's free tier is sufficient. This converts "survive 100 req/s" into
-"nothing happens."
+Cloudflare's free tier is sufficient, up to the Worker's daily request quota
+(item 7 of the [checklist](#pre-launch-checklist)). This converts "survive 100
+req/s" into "nothing happens."
 
 The real work is the cookie/locale interaction:
 
@@ -194,15 +195,34 @@ The real work is the cookie/locale interaction:
 ### 2. Pre-scale before posting — cheap insurance, zero code
 
 ```sh
-fly scale vm shared-cpu-2x --memory 1024
-fly scale count 3
+fly scale vm shared-cpu-2x --vm-memory 1024    # restarts the machine
+fly scale vm shared-cpu-1x --vm-memory 256     # the next day
 ```
 
-Three `shared-cpu-2x` / 1GB machines for 24 hours costs about **$0.63**. Scale back
-down the next day. Covers the "good post" scenario outright with no code changes.
+One `shared-cpu-2x` / 1GB machine for 24 hours costs about **$0.21**. It has not
+been load-tested at that size, so treat the [measured ceiling](#where-it-breaks)
+as the floor rather than assuming it doubles. The CDN in step 1 is still what
+covers a "good post"; this is headroom for the cache misses.
 
-Do **not** rely on `auto_start_machines` to absorb the spike — Machine autoscaling
-is not instantaneous and a Reddit peak can outrun it.
+Two things in `fly.toml` go with it. A deploy applies the `[[vm]]` block again, so
+if one might happen while scaled up, change the size there instead and change it
+back afterwards. And the `[http_service.concurrency]` limits are sized for the
+small machine: raise them in the same edit if the bigger one should take more
+simultaneous connections, and restore them with the size.
+
+> [!WARNING]
+> **Scale up, never out.** `fly scale count` must not be used while the database
+> is a file on a volume. A volume attaches to one machine, so for each machine it
+> adds Fly creates a new, **empty** volume and
+> [copies no data across](https://fly.io/docs/launch/scale-count/).
+> `fly scale count 3` would therefore produce three machines with three separate
+> SQLite databases: three sets of roster syncs, the visits split three ways, and
+> `/admin` showing whichever third a request happens to land on. Scaling back
+> down leaves the extra volumes unattached, with no guarantee that the machine
+> Fly keeps is the one holding the original.
+
+Do **not** rely on `auto_start_machines` to absorb the spike either — it starts
+machines that already exist, and there is only the one.
 
 ### 3. `min_machines_running = 1` — one line
 
@@ -433,7 +453,7 @@ spike than horizontal scaling is, regardless of where the data lives.
 | Always-on 256MB, no volume, hosted error logging    | **~$1.94**      |
 | Always-on `shared-cpu-2x` 512MB (headroom)          | **~$3.89**      |
 | Above + self-hosted PG 256MB + 1GB volume           | **~$6**         |
-| One-day pre-scale to 3× `shared-cpu-2x` 1GB         | **+$0.63 once** |
+| One-day pre-scale to `shared-cpu-2x` 1GB            | **+$0.21 once** |
 | Egress for a front-page r/hockey post               | **+$0.72 once** |
 
 ## Fly pricing reference
@@ -484,15 +504,26 @@ Sources: [resource pricing](https://fly.io/docs/about/pricing/) ·
    [step 1's note above](#1-put-a-cdn-in-front--highest-leverage-by-a-wide-margin) for the full
    design. `/privacy` and every `/game/<league>/<team>` page are cached at the edge in both
    languages, verified against the live site.
-4. Optional extra insurance, not required now that (3) is done: pre-scale to 3× `shared-cpu-2x`
-   1GB before a post, scale back down after. $0.63, no code.
+4. Optional extra insurance, not required now that (3) is done: pre-scale the one machine to
+   `shared-cpu-2x` 1GB before a post and back after — see
+   [step 2 above](#2-pre-scale-before-posting--cheap-insurance-zero-code). $0.21, no code. Never
+   `fly scale count`.
 5. Warm the roster cache from `/admin` minutes before posting — see
    [step 4 above](#4-warm-the-roster-cache-immediately-before-posting--free). A day-of action, not
    something to do ahead of time.
 6. ~~Bound event retention~~ ([ABUSE-4](./code-review/05-abuse-resistance.md#abuse-4)) — **done**.
+7. Check the Worker's quota and what happens past it. The Worker runs on every `/privacy` and
+   `/game/…` request, cache hit or not, and Workers Free allows
+   [100,000 requests a day](https://developers.cloudflare.com/workers/platform/limits/) across the
+   account, resetting at midnight UTC. A "good post" (~40k visitors) reaches that at two or three
+   team pages each. What happens next is set per route in the Cloudflare dashboard: **fail open**
+   bypasses the Worker and sends the request to the origin uncached, where the
+   [measured ceiling](#where-it-breaks) applies again; **fail closed** serves a Cloudflare 1027
+   error page. Confirm every route in `wrangler.toml` are set to fail open, and consider
+   Workers Paid for the month of a post, which is what keeps the cache in the path all day.
 
-What's left that isn't a day-of-posting action: the real req/s ceiling — still an estimate, see
-[Open questions](#open-questions).
+What's left is item 7 and the day-of-posting actions. The origin's ceiling is no longer an
+estimate: it was measured on 2026-07-29 — see [Where it breaks](#where-it-breaks).
 
 Independently, whenever convenient: move rosters in-memory. This no longer deletes the SQLite
 layer — see [Storage architecture](#storage-architecture). Skip self-hosted Postgres regardless;
@@ -505,10 +536,9 @@ if telemetry ever moves off the volume, managed serverless (Turso/Neon) is the d
   `assets.nhle.com` / HockeyTech, game-page egress is ~180 kB rather than ~91 kB,
   which doubles the egress column. Doesn't change any conclusion — egress is under
   a dollar either way — but it's the one unverified input.
-- **What is the real req/s ceiling?** A ten-minute `oha` or `bombardier` run
-  against the deployed URL replaces the estimated 5–15 req/s with a measured
-  number. **Most valuable single follow-up in this document** — every capacity
-  decision above rests on an estimate.
+- ~~**What is the real req/s ceiling?**~~ **Measured 2026-07-29**: 100 req/s while
+  burst credits last, ~17–20 req/s sustained once they drain. See
+  [Where it breaks](#where-it-breaks) and [`load-test/`](../load-test/).
 
 Also worth checking: current RSS headroom against the 256MB cap
 (`fly machine status`), and actual current spend in the Fly dashboard to confirm

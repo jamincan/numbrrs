@@ -1,14 +1,24 @@
-# NumBrrs documentation
+# Numbrrs documentation
 
 ## What's here
 
-- [`code-review/`](./code-review/) — a hardening review of the codebase, published as a
-  trackable backlog. Findings are prioritised, carry `file:line` evidence, and have status
-  boxes so work can be picked up and checked off across sessions.
+- [`restore.md`](./restore.md) — backups: what is worth restoring, the two ways to bring the
+  database back, the restore drill, and how to pull a copy of production safely. Operational;
+  keep it current.
 - [`hosting.md`](./hosting.md) — what the app costs to run, what a large Reddit post would do to
-  it, and the storage-architecture decision behind staying on SQLite.
+  it, and the storage-architecture decision behind staying on SQLite. A dated analysis
+  (2026-07-27) with later revisions marked inline.
+- [`audit-2026-11.md`](./audit-2026-11.md) — the plan of action from the November 2026 audit.
+  **This is the current backlog.**
+- [`code-review/`](./code-review/) — the July 2026 hardening review. Findings are prioritised,
+  carry `file:line` evidence, and have status boxes. It has been worked through; what remains
+  useful is the reasoning behind its decisions.
 
-## Scope and staleness
+Day-to-day operations — deploying, rolling back, the Cloudflare Worker, the `/admin`
+break-glass switch, and the settings that exist only in dashboards — are in the
+[top-level README](../README.md#operations).
+
+## The July review: scope and staleness
 
 The review was performed on **2026-07-27** against commit
 [`631b649`](https://github.com/jamincan/numbrrs/commit/631b649) ("Serve the roster from one
@@ -37,17 +47,18 @@ Two questions were settled on 2026-07-27 and should not be reopened without new 
 - **The admin session layer stays hand-rolled.** Lucia is no longer a library, Oslo is a
   primitives package that would wrap Node's stdlib rather than replace it, and the account-based
   libraries model a problem this app does not have. Reasoning in
-  [the re-review](./code-review/README.md#re-review-resolved-2026-07-27).
+  [the re-review](./code-review/README.md#re-review-resolved-2026-07-27). Cloudflare Access was
+  later put in front of `/admin` as a second layer (`ea70ed3`); the session code stayed as it
+  was beneath it.
 - **Storage stays on SQLite for now.** In-memory rosters plus a separate telemetry store is the
   intended end state, but the migration cost does not compound, so it is deliberately deferred
   behind the hardening work. Reasoning in [`hosting.md`](./hosting.md#storage-architecture).
 
 ## Picking up the work
 
-1. Read [`code-review/README.md`](./code-review/README.md) for the findings index, the priority
-   ordering, and the sequencing constraints between items.
-2. Pick a finding. Each one is written to be actionable standalone — you should not need to
-   re-explore the codebase to start.
-3. Verify the `file:line` references before acting on them. They were accurate at `631b649` and
+1. Read [`audit-2026-11.md`](./audit-2026-11.md): the findings by workstream, their priorities,
+   and the lists of owner actions and open decisions at the end.
+2. Pick a finding. Each one names the files and lines it concerns and the fix proposed.
+3. Verify the `file:line` references before acting on them. They were accurate at `ea70ed3` and
    drift as the code changes.
-4. Check the box, and note anything you found that the review got wrong.
+4. Mark its status, and note anything you found that the audit got wrong.

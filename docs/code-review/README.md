@@ -129,6 +129,10 @@ re-examination, and what the code actually turned out to do:
   `admin.test.ts` to cover tampered signatures, tampered expiries, expired sessions, and
   malformed cookies. Do both.
 
+  > **Note, 2026-11-21:** Cloudflare Access was later adopted in front of `/admin` after all
+  > (`ea70ed3`), as a second layer. The hand-rolled session was kept beneath it, so the
+  > decision above stands for the session code.
+
 - **Rate limiting should cover the admin login first — confirmed, and cheaper than expected.**
   Folded into [ABUSE-1](./05-abuse-resistance.md#abuse-1), which now leads with `/admin`. Note
   that a working fixed-window limiter **already exists** in

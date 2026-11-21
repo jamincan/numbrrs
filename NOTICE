@@ -31,8 +31,9 @@ This includes, but is not limited to:
     and WHL club marks).
   - The club names and brand colours in src/lib/team-names.ts and
     src/lib/team-colors.ts.
-  - Club logos and player photographs loaded at runtime from league-operated
-    CDNs, which are not redistributed by this project.
+  - Club logos and player photographs loaded at runtime from image servers
+    operated by the NHL and by HockeyTech (the statistics provider behind the
+    other four leagues' feeds), which are not redistributed by this project.
 
 If you are a rights holder and would like something removed, please open an
 issue at https://github.com/jamincan/numbrrs.
