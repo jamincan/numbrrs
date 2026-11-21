@@ -1,8 +1,16 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/env';
+import { ADMIN_DIRECT } from '$app/env/private';
 import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '#lib/i18n/index.ts';
 import { recordEvent } from '#lib/server/analytics.ts';
 import { reportError } from '#lib/server/alerts.ts';
+import { clientIp } from '#lib/server/client-ip.ts';
+import {
+	ACCESS_COOKIE,
+	ACCESS_HEADER,
+	isAdminPath,
+	verifyAccessToken
+} from '#lib/server/cloudflare-access.ts';
 import { bootstrap } from '#lib/server/db/index.ts';
 import { startSweeps } from '#lib/server/leagues/index.ts';
 import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '#lib/site.ts';
@@ -16,6 +24,10 @@ if (!building) {
 	// APIs every hour for a local database nobody is looking at. The on-demand
 	// path still refreshes whatever a dev actually opens.
 	if (!dev) startSweeps();
+	// The admin page shows a banner as well; this puts it in the logs too.
+	if (!dev && ADMIN_DIRECT) {
+		console.warn('[admin] ADMIN_DIRECT is set: /admin is skipping the Cloudflare Access check');
+	}
 }
 
 /** The home page's route id — the one localized page whose HTML varies per visitor. */
@@ -70,6 +82,25 @@ export const handle: Handle = async ({ event, resolve }) => {
 			status: 301,
 			headers: { location: target.toString(), 'cache-control': 'public, max-age=86400' }
 		});
+	}
+
+	// /admin answers only requests that came through Cloudflare Access (see
+	// cloudflare-access.ts), and its own token login still applies on top. Dev has
+	// no Access in front of it, and ADMIN_DIRECT is the way in while Cloudflare is
+	// down. The cookie stands in for the header in case Access is ever set to
+	// cover /admin itself but not the data requests under it.
+	if (isAdminPath(event.url.pathname) && !dev && !ADMIN_DIRECT) {
+		const token = event.request.headers.get(ACCESS_HEADER) ?? event.cookies.get(ACCESS_COOKIE);
+		const access = await verifyAccessToken(token);
+		if (!access.ok) {
+			console.warn(
+				`[admin] refused ${event.request.method} ${event.url.pathname} from ${clientIp(event)}: ${access.reason}`
+			);
+			return new Response('Forbidden', {
+				status: 403,
+				headers: { 'cache-control': 'private, no-store' }
+			});
+		}
 	}
 
 	const lang = event.params.lang;

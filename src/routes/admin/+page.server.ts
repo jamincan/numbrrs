@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
-import { ALERT_WEBHOOK_URL, ADMIN_TOKEN } from '$app/env/private';
+import { ALERT_WEBHOOK_URL, ADMIN_DIRECT, ADMIN_TOKEN } from '$app/env/private';
 import { dayKey } from '#lib/server/telemetry.ts';
 import {
 	endSession,
@@ -188,9 +188,12 @@ function stats() {
 }
 
 export async function load({ cookies }) {
-	if (!ADMIN_TOKEN) return { state: 'unconfigured' as const };
-	if (!isAuthenticated(cookies)) return { state: 'locked' as const };
-	return { state: 'open' as const, stats: stats(), sync: syncPanel() };
+	// On every state, the login screen included, so a switch left on can't go
+	// unnoticed.
+	const directAccess = ADMIN_DIRECT;
+	if (!ADMIN_TOKEN) return { state: 'unconfigured' as const, directAccess };
+	if (!isAuthenticated(cookies)) return { state: 'locked' as const, directAccess };
+	return { state: 'open' as const, directAccess, stats: stats(), sync: syncPanel() };
 }
 
 /**

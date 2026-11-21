@@ -49,6 +49,18 @@
 	style="--series-1:#3987e5; --status-critical:#d03b3b; --status-good:#0ca30c; --status-warning:#fab219;"
 >
 	<div class="mx-auto max-w-5xl">
+		{#if data.directAccess}
+			<p
+				role="alert"
+				class="mb-8 rounded-lg border px-4 py-3 text-sm text-gray-200"
+				style="border-color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 10%, transparent);"
+			>
+				<strong style="color: var(--status-warning)">Direct access is on.</strong> This page is
+				skipping the Cloudflare Access check, so anyone who reaches numbrrs.fly.dev needs only the
+				token. Once Cloudflare is back, turn it off with
+				<code class="rounded bg-white/10 px-1.5 py-0.5">flyctl secrets unset ADMIN_DIRECT</code>.
+			</p>
+		{/if}
 		{#if data.state === 'unconfigured'}
 			<h1 class="font-condensed text-3xl font-black">Admin</h1>
 			<p class="mt-4 max-w-prose text-sm text-gray-400">

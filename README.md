@@ -44,6 +44,7 @@ fly deploy
 | `DATABASE_URL`      | Path to the SQLite database file. Use `/data/numbrrs.db` with a Fly volume.                                                                               |
 | `ADMIN_TOKEN`       | Password for the `/admin` dashboard, which is also what authorises a manual resync. Rotating it signs everyone out. Generate with `openssl rand -hex 32`. |
 | `ALERT_WEBHOOK_URL` | Discord webhook that server, client and sync errors are pushed to. Errors are still recorded to the database while unset.                                 |
+| `ADMIN_DIRECT`      | Emergency switch, normally unset. `1` lets `/admin` skip the Cloudflare Access check while Cloudflare is down; see below.                                 |
 
 Rosters go stale after 12 hours, team lists after 24. An hourly sweep inside the
 app refreshes whatever has passed its limit, so every roster is re-fetched at
@@ -52,6 +53,27 @@ refreshes it on the spot. Nothing external to schedule — the sweep relies on
 `min_machines_running = 1` in `fly.toml`, since a stopped machine has no timers.
 To push new data out immediately, use the resync button on `/admin`; it starts a
 full refresh in the background and the page reports progress as it lands.
+
+### `/admin` and Cloudflare Access
+
+Cloudflare Access guards `numbrrs.app/admin`, and the app enforces it as well:
+every `/admin` request must carry a token signed by Access for this application,
+or it gets a 403. That's what stops `numbrrs.fly.dev/admin`, or a direct
+connection to Fly, from walking around Access. The token login still applies on
+top. The team domain and the application's AUD tag are in
+`src/lib/server/cloudflare-access.ts`. Recreating the Access application changes
+the AUD tag, so update it there.
+
+If Cloudflare is down, Access can't sign anyone in. To get into `/admin` anyway:
+
+```bash
+flyctl secrets set ADMIN_DIRECT=1 -a numbrrs    # restarts the machine
+# sign in at https://numbrrs.fly.dev/admin with the token
+flyctl secrets unset ADMIN_DIRECT -a numbrrs    # once Cloudflare is back
+```
+
+While the switch is on, `/admin` shows a warning banner and the server logs one at
+startup.
 
 ### Usage tracking
 
@@ -63,12 +85,14 @@ across them. No cookie, no third-party script, nothing leaves the machine.
 
 ### Running the production build locally
 
-`vite dev` needs nothing extra, but the built server derives its origin from the
-`Host` header and assumes `https`, so form posts (the `/admin` login) fail the
-cross-site check over plain http. Set `ORIGIN` to match:
+`vite dev` needs nothing extra, but the built server needs two things to reach
+`/admin`. It derives its origin from the `Host` header and assumes `https`, so form
+posts (the `/admin` login) fail the cross-site check over plain http. Set `ORIGIN`
+to match. It also requires a Cloudflare Access token on `/admin`, so set
+`ADMIN_DIRECT=1` to skip that:
 
 ```bash
-DATABASE_URL=scratch.db ADMIN_TOKEN=dev ORIGIN=http://localhost:3000 node build
+DATABASE_URL=scratch.db ADMIN_TOKEN=dev ADMIN_DIRECT=1 ORIGIN=http://localhost:3000 node build
 ```
 
 ### Scaling

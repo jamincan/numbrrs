@@ -51,6 +51,7 @@
 		"@tailwindcss/vite": "^4.3.5",
 		"better-sqlite3": "^12.11.1",
 		"drizzle-orm": "^0.45.4",
+		"jose": "^6.2.18",
 		"tailwindcss": "^4.3.5",
 		"zod": "^4.6.7"
 	},
