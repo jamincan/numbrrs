@@ -47,6 +47,22 @@ const teamSchema = z.object({
 const teamsSchema = z.array(teamSchema);
 
 /**
+ * A row of the standings (`statviewtype`) view. Only the scheduled-games counts
+ * are read, to tell a league's own teams from visitors (see `leagueMembers`).
+ * The conference headings between the rows have no `team_id`, and a row that
+ * won't parse just leaves its team unaccounted for, which keeps it.
+ */
+const standingsRowSchema = z
+	.object({
+		team_id: z.string().optional(),
+		games_played: z.string().optional(),
+		games_remaining: z.string().optional()
+	})
+	.catch({});
+
+const standingsSchema = z.array(standingsRowSchema);
+
+/**
  * Every field is optional and unknown keys are kept, because `parseRosterEntries`
  * below is what actually decides who counts — and it already copes with the junk
  * this feed appends. An entry that isn't even an object becomes `{}` rather than
@@ -77,6 +93,7 @@ export const rosterSchema = z.array(rosterEntrySchema);
 
 export type HockeyTechSeason = z.infer<typeof seasonSchema>;
 export type HockeyTechTeam = z.infer<typeof teamSchema>;
+export type HockeyTechStandingsRow = z.infer<typeof standingsRowSchema>;
 export type HockeyTechRosterEntry = z.infer<typeof rosterEntrySchema>;
 
 /**
@@ -126,6 +143,45 @@ export function rosterSeasons(seasons: HockeyTechSeason[], today: string): Hocke
 		)
 		.sort((a, b) => b.start_date.localeCompare(a.start_date));
 	return [current, ...preseasons, previous];
+}
+
+/**
+ * The teams that belong to the league, leaving out visitors from other leagues.
+ *
+ * A season's team list is every team with a game on its schedule, so
+ * interleague play brings in the other league's teams: in 2026-27 the OHL's
+ * list includes Blainville-Boisbriand and Gatineau, and the QMJHL's includes
+ * four OHL teams. Nothing in the team list marks them, since each sits in one
+ * of the host league's divisions. The standings do give each team's scheduled
+ * games (played plus remaining), and there a visitor has a couple where a
+ * member has a full season. So a team scheduled for fewer than half the games
+ * of the league's median team is a visitor.
+ *
+ * The median rather than the busiest team, so one bad row can't make the whole
+ * league look like visitors; it also caps what can be left out at half the
+ * teams. A team the standings don't account for is kept: leaving out a real
+ * team deletes it and its roster, while keeping a visitor costs one wrong tile.
+ */
+export function leagueMembers(
+	teams: HockeyTechTeam[],
+	standings: HockeyTechStandingsRow[]
+): HockeyTechTeam[] {
+	const scheduled = new Map<string, number>();
+	for (const row of standings) {
+		// parseInt rather than Number so an empty count is unknown, not zero.
+		const games = parseInt(row.games_played ?? '', 10) + parseInt(row.games_remaining ?? '', 10);
+		if (row.team_id && !isNaN(games)) scheduled.set(row.team_id, games);
+	}
+
+	const counts = [...scheduled.values()].sort((a, b) => a - b);
+	const median = counts[Math.floor(counts.length / 2)];
+	// No standings, or no games scheduled yet: nothing to tell teams apart by.
+	if (!median) return teams;
+
+	return teams.filter((t) => {
+		const games = scheduled.get(t.id);
+		return games === undefined || games * 2 >= median;
+	});
 }
 
 /**
@@ -179,6 +235,12 @@ export interface HockeyTechConfig {
 	teamCode?: (team: HockeyTechTeam) => string;
 }
 
+/** A season's team list as the feed reports it, visitors included. */
+interface SeasonTeams {
+	seasonId: string;
+	teams: HockeyTechTeam[];
+}
+
 export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter {
 	const label = config.id.toUpperCase();
 	const teamName = config.teamName ?? ((t: HockeyTechTeam) => t.name);
@@ -229,33 +291,55 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 	// overwrite each other.
 	let rosterParams = new Map<string, { seasonIds: string[]; teamId: string }>();
 
-	async function loadTeams(): Promise<LeagueTeam[]> {
+	/**
+	 * The current season's team list, refreshing `rosterParams` on the way.
+	 * That's all a roster request needs, so rosters don't depend on the
+	 * standings that `fetchTeams` uses to leave out visitors.
+	 */
+	async function loadSeasonTeams(): Promise<SeasonTeams> {
 		const seasonIds = await candidateSeasonIds();
 		// The team list always comes from the current season. HockeyTech keeps a
 		// team's ID across seasons, so the same ID works for the fallbacks.
+		const seasonId = seasonIds[0] ?? '';
 		const teams = await fetchFeed(
-			{ view: 'teamsbyseason', season_id: seasonIds[0] ?? '' },
+			{ view: 'teamsbyseason', season_id: seasonId },
 			'Teamsbyseason',
 			teamsSchema
 		);
 		rosterParams = new Map(teams.map((t) => [teamCode(t), { seasonIds, teamId: t.id }]));
-		return teams.map((t) => ({
+		return { seasonId, teams };
+	}
+
+	// Coalesces concurrent callers, so a burst of roster syncs that all need the
+	// params doesn't refetch the teams feed once per team.
+	let seasonTeamsInFlight: Promise<SeasonTeams> | null = null;
+
+	function fetchSeasonTeams(): Promise<SeasonTeams> {
+		seasonTeamsInFlight ??= loadSeasonTeams().finally(() => {
+			seasonTeamsInFlight = null;
+		});
+		return seasonTeamsInFlight;
+	}
+
+	async function fetchTeams(): Promise<LeagueTeam[]> {
+		const { seasonId, teams } = await fetchSeasonTeams();
+		// The view needs a grouping, and by conference lists each team once.
+		const standings = await fetchFeed(
+			{ view: 'statviewtype', type: 'standings', stat: 'conference', season_id: seasonId },
+			'Statviewtype',
+			standingsSchema
+		);
+		const members = leagueMembers(teams, standings);
+		const visitors = teams.filter((t) => !members.includes(t));
+		if (visitors.length > 0) {
+			console.log(`${label} team list leaves out visitors: ${visitors.map(teamCode).join(', ')}`);
+		}
+		return members.map((t) => ({
 			code: teamCode(t),
 			name: teamName(t),
 			logoUrl: t.team_logo_url,
 			externalId: t.id
 		}));
-	}
-
-	// Coalesces concurrent callers, so a burst of roster syncs that all need the
-	// params doesn't refetch the teams feed once per team.
-	let teamsInFlight: Promise<LeagueTeam[]> | null = null;
-
-	function fetchTeams(): Promise<LeagueTeam[]> {
-		teamsInFlight ??= loadTeams().finally(() => {
-			teamsInFlight = null;
-		});
-		return teamsInFlight;
 	}
 
 	async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
@@ -265,7 +349,7 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			// Rosters are synced one team at a time on demand, so after a restart
 			// this map is empty even though the team is known from the database.
 			try {
-				await fetchTeams();
+				await fetchSeasonTeams();
 			} catch (err) {
 				if (err instanceof FeedSchemaError) {
 					console.error(err.message);

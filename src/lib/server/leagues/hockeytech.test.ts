@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+	createHockeyTechAdapter,
+	leagueMembers,
 	parseRosterEntries,
 	pickCurrentSeason,
 	rosterSeasons,
 	type HockeyTechRosterEntry,
-	type HockeyTechSeason
+	type HockeyTechSeason,
+	type HockeyTechStandingsRow,
+	type HockeyTechTeam
 } from './hockeytech';
 
 function season(overrides: Partial<HockeyTechSeason>): HockeyTechSeason {
@@ -83,6 +87,156 @@ describe('rosterSeasons', () => {
 			rosterSeasons([season({ season_id: 'only' })], '2026-01-01').map((s) => s.season_id)
 		).toEqual(['only']);
 		expect(rosterSeasons([], '2026-01-01')).toEqual([]);
+	});
+});
+
+function team(id: string, code = `T${id}`): HockeyTechTeam {
+	return { id, code, name: `Team ${code}`, city: 'City', nickname: code, team_logo_url: '' };
+}
+
+/** A standings row for a team with this many games played and still to play. */
+function standing(teamId: string, played: number, remaining: number): HockeyTechStandingsRow {
+	return { team_id: teamId, games_played: String(played), games_remaining: String(remaining) };
+}
+
+describe('leagueMembers', () => {
+	// The OHL on 2026-11-20: twenty teams partway through a 68-game season, and
+	// two QMJHL teams on its schedule for two games each. The conference
+	// headings in between come through as rows without a team.
+	const members = Array.from({ length: 20 }, (_, i) => team(String(i + 1)));
+	const gat = team('64', 'GAT');
+	const blb = team('75', 'BLB');
+	const ohl = [...members, gat, blb];
+	const fullSchedule = (played: number) => members.map((t) => standing(t.id, played, 68 - played));
+
+	it('leaves out teams that are only in for a few interleague games', () => {
+		const standings = [
+			{},
+			...members.map((t, i) => standing(t.id, 20 + (i % 5), 48 - (i % 5))),
+			{},
+			standing(gat.id, 0, 2),
+			standing(blb.id, 1, 1)
+		];
+		expect(leagueMembers(ohl, standings)).toEqual(members);
+	});
+
+	it('goes by games scheduled, so it already works before anyone has played', () => {
+		const standings = [...fullSchedule(0), standing(gat.id, 0, 2), standing(blb.id, 0, 2)];
+		expect(leagueMembers(ohl, standings)).toEqual(members);
+	});
+
+	it('keeps every team when the schedule is even', () => {
+		// The PWHL's preseason: two games apiece.
+		const pwhl = members.slice(0, 12);
+		expect(
+			leagueMembers(
+				pwhl,
+				pwhl.map((t) => standing(t.id, 0, 2))
+			)
+		).toEqual(pwhl);
+	});
+
+	it('keeps a team it has no readable count for', () => {
+		// Gatineau's count won't parse, and Blainville-Boisbriand has no row.
+		const standings = [
+			...fullSchedule(30),
+			{ team_id: gat.id, games_played: '', games_remaining: '2' }
+		];
+		expect(leagueMembers(ohl, standings)).toEqual(ohl);
+	});
+
+	it('keeps every team when there is nothing to go by', () => {
+		expect(leagueMembers(ohl, [])).toEqual(ohl);
+		expect(
+			leagueMembers(
+				ohl,
+				ohl.map((t) => standing(t.id, 0, 0))
+			)
+		).toEqual(ohl);
+	});
+
+	it('is not thrown off by one wild count', () => {
+		// Measured against the busiest team instead, every real team would look
+		// like a visitor next to this one.
+		const standings = [...fullSchedule(30), standing(gat.id, 0, 6800), standing(blb.id, 0, 2)];
+		expect(leagueMembers(ohl, standings)).toEqual([...members, gat]);
+	});
+});
+
+describe('createHockeyTechAdapter', () => {
+	/**
+	 * Stands in for the feed: a three-team league that has one visitor on its
+	 * schedule. Returns the query of every request made, in order.
+	 */
+	function serveFeed(overrides: Record<string, () => Response> = {}): URLSearchParams[] {
+		const views: Record<string, () => Response> = {
+			seasons: () => Response.json({ SiteKit: { Seasons: [season({ season_id: '88' })] } }),
+			teamsbyseason: () =>
+				Response.json({
+					SiteKit: {
+						Teamsbyseason: [team('2', 'KGN'), team('5', 'OTT'), team('75', 'BLB'), team('6', 'PBO')]
+					}
+				}),
+			statviewtype: () =>
+				Response.json({
+					SiteKit: {
+						Statviewtype: [
+							{ repeatheader: 1, name: 'East Division' },
+							standing('2', 23, 45),
+							standing('5', 21, 47),
+							standing('75', 0, 2),
+							standing('6', 23, 45)
+						]
+					}
+				}),
+			roster: () => Response.json({ SiteKit: { Roster: [entry({})] } }),
+			...overrides
+		};
+		const requests: URLSearchParams[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				const query = new URL(url).searchParams;
+				requests.push(query);
+				const serve = views[query.get('view') ?? ''];
+				if (!serve) throw new Error(`Unexpected view: ${query.get('view')}`);
+				return serve();
+			})
+		);
+		return requests;
+	}
+
+	const adapter = () => createHockeyTechAdapter({ id: 'ohl', clientCode: 'ohl', apiKey: 'key' });
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("lists the league's own teams, leaving out the visitor", async () => {
+		const requests = serveFeed();
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+		const teams = await adapter().fetchTeams();
+
+		expect(teams.map((t) => t.code)).toEqual(['KGN', 'OTT', 'PBO']);
+		const standings = requests.find((q) => q.get('view') === 'statviewtype');
+		expect(standings?.get('type')).toBe('standings');
+		expect(standings?.get('season_id')).toBe('88');
+		expect(log).toHaveBeenCalledWith('OHL team list leaves out visitors: BLB');
+	});
+
+	it('fetches a roster without needing the standings', async () => {
+		const requests = serveFeed({ statviewtype: () => new Response('down', { status: 500 }) });
+		const ohl = adapter();
+
+		const result = await ohl.fetchRoster({ code: 'OTT', name: "Ottawa 67's", logoUrl: '' });
+
+		expect(result.ok).toBe(true);
+		expect(requests.map((q) => q.get('view'))).toEqual(['seasons', 'teamsbyseason', 'roster']);
+		expect(requests.at(-1)?.get('team_id')).toBe('5');
+		// The team list can't tell members from visitors without them, so it
+		// fails rather than guess — leaving the stored list as it was.
+		await expect(ohl.fetchTeams()).rejects.toThrow('statviewtype');
 	});
 });
 
