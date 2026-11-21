@@ -15,3 +15,12 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
   workerd: false
+
+# drizzle-kit 0.31 (latest stable) loads TypeScript through @esbuild-kit, which
+# pins esbuild 0.18 and carries its dev-server advisory (GHSA-67mh-4wv8-2f99).
+# drizzle-kit never starts that server, but the advisory sits in every audit, so
+# the loader gets the esbuild drizzle-kit already uses itself. Checked with
+# `drizzle-kit check` and `drizzle-kit generate`. Drop this once drizzle-kit 1.0,
+# which no longer depends on @esbuild-kit, is stable.
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12
