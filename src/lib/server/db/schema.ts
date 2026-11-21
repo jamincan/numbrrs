@@ -20,6 +20,10 @@ export const teams = sqliteTable('teams', {
  * Freshness and failure state for syncs, under the key `teams:<league>` or
  * `roster:<league>:<code>`. Kept in the database so it survives restarts.
  *
+ * One row is not a sync at all: `status:write-probe`, which /api/status
+ * rewrites to prove the database still accepts writes. Every reader here looks
+ * a key up exactly, or by one of the two prefixes, so it is in nobody's way.
+ *
  * Roster *freshness* lives on `teams.roster_synced_at` rather than here — this
  * table only tracks a roster's failures, so there is still exactly one answer
  * to "when was this last synced".

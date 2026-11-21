@@ -1,0 +1,47 @@
+# The uptime monitor — see cloudflare/uptime-worker.ts for what it checks and
+# why. Deploy with `pnpm run cf:deploy:uptime`; the README's Operations section
+# has the one-time setup.
+#
+# A config of its own, apart from wrangler.toml, so that deploying this can
+# never touch the cache Worker's routes, and the other way round. Every wrangler
+# command meant for this Worker needs `-c wrangler.uptime.toml`: without it
+# wrangler reads wrangler.toml and acts on the cache Worker instead.
+name = "numbrrs-uptime"
+main = "cloudflare/uptime-worker.ts"
+compatibility_date = "2026-11-18"
+
+# Without this flag, a Worker's fetch() to a hostname in its own account's zone
+# goes straight to the zone's origin: past the cache Worker, and past whatever
+# Cloudflare does to a response on its way out. The two numbrrs.app probes are
+# there to see what a visitor sees, so they have to come in by the front door.
+compatibility_flags = ["global_fetch_strictly_public"]
+
+# It has no fetch handler, so there is nothing for a URL to reach. Wrangler
+# turns the workers.dev address on by default for a Worker without routes.
+workers_dev = false
+preview_urls = false
+
+# UTC. Five minutes is 288 runs a day; the free plan allows five Cron Triggers
+# per account and this is one.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# What the monitor remembers between runs: which checks are failing, since
+# when, and what has been said about it. It writes only when that changes, so a
+# quiet day costs no writes against the free plan's 1,000.
+#
+# The id is not a secret, but it is this account's: replace the placeholder
+# with the one `wrangler kv namespace create` prints. Until then a deploy fails,
+# which is the intent — the alternative is a monitor running without its memory.
+[[kv_namespaces]]
+binding = "UPTIME_STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Each run logs one JSON line saying what it found and what it posted, which is
+# the only record of a run that had nothing to say. Dashboard → Workers & Pages
+# → numbrrs-uptime → Observability.
+[observability]
+enabled = true
+
+# Not here, because it is a secret: ALERT_WEBHOOK_URL, the Discord webhook.
+#   pnpm exec wrangler secret put ALERT_WEBHOOK_URL -c wrangler.uptime.toml
