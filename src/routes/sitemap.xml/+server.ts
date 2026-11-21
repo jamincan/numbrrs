@@ -4,6 +4,23 @@ import { getDb } from '#lib/server/db/index.ts';
 import { teams } from '#lib/server/db/schema.ts';
 import type { RequestHandler } from './$types';
 
+const XML_ENTITIES: Record<string, string> = {
+	'&': '&amp;',
+	'<': '&lt;',
+	'>': '&gt;',
+	'"': '&quot;',
+	"'": '&apos;'
+};
+
+/**
+ * Team codes come from the leagues' feeds, not from this codebase, so they are
+ * text to be quoted rather than markup to be trusted: one `&` in an
+ * abbreviation would otherwise make the whole sitemap unparseable.
+ */
+function escapeXml(text: string): string {
+	return text.replace(/[&<>"']/g, (char) => XML_ENTITIES[char] ?? char);
+}
+
 /**
  * The home page, the privacy page, and every team page, in both languages.
  * Team pages are built from the database rather than a static list so new teams
@@ -15,7 +32,7 @@ export const GET: RequestHandler = () => {
 
 	const urls = paths
 		.flatMap((path) => LOCALES.map((locale) => localizePath(path, locale)))
-		.map((path) => `\t<url><loc>${SITE_ORIGIN}${path}</loc></url>`);
+		.map((path) => `\t<url><loc>${escapeXml(`${SITE_ORIGIN}${path}`)}</loc></url>`);
 
 	const xml = [
 		'<?xml version="1.0" encoding="UTF-8"?>',

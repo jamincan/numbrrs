@@ -1,65 +1,67 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/env';
-import { ADMIN_DIRECT } from '$app/env/private';
-import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '#lib/i18n/index.ts';
+import { ADMIN_DIRECT, ADMIN_TOKEN } from '$app/env/private';
+import { LOCALE_COOKIE, isLocale, localeFromPath } from '#lib/i18n/index.ts';
+import { weakTokenWarning } from '#lib/server/admin.ts';
 import { recordEvent } from '#lib/server/analytics.ts';
 import { reportError } from '#lib/server/alerts.ts';
 import { clientIp } from '#lib/server/client-ip.ts';
-import {
-	ACCESS_COOKIE,
-	ACCESS_HEADER,
-	isAdminPath,
-	verifyAccessToken
-} from '#lib/server/cloudflare-access.ts';
-import { bootstrap } from '#lib/server/db/index.ts';
+import { ACCESS_COOKIE, ACCESS_HEADER, verifyAccessToken } from '#lib/server/cloudflare-access.ts';
+import { bootstrap, closeDb } from '#lib/server/db/index.ts';
 import { startSweeps } from '#lib/server/leagues/index.ts';
-import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '#lib/site.ts';
+import { installProcessGuards } from '#lib/server/process-guards.ts';
+import {
+	NEGOTIATED_VARY,
+	NO_STORE,
+	applySecurityHeaders,
+	cacheControlFor,
+	frenchRedirectTarget,
+	hostRedirectTarget,
+	isLocaleNegotiated,
+	isLocalizedRoute,
+	isReportableError,
+	requiresAccess
+} from '#lib/server/request-policy.ts';
 
-// Runs once, when the server module graph loads. Guarded by `building` so it
-// doesn't fire during `vite build`, which imports this module to prerender
-// pages.
+// Boot. Runs once, when the server module graph loads. Guarded by `building` so
+// it doesn't fire during `vite build`, which imports this module to prerender
+// pages. Order matters: the database first, since everything after it may
+// write to it.
 if (!building) {
 	bootstrap();
+
+	// adapter-node emits this once it has stopped taking requests and the ones in
+	// flight have finished, so nothing is left to query the database.
+	process.on('sveltekit:shutdown', closeDb);
+
+	// Not in dev: Vite reloads this module on every edit, and a handler that ends
+	// the process has no business sitting under a dev server.
+	if (!dev) installProcessGuards();
+
 	// Production only: a dev server left open would otherwise walk five leagues'
 	// APIs every hour for a local database nobody is looking at. The on-demand
 	// path still refreshes whatever a dev actually opens.
 	if (!dev) startSweeps();
-	// The admin page shows a banner as well; this puts it in the logs too.
-	if (!dev && ADMIN_DIRECT) {
-		console.warn('[admin] ADMIN_DIRECT is set: /admin is skipping the Cloudflare Access check');
+
+	if (!dev) {
+		// The admin page shows a banner as well; this puts it in the logs too.
+		if (ADMIN_DIRECT) {
+			console.warn('[admin] ADMIN_DIRECT is set: /admin is skipping the Cloudflare Access check');
+		}
+		const weakToken = weakTokenWarning(ADMIN_TOKEN);
+		if (weakToken) console.warn(weakToken);
 	}
 }
 
-/** The home page's route id — the one localized page whose HTML varies per visitor. */
-const HOME_ROUTE = '/[[lang=locale]]';
-
 /**
- * An unprefixed localized URL can answer with either the English page or a
- * redirect to /fr, and which one depends on **both** the Accept-Language header
- * and the locale cookie (see `negotiateLocale`). A shared cache therefore has to
- * key on both, or it will eventually hand a French redirect to someone who
- * explicitly chose English.
- *
- * `Vary: Cookie` is a real cost — every distinct cookie value is its own entry —
- * but it is cheapest for exactly the visitors a traffic spike brings: arriving
- * from a link with no cookies at all, they share one entry.
+ * A response `handle` writes itself instead of getting from `resolve`. These
+ * leave early, so they would otherwise miss the headers stamped on the way out.
  */
-const NEGOTIATED_VARY = 'Accept-Language, Cookie';
-
-/**
- * Shared caches may serve a page for five minutes, and may keep serving a stale
- * one for an hour while they revalidate behind the visitor's back.
- *
- * `max-age=0` deliberately leaves browsers revalidating, so a returning visitor
- * still sees current data; `s-maxage` is the number a CDN actually uses.
- * `stale-while-revalidate` matters most here: it means a cache miss never waits
- * on an origin that might be part-way through an 8s blocking upstream sync.
- *
- * Rosters refresh on a 12-hour TTL and team lists on 24, so a team page is
- * effectively static between syncs. Re-rendering it per request is waste, and
- * removing that waste is the cheapest protection against a spike there is.
- */
-const PAGE_CACHE = 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600';
+function respond(status: number, headers: Record<string, string>, body?: string): Response {
+	const response = new Response(body, { status, headers });
+	applySecurityHeaders(response.headers);
+	return response;
+}
 
 /**
  * The URL owns the locale: /fr/... renders French, everything else English.
@@ -67,39 +69,34 @@ const PAGE_CACHE = 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600
  * lets hreflang tie them together — a cookie-only locale is invisible to a
  * crawler.
  *
- * The cookie and Accept-Language only decide one thing: whether a visitor
- * landing on an unprefixed page should be redirected to the French URLs. An
- * explicit choice (the cookie the toggle sets) wins over the browser default,
- * so someone who picked English stays put.
+ * Every decision here is made by a function in request-policy.ts, where the
+ * reasoning lives and where it is tested; this only gathers what those
+ * functions need from the request and acts on what they answer.
  */
 export const handle: Handle = async ({ event, resolve }) => {
+	const { url, request } = event;
+	const routeId = event.route.id;
+
 	// Permanent, unconditional, and ahead of everything else: every path and
 	// query string carries straight over, and nothing downstream (locale,
 	// caching) needs to know this host was ever in play.
-	if (REDIRECT_HOSTNAMES.has(event.url.hostname)) {
-		const target = new URL(event.url.pathname + event.url.search, SITE_ORIGIN);
-		return new Response(null, {
-			status: 301,
-			headers: { location: target.toString(), 'cache-control': 'public, max-age=86400' }
-		});
+	const canonical = hostRedirectTarget(url);
+	if (canonical) {
+		return respond(301, { location: canonical, 'cache-control': 'public, max-age=86400' });
 	}
 
 	// /admin answers only requests that came through Cloudflare Access (see
-	// cloudflare-access.ts), and its own token login still applies on top. Dev has
-	// no Access in front of it, and ADMIN_DIRECT is the way in while Cloudflare is
-	// down. The cookie stands in for the header in case Access is ever set to
-	// cover /admin itself but not the data requests under it.
-	if (isAdminPath(event.url.pathname) && !dev && !ADMIN_DIRECT) {
-		const token = event.request.headers.get(ACCESS_HEADER) ?? event.cookies.get(ACCESS_COOKIE);
+	// cloudflare-access.ts), and its own token login still applies on top. The
+	// cookie stands in for the header in case Access is ever set to cover /admin
+	// itself but not the data requests under it.
+	if (requiresAccess({ routeId, pathname: url.pathname, dev, adminDirect: ADMIN_DIRECT })) {
+		const token = request.headers.get(ACCESS_HEADER) ?? event.cookies.get(ACCESS_COOKIE);
 		const access = await verifyAccessToken(token);
 		if (!access.ok) {
 			console.warn(
-				`[admin] refused ${event.request.method} ${event.url.pathname} from ${clientIp(event)}: ${access.reason}`
+				`[admin] refused ${request.method} ${url.pathname.slice(0, 200)} from ${clientIp(event)}: ${access.reason}`
 			);
-			return new Response('Forbidden', {
-				status: 403,
-				headers: { 'cache-control': 'private, no-store' }
-			});
+			return respond(403, { 'cache-control': NO_STORE }, 'Forbidden');
 		}
 	}
 
@@ -107,31 +104,26 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Falls back to the path, not to English: a URL matching no route has no
 	// params, and /fr/nonexistent should still stamp <html lang="fr"> and be
 	// counted as a French visit.
-	const locale = isLocale(lang) ? lang : localeFromPath(event.url.pathname);
+	const locale = isLocale(lang) ? lang : localeFromPath(url.pathname);
 
-	// Only pages participate in localization; API routes and the sitemap don't.
-	const localized = event.route.id?.startsWith('/[[lang=locale]]') ?? false;
-
-	if (localized && !lang) {
-		const preferred = negotiateLocale(
-			event.cookies.get(LOCALE_COOKIE),
-			event.request.headers.get('accept-language')
-		);
-		if (preferred === 'fr') {
-			const target = `/fr${event.url.pathname === '/' ? '' : event.url.pathname}${event.url.search}`;
-			return new Response(null, {
-				status: 302,
-				headers: {
-					location: target,
-					// Whether this redirect happens depends on the request headers, so
-					// caches must not serve one visitor's answer to another.
-					vary: NEGOTIATED_VARY,
-					// A bare 302 is already uncacheable by default, but saying so beats
-					// relying on every cache in the path agreeing about the default.
-					'cache-control': 'private, no-store'
-				}
-			});
-		}
+	const french = frenchRedirectTarget({
+		routeId,
+		lang,
+		cookie: event.cookies.get(LOCALE_COOKIE),
+		acceptLanguage: request.headers.get('accept-language'),
+		pathname: url.pathname,
+		search: url.search
+	});
+	if (french) {
+		return respond(302, {
+			location: french,
+			// Whether this redirect happens depends on the request headers, so
+			// caches must not serve one visitor's answer to another.
+			vary: NEGOTIATED_VARY,
+			// A bare 302 is already uncacheable by default, but saying so beats
+			// relying on every cache in the path agreeing about the default.
+			'cache-control': NO_STORE
+		});
 	}
 
 	event.locals.locale = locale;
@@ -139,56 +131,26 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const response = await resolve(event, {
 		transformPageChunk: ({ html }) => html.replace('%lang%', locale)
 	});
-	if (localized && !lang) {
+	if (isLocaleNegotiated(routeId, lang)) {
 		response.headers.append('vary', NEGOTIATED_VARY);
 	}
 
-	// Caching, in three cases.
-	//
-	// The home page resolves the remembered league tab server-side so the grid
-	// and its links are in the first byte for crawlers (see its load function).
-	// That is good for SEO and it means the HTML differs per visitor, so it must
-	// not be shared — Vary: Cookie would be correct and would also make the entry
-	// worthless. Team pages are the long tail worth caching and have no such
-	// dependency.
-	//
-	// /admin is behind a session and shows usage data. Never store it anywhere.
-	//
-	// Anything else — the sitemap, the API routes — sets its own policy or is a
-	// POST, so it is left alone rather than given a blanket default.
-	//
-	// A load can also opt a single response out (`locals.uncacheable`) — a team
-	// page with no roster yet, so the edge doesn't keep serving the empty state
-	// after the sync lands. That has to be a flag rather than "respect whatever
-	// cache-control is already there": SvelteKit stamps `private, no-store` on
-	// every __data.json response, and overriding it is what lets client-side
-	// navigations between pages be cached at all.
-	if (event.route.id === '/admin' || event.locals.uncacheable) {
-		response.headers.set('cache-control', 'private, no-store');
-	} else if (event.route.id === HOME_ROUTE) {
-		response.headers.set('cache-control', 'private, no-cache');
-	} else if (localized && !response.headers.has('set-cookie')) {
-		response.headers.set('cache-control', PAGE_CACHE);
-	}
+	const cacheControl = cacheControlFor({
+		routeId,
+		pathname: url.pathname,
+		status: response.status,
+		uncacheable: event.locals.uncacheable ?? false,
+		setsCookie: response.headers.has('set-cookie')
+	});
+	if (cacheControl) response.headers.set('cache-control', cacheControl);
 
-	// The CSP itself comes from the csp option of sveltekit() in vite.config.ts,
-	// which lets SvelteKit hash its own inline scripts.
-	response.headers.set('X-Content-Type-Options', 'nosniff');
-	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-	// Severs window.opener for cross-origin openers. The only outbound link
-	// today (GitHub, in +layout.svelte) already carries rel="noopener", so this
-	// is defence in depth for a link added later that forgets to.
-	response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-	// Fly already forces HTTPS; this tells browsers to stop asking. Ignored
-	// over plain http, so it doesn't get in the way of local dev.
-	response.headers.set('Strict-Transport-Security', 'max-age=31536000');
+	applySecurityHeaders(response.headers);
 
 	// Count the visit once the response is known to be a real page. Client-side
 	// navigations still land here — SvelteKit fetches the next page's data
 	// through the same hook — so moving from the grid into a game is counted
 	// without any browser-side script.
-	if (localized && response.status < 400) {
+	if (isLocalizedRoute(routeId) && response.status < 400) {
 		recordEvent(event, { name: 'pageview' });
 	}
 
@@ -197,28 +159,41 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 /**
  * Every server error passes through here. SvelteKit already logs to
- * stdout, but Fly keeps no history and stops the machine when it's idle, so by
- * the time anyone looks the evidence is gone — hence writing it down.
+ * stdout, but Fly doesn't keep what is written there, so by the time anyone
+ * looks the evidence is gone — hence writing it down.
  *
  * The return value is what the error page renders, so it stays generic: the
  * detail goes to the database and to Discord, not to the visitor.
  */
-export const handleError: HandleServerError = ({ kind, error, event }) => {
-	// Every error comes through here, the routine ones included: crawlers and
-	// stale links guessing at team codes (an error(404) from the load, or
-	// SvelteKit's own 404), scanners POSTing to pages that have no form actions
-	// (405). Alerting on those would bury the errors that matter, so only an
-	// error nobody raised on purpose is recorded.
-	if (kind !== 'unknown') return;
+export const handleError: HandleServerError = (caught) => {
+	const { event } = caught;
+	// Anything thrown by accident is a 500 by the time the visitor sees it;
+	// everything else arrives carrying the status it was raised with.
+	const status = caught.kind === 'unknown' ? 500 : caught.error.status;
+
+	// Every error comes through here, the routine ones included, and alerting on
+	// those would bury the ones that matter. See `isReportableError`.
+	if (!isReportableError(caught.kind, status)) return;
+
+	const thrown = caught.kind === 'unknown' ? caught.error : null;
+	const message =
+		caught.kind === 'unknown'
+			? thrown instanceof Error
+				? thrown.message
+				: String(thrown)
+			: // A deliberate error(503, …) has no stack; the status is what says
+				// where to start looking.
+				`${status} ${caught.error.message}`;
 
 	// The returned id is the error's fingerprint, so a visitor quoting it off the
 	// error page points at exactly one row in the dashboard rather than at a log
 	// line that Fly has since thrown away.
 	const id = reportError({
 		source: 'server',
-		message: error instanceof Error ? error.message : String(error),
-		stack: error instanceof Error ? error.stack : null,
-		route: event.route.id ?? event.url.pathname
+		message,
+		stack: thrown instanceof Error ? thrown.stack : null,
+		route: event.route.id ?? event.url.pathname,
+		error: thrown
 	});
 
 	return { id };

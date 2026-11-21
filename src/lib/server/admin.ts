@@ -18,8 +18,35 @@ export function tokenMatches(provided: string, expected: string): boolean {
 	return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/**
+ * Shorter than this and the token is within reach of guessing. The documented
+ * way to make one (`openssl rand -hex 32`) gives 64 characters.
+ */
+export const MIN_TOKEN_LENGTH = 32;
+
+/**
+ * What to say at boot about a token that is set but too short, or null if there
+ * is nothing to say. A warning rather than a refusal: locking the owner out of
+ * their own dashboard over a weak token would be a worse outage than the token.
+ */
+export function weakTokenWarning(token: string | undefined): string | null {
+	if (!token || token.length >= MIN_TOKEN_LENGTH) return null;
+	return `[admin] ADMIN_TOKEN is ${token.length} characters; use at least ${MIN_TOKEN_LENGTH} (openssl rand -hex 32)`;
+}
+
+/**
+ * The key sessions are signed with: derived from the token, never the token
+ * itself. The token is also the password typed into the login form, and one
+ * secret doing two jobs means anything learned about it through one is learned
+ * about the other. The label is versioned so the scheme can change later
+ * without a cookie from the old one verifying under the new.
+ */
+function sessionKey(secret: string): Buffer {
+	return createHmac('sha256', secret).update('session-v1').digest();
+}
+
 function sign(payload: string, secret: string): string {
-	return createHmac('sha256', secret).update(payload).digest('hex');
+	return createHmac('sha256', sessionKey(secret)).update(payload).digest('hex');
 }
 
 /**

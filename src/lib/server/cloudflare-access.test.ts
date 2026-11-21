@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
-import {
-	ACCESS_AUD,
-	ACCESS_TEAM_DOMAIN,
-	isAdminPath,
-	verifyAccessToken
-} from './cloudflare-access';
+import { ACCESS_AUD, ACCESS_TEAM_DOMAIN, verifyAccessToken } from './cloudflare-access';
 
 // A stand-in for the team's signing key, published the way Access publishes its
 // own, plus a second key nobody trusts.
@@ -64,6 +59,21 @@ describe('verifyAccessToken', () => {
 		expect(await verifyAccessToken(await token({ exp: now() - 10 }), keys)).toEqual({ ok: true });
 	});
 
+	it('refuses a token that never expires', async () => {
+		// Correctly signed, right issuer, right audience — and no `exp` at all,
+		// which a verifier that only checks the claim when present waves through.
+		const immortal = await new SignJWT({ email: 'admin@example.com' })
+			.setProtectedHeader({ alg: 'RS256', kid: 'team-key' })
+			.setIssuer(ACCESS_TEAM_DOMAIN)
+			.setAudience([ACCESS_AUD])
+			.setIssuedAt()
+			.sign(team.privateKey);
+		expect(await verifyAccessToken(immortal, keys)).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining('exp')
+		});
+	});
+
 	it("refuses a token signed with anyone else's key", async () => {
 		const forged = await token({ key: stranger.privateKey });
 		expect(await verifyAccessToken(forged, keys)).toMatchObject({ ok: false });
@@ -81,19 +91,5 @@ describe('verifyAccessToken', () => {
 
 	it('refuses something that is not a token', async () => {
 		expect(await verifyAccessToken('not.a.token', keys)).toMatchObject({ ok: false });
-	});
-});
-
-describe('isAdminPath', () => {
-	it('covers the admin page and everything under it', () => {
-		expect(isAdminPath('/admin')).toBe(true);
-		expect(isAdminPath('/admin/')).toBe(true);
-		expect(isAdminPath('/admin/__data.json')).toBe(true);
-	});
-
-	it('leaves look-alike paths alone', () => {
-		expect(isAdminPath('/administrator')).toBe(false);
-		expect(isAdminPath('/game/admin')).toBe(false);
-		expect(isAdminPath('/')).toBe(false);
 	});
 });

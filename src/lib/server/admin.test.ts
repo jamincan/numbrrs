@@ -1,5 +1,12 @@
+import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { signSession, tokenMatches, verifySession } from './admin';
+import {
+	MIN_TOKEN_LENGTH,
+	signSession,
+	tokenMatches,
+	verifySession,
+	weakTokenWarning
+} from './admin';
 
 const SECRET = 'a-long-random-admin-token';
 const NOW = Date.UTC(2026, 6, 27, 12, 0, 0);
@@ -17,6 +24,22 @@ describe('tokenMatches', () => {
 	it('rejects a correct prefix of the right length-mismatch', () => {
 		expect(tokenMatches(SECRET.slice(0, 10), SECRET)).toBe(false);
 		expect(tokenMatches(`${SECRET}extra`, SECRET)).toBe(false);
+	});
+});
+
+describe('weakTokenWarning', () => {
+	it('says nothing about a token of the documented length, or a missing one', () => {
+		expect(weakTokenWarning('a'.repeat(64))).toBeNull();
+		expect(weakTokenWarning('a'.repeat(MIN_TOKEN_LENGTH))).toBeNull();
+		// Unset is its own supported state: /admin reports itself unconfigured.
+		expect(weakTokenWarning(undefined)).toBeNull();
+		expect(weakTokenWarning('')).toBeNull();
+	});
+
+	it('warns about a short token without repeating it', () => {
+		const warning = weakTokenWarning('hunter2');
+		expect(warning).toContain('7 characters');
+		expect(warning).not.toContain('hunter2');
 	});
 });
 
@@ -45,6 +68,14 @@ describe('session cookies', () => {
 	it('rejects a cookie signed with a different secret', () => {
 		const cookie = signSession(NOW + HOUR, 'some-other-token');
 		expect(verifySession(cookie, SECRET, NOW)).toBe(false);
+	});
+
+	it('rejects a cookie signed with the token itself rather than the derived key', () => {
+		// Anything that leaks an HMAC made with the raw token — a log line, another
+		// feature that signs with it — must not be usable as a session.
+		const expiresAt = NOW + HOUR;
+		const rawSignature = createHmac('sha256', SECRET).update(`admin:${expiresAt}`).digest('hex');
+		expect(verifySession(`${expiresAt}.${rawSignature}`, SECRET, NOW)).toBe(false);
 	});
 
 	it('rejects a tampered signature on an otherwise valid expiry', () => {

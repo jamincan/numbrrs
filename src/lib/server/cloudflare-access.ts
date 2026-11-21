@@ -10,7 +10,8 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
  *
  * What does work is the signed token Access attaches to every request it lets
  * through. Only Access can issue one for this application, so /admin requires
- * it (see `handle` in hooks.server.ts). ADMIN_DIRECT in src/env.ts switches the
+ * it (see `requiresAccess` in request-policy.ts for which requests that covers,
+ * and `handle` in hooks.server.ts for the check). ADMIN_DIRECT in src/env.ts switches the
  * requirement off for when Cloudflare itself is down.
  *
  * Neither value is secret: both appear in Cloudflare's own login redirect.
@@ -30,11 +31,6 @@ const teamKeys = createRemoteJWKSet(new URL('/cdn-cgi/access/certs', ACCESS_TEAM
 
 export type AccessResult = { ok: true } | { ok: false; reason: string };
 
-/** Whether a path is part of the admin area, its data requests included. */
-export function isAdminPath(pathname: string): boolean {
-	return pathname === '/admin' || pathname.startsWith('/admin/');
-}
-
 /**
  * Check that a token was signed with the team's keys, issued by the team, meant
  * for this application, and is still current. `keys` is only for tests.
@@ -49,6 +45,9 @@ export async function verifyAccessToken(
 			issuer: ACCESS_TEAM_DOMAIN,
 			audience: ACCESS_AUD,
 			algorithms: ['RS256'],
+			// jose only checks an expiry that is present, and a token without one
+			// would otherwise be good forever.
+			requiredClaims: ['exp'],
 			// Fly's clock and Cloudflare's can disagree by a moment, and a token that
 			// looks a second early shouldn't lock the admin out.
 			clockTolerance: 30

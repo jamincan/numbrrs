@@ -19,7 +19,9 @@ export default defineConfig({
 			// is inline style attributes throughout, but nothing needs an injected
 			// <style> element, so style-src-elem stays at style-src's default of
 			// 'self'. Player headshots and feed logos come from the leagues' CDNs,
-			// hence the broad img-src.
+			// hence the broad img-src. form-action is spelled out because it is one
+			// of the directives that does not inherit from default-src: left off,
+			// an injected <form> could post anywhere.
 			csp: {
 				directives: {
 					'default-src': ['self'],
@@ -31,6 +33,11 @@ export default defineConfig({
 					'connect-src': ['self'],
 					'object-src': ['none'],
 					'base-uri': ['self'],
+					// The second origin is the Cloudflare Access login (ACCESS_TEAM_DOMAIN
+					// in cloudflare-access.ts). Chrome applies form-action to redirects
+					// too, and posting the /admin login after the Access session has
+					// lapsed is answered with a redirect there.
+					'form-action': ['self', 'https://proud-brook-b283.cloudflareaccess.com'],
 					'frame-ancestors': ['none']
 				}
 			}

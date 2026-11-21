@@ -3,7 +3,7 @@
  *
  * `CF-Connecting-IP` is a claim, not a fact: it is only worth anything when
  * Cloudflare is the one making it. This module is what lets `clientIp` tell the
- * difference — see $lib/server/client-ip for why that matters here.
+ * difference — see #lib/server/client-ip for why that matters here.
  *
  * The ranges are vendored rather than fetched. Fetching them would put a
  * network call on the path of every request that needs an IP, and a cached copy
