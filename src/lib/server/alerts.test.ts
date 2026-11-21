@@ -30,6 +30,7 @@ async function load(webhook: string): Promise<void> {
 		ALERT_WEBHOOK_URL: webhook,
 		ADMIN_TOKEN: undefined,
 		ADMIN_DIRECT: false,
+		EDGE_TOKEN: undefined,
 		DATABASE_URL: ':memory:'
 	}));
 	db = await import('./db');

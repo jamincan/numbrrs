@@ -10,6 +10,7 @@ vi.mock('$app/env/private', () => ({
 	ALERT_WEBHOOK_URL: '',
 	ADMIN_TOKEN: undefined,
 	ADMIN_DIRECT: false,
+	EDGE_TOKEN: undefined,
 	DATABASE_URL: ':memory:'
 }));
 

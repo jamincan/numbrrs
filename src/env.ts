@@ -16,8 +16,13 @@ export const variables = defineEnvVars({
 	},
 	ADMIN_DIRECT: {
 		description:
-			'Emergency switch for when Cloudflare is down. 1 or true: /admin skips the Cloudflare Access check and needs only the token. Unset: Access is required.',
+			'Emergency switch for when Cloudflare is down. 1 or true: numbrrs.fly.dev serves the whole site directly instead of redirecting to numbrrs.app, /admin skips the Cloudflare Access check and needs only the token, and an alert is raised at every boot. Unset: the redirect and the Access check are both on.',
 		schema: (input) => input === '1' || input?.toLowerCase() === 'true'
+	},
+	EDGE_TOKEN: {
+		description:
+			'Secret shared with the Cloudflare Workers, which send it as a bearer token when they report to the origin. Unset: those reports are refused.',
+		schema: (input) => input
 	},
 	DATABASE_URL: {
 		description: 'SQLite file path. Unset: local.db in the working directory.',

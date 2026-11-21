@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { and, desc, eq, inArray, lt, lte, max, notInArray } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
+import type { Locale } from '#lib/i18n/index.ts';
 import { clientIp } from '#lib/server/client-ip.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { events, errors } from '#lib/server/db/schema.ts';
@@ -198,6 +199,62 @@ export interface EventInput {
 	props?: Record<string, unknown>;
 }
 
+/** The page an event is about: what the router made of the URL it was asked for. */
+export interface EventPage {
+	pathname: string;
+	routeId: string | null;
+	params: Partial<Record<string, string>>;
+	locale: Locale;
+}
+
+/**
+ * Who an event came from. This is everything a row's visitor hash and referrer
+ * host are derived from, and none of it is written down as given: the address
+ * and user agent go into the hash and nowhere else, and the referrer is cut to
+ * its hostname.
+ */
+export interface EventVisitor {
+	/** As `clientIp` returns it — see `visitorKey` for the form. */
+	ip: string;
+	userAgent: string;
+	referer: string | null;
+	/** The host the request was for, which is never a referral. */
+	hostname: string;
+}
+
+/**
+ * The one place an event becomes a row, whoever is reporting it, so a view the
+ * edge answered is filtered and stored exactly as one the origin rendered.
+ * Returns whether a row was written; a bot's visit is not.
+ */
+function insertEvent(input: EventInput, page: EventPage, visitor: EventVisitor, now: number) {
+	if (isBot(visitor.userAgent)) return false;
+
+	const day = dayKey(now);
+
+	getDb()
+		.insert(events)
+		.values({
+			at: now,
+			day,
+			name: input.name,
+			path: page.pathname.slice(0, 200),
+			routeId: page.routeId,
+			// Team URLs are case-insensitive — the page load normalizes them, but
+			// that happens after the hook that records the view, so /game/nhl/tor
+			// and /game/nhl/TOR would otherwise count as two different teams.
+			league: page.params.league?.toLowerCase() ?? null,
+			team: page.params.team?.toUpperCase() ?? null,
+			locale: page.locale,
+			referrerHost: referrerHost(visitor.referer, [visitor.hostname, ...OWN_HOSTNAMES]),
+			visitorHash: visitorHash(saltFor(day), day, visitor.ip, visitor.userAgent),
+			props: input.props ? JSON.stringify(input.props) : null
+		})
+		.run();
+
+	return true;
+}
+
 /**
  * Record one event for this request. Written synchronously — a single insert
  * into a local SQLite file is well under a millisecond, and buffering in memory
@@ -207,37 +264,61 @@ export interface EventInput {
  */
 export function recordEvent(event: RequestEvent, input: EventInput): void {
 	try {
-		const userAgent = event.request.headers.get('user-agent') ?? '';
-		if (isBot(userAgent)) return;
-
 		const now = Date.now();
-		const day = dayKey(now);
-
-		const db = getDb();
-		db.insert(events)
-			.values({
-				at: now,
-				day,
-				name: input.name,
-				path: event.url.pathname.slice(0, 200),
+		const written = insertEvent(
+			input,
+			{
+				pathname: event.url.pathname,
 				routeId: event.route.id ?? null,
-				// Team URLs are case-insensitive — the page load normalizes them, but
-				// that happens after this hook, so /game/nhl/tor and /game/nhl/TOR
-				// would otherwise count as two different teams.
-				league: event.params.league?.toLowerCase() ?? null,
-				team: event.params.team?.toUpperCase() ?? null,
-				locale: event.locals.locale,
-				referrerHost: referrerHost(event.request.headers.get('referer'), [
-					event.url.hostname,
-					...OWN_HOSTNAMES
-				]),
-				visitorHash: visitorHash(saltFor(day), day, clientIp(event), userAgent),
-				props: input.props ? JSON.stringify(input.props) : null
-			})
-			.run();
+				params: event.params,
+				locale: event.locals.locale
+			},
+			{
+				ip: clientIp(event),
+				userAgent: event.request.headers.get('user-agent') ?? '',
+				referer: event.request.headers.get('referer'),
+				hostname: event.url.hostname
+			},
+			now
+		);
 
-		pruneIfDue(now);
+		if (written) pruneIfDue(now);
 	} catch (err) {
 		console.error('Failed to record event:', err);
+	}
+}
+
+/**
+ * Record page views the edge served from its cache, which never reached this
+ * server as requests of their own (see src/routes/api/hit/+server.ts, the only
+ * caller). Each becomes the row `recordEvent` would have written had the page
+ * been rendered here: same filter, same columns, nothing extra.
+ *
+ * The rows carry the time the report arrived rather than the time of the view.
+ * The Worker holds a report for a few seconds at most, and taking a time from
+ * it would mean choosing a salt for a day that may already have ended.
+ *
+ * One transaction for the lot, so a batch costs one commit rather than one per
+ * view. Returns how many rows were written. Never throws.
+ */
+export function recordEdgeViews(views: { page: EventPage; visitor: EventVisitor }[]): number {
+	if (views.length === 0) return 0;
+	try {
+		const now = Date.now();
+		// The inserts run on the connection the transaction is open on, so they
+		// are part of it without being handed its handle.
+		const written = getDb().transaction(() => {
+			let count = 0;
+			for (const { page, visitor } of views) {
+				if (insertEvent({ name: 'pageview' }, page, visitor, now)) count += 1;
+			}
+			return count;
+		});
+
+		if (written > 0) pruneIfDue(now);
+		return written;
+	} catch (err) {
+		console.error('Failed to record edge views:', err);
+		return 0;
 	}
 }

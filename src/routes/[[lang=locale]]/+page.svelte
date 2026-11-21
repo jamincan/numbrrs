@@ -1,8 +1,16 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { rememberCookie } from '#lib/cookies.ts';
 	import { getI18n } from '#lib/i18n/state.svelte.ts';
-	import { LEAGUES, LEAGUE_COOKIE, LEAGUE_MAX_AGE, type LeagueId } from '#lib/leagues.ts';
+	import {
+		LEAGUES,
+		LEAGUE_COOKIE,
+		LEAGUE_MAX_AGE,
+		LEAGUE_PARAM,
+		type LeagueId
+	} from '#lib/leagues.ts';
 	import { teamLogo } from '#lib/logos.ts';
 	import { getTeamColors } from '#lib/team-colors.ts';
 	import { teamName } from '#lib/team-names.ts';
@@ -12,18 +20,39 @@
 	let { data } = $props();
 	let { teams } = $derived(data);
 
-	// The remembered league arrives from the server (cookie-resolved), so the
-	// grid is in the SSR payload — links and all — with no flash of the wrong
-	// tab. After that the choice lives here, written back to the cookie for the
-	// next visit.
-	function initialLeague(): LeagueId {
-		return data.initialLeague;
-	}
-	let league = $state<LeagueId>(initialLeague());
+	// The league to show arrives from the server (the URL's, else the cookie's),
+	// so the grid is in the SSR payload — links and all — with no flash of the
+	// wrong tab. After that a tab click sets it here; it follows the server
+	// again whenever the page's data is loaded afresh.
+	let league = $derived(data.initialLeague);
 
-	function chooseLeague(id: LeagueId) {
+	const home = $derived(resolve('/[[lang=locale]]', { lang: i18n.lang }));
+
+	/**
+	 * Each tab is a link, and that is all it is without JavaScript: the server
+	 * renders whichever league the URL names. With it, every league's teams are
+	 * already on the page, so a plain click swaps the grid in place and writes
+	 * the choice to the cookie for the next visit, and the link is never
+	 * followed.
+	 */
+	function chooseLeague(event: MouseEvent, id: LeagueId) {
+		// A click that asks for a new tab or window is asking for the link.
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+			return;
+		}
+		event.preventDefault();
+
 		league = id;
 		rememberCookie(LEAGUE_COOKIE, id, LEAGUE_MAX_AGE);
+
+		// A league named in the address outranks the cookie, so left there it
+		// would bring the old tab back on a reload, and the language toggle would
+		// carry it over to the other language. Moving to the bare URL hands the
+		// choice to the cookie just written. That address is also the one the
+		// edge can cache: a Worker route can't match `/?…` (see wrangler.toml).
+		if (page.url.searchParams.has(LEAGUE_PARAM)) {
+			void goto(home, { replace: true, reset: false });
+		}
 	}
 
 	const leagueTeams = $derived(teams.filter((t) => t.league === league));
@@ -44,25 +73,31 @@
 
 	<main class="mx-auto max-w-5xl px-4 pb-12">
 		<div class="mb-6 flex justify-center">
-			<div
+			<!-- Links in a nav, not a tablist: each one is an address the server
+			     answers, and there is no tabpanel for a tab to control.
+
+			     Preloading is off because the app-wide default would fetch a league's
+			     page whenever the pointer crossed its tab, for a click that never
+			     follows the link. -->
+			<nav
 				class="flex flex-wrap justify-center rounded-lg border border-white/10 bg-white/5 p-1"
-				role="tablist"
 				aria-label={i18n.m.home.league}
+				data-sveltekit-preload-data="false"
 			>
 				{#each LEAGUES as option (option.id)}
-					<button
-						role="tab"
-						aria-selected={league === option.id}
-						onclick={() => chooseLeague(option.id)}
+					<a
+						href="{home}?{LEAGUE_PARAM}={option.id}"
+						aria-current={league === option.id ? 'page' : undefined}
+						onclick={(event) => chooseLeague(event, option.id)}
 						class="font-condensed rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
 							: 'text-gray-500 hover:text-gray-300'}"
 					>
 						{option.label[i18n.locale]}
-					</button>
+					</a>
 				{/each}
-			</div>
+			</nav>
 		</div>
 
 		<h2

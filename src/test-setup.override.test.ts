@@ -13,6 +13,7 @@ vi.mock('$app/env/private', () => ({
 	ALERT_WEBHOOK_URL: 'https://discord.test/api/webhooks/1/fake',
 	ADMIN_TOKEN: 'a-token-that-exists-only-in-this-test-file',
 	ADMIN_DIRECT: true,
+	EDGE_TOKEN: undefined,
 	DATABASE_URL: ':memory:'
 }));
 

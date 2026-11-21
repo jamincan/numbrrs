@@ -26,10 +26,11 @@ import { afterEach, beforeEach, vi } from 'vitest';
  *         ALERT_WEBHOOK_URL: 'https://discord.test/api/webhooks/1/fake',
  *         ADMIN_TOKEN: undefined,
  *         ADMIN_DIRECT: false,
+ *         EDGE_TOKEN: undefined,
  *         DATABASE_URL: ':memory:'
  *     }));
  *
- * List all four: a mock is the whole module, and reading an export it lacks is
+ * List all five: a mock is the whole module, and reading an export it lacks is
  * an error rather than a fall-through to this one. To change a value between
  * tests, have the factory return getters over a `vi.hoisted` object (see
  * hooks.server.test.ts). Never reach for `vi.importActual` on this module —
@@ -43,13 +44,20 @@ vi.mock(
 			ALERT_WEBHOOK_URL: undefined,
 			ADMIN_TOKEN: undefined,
 			ADMIN_DIRECT: false,
+			EDGE_TOKEN: undefined,
 			DATABASE_URL: ':memory:'
 		}) satisfies typeof import('$app/env/private')
 );
 
 // Nothing in src/ reads these from process.env, and this keeps it that way from
 // mattering: a value exported in the shell is gone before any test can look.
-for (const name of ['ALERT_WEBHOOK_URL', 'ADMIN_TOKEN', 'ADMIN_DIRECT', 'DATABASE_URL']) {
+for (const name of [
+	'ALERT_WEBHOOK_URL',
+	'ADMIN_TOKEN',
+	'ADMIN_DIRECT',
+	'EDGE_TOKEN',
+	'DATABASE_URL'
+]) {
 	delete process.env[name];
 }
 

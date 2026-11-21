@@ -5,25 +5,61 @@ name = "numbrrs-locale-cache"
 main = "cloudflare/locale-cache-worker.ts"
 compatibility_date = "2026-07-28"
 
-# /game/* also matches the legacy /game/<TEAM> redirect route (no league
-# segment, kept for pre-PWHL bookmarks) — harmless, since the Worker stores
-# only status-200 responses and that route answers with a 301, whatever
-# Cache-Control the redirect carries.
+# The Worker also needs one secret, which does not belong in this file:
+# EDGE_TOKEN, the same value the app has as a Fly secret, set with
+# `wrangler secret put EDGE_TOKEN`. It is what lets the Worker report the page
+# views it serves from cache. Without it the Worker caches as usual and
+# reports nothing.
 #
-# The /privacy patterns are exact, so the page's data request — what a
-# client-side navigation to it fetches — needs patterns of its own. Those end in
-# a wildcard because SvelteKit always puts a query string on that request, and
-# a pattern only matches a URL with a query string if it ends in one.
+# Routes. Every request a pattern matches runs the Worker and counts against
+# the plan's daily request limit, cache hit or not, so the patterns take in the
+# pages and their data requests and as little else as they can. The obvious
+# catch-all, numbrrs.app/*, would put every script, stylesheet, logo and
+# scanner probe through the Worker and spend the day's allowance many times
+# faster.
+#
+# Two rules of Cloudflare's shape the rest
+# (https://developers.cloudflare.com/workers/configuration/routing/routes/):
+# a pattern matches a URL with a query string only if it ends in a wildcard,
+# and a pattern may not contain a query string itself.
+#
+#   numbrrs.app/              The English home page, and only with no query
+#                             string. There is no pattern for `/?…` short of
+#                             the catch-all: it would have to be `/?*`, which
+#                             is not allowed. So `/?fbclid=…` and
+#                             `/?league=pwhl` skip the Worker and are rendered
+#                             by the origin every time: correct, but uncached.
+#                             The app keeps its own visitors off those URLs
+#                             where it can: a league tab clicked with
+#                             JavaScript leaves the address bare and relies on
+#                             the cookie.
+#   numbrrs.app/__data.json*  The home page's data request, which always has a
+#                             query string.
+#   numbrrs.app/privacy*      /privacy, /privacy?utm_…, and its data request.
+#   numbrrs.app/game/*        Team pages and their data requests. Also the
+#                             legacy /game/<TEAM> redirect (no league segment,
+#                             kept for pre-PWHL bookmarks) — harmless, since
+#                             the Worker stores only status-200 responses and
+#                             that route answers with a 301.
+#   numbrrs.app/fr*           All of French: /fr, /fr?…, /fr/__data.json?…,
+#                             /fr/privacy… and /fr/game/…. A prefix rather than
+#                             /fr plus /fr/*, because that pair would miss
+#                             /fr?…. No asset or API path starts with /fr, so
+#                             what it takes in beyond the pages is only
+#                             requests for things that don't exist.
+#
+# The trailing wildcards on /privacy* and /fr* also match longer names
+# (/privacy-policy, /french). Nothing is served at any of them, and the Worker
+# stores nothing but a 200 the origin marked shareable.
 #
 # Not expressible here: what a route does once the account is past its daily
 # request limit. That is set per route in the dashboard, and every deploy puts
 # it back to fail closed, so it has to be set to fail open again each time (the
 # README's Operations section has the path).
 routes = [
-	{ pattern = "numbrrs.app/privacy", zone_name = "numbrrs.app" },
-	{ pattern = "numbrrs.app/fr/privacy", zone_name = "numbrrs.app" },
-	{ pattern = "numbrrs.app/privacy/__data.json*", zone_name = "numbrrs.app" },
-	{ pattern = "numbrrs.app/fr/privacy/__data.json*", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/__data.json*", zone_name = "numbrrs.app" },
+	{ pattern = "numbrrs.app/privacy*", zone_name = "numbrrs.app" },
 	{ pattern = "numbrrs.app/game/*", zone_name = "numbrrs.app" },
-	{ pattern = "numbrrs.app/fr/game/*", zone_name = "numbrrs.app" }
+	{ pattern = "numbrrs.app/fr*", zone_name = "numbrrs.app" }
 ]

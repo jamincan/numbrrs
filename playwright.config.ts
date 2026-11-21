@@ -50,7 +50,10 @@ export default defineConfig({
 			// loading of its own. Blanked explicitly so this server can never
 			// pick up a real ALERT_WEBHOOK_URL from whatever shell environment
 			// happens to run this command, however that value got there.
-			ALERT_WEBHOOK_URL: ''
+			ALERT_WEBHOOK_URL: '',
+			// Present so the edge-report endpoint is switched on and its own
+			// refusals can be tested; nothing outside this run knows the value.
+			EDGE_TOKEN: 'e2e-throwaway-edge-token-not-a-real-secret'
 		}
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]

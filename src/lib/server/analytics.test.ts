@@ -1,8 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDb, getDb } from './db';
+import { closeDb, initDb, getDb } from './db';
 import { errors, events } from './db/schema';
-import { deleteOldestEvents, pruneErrors, pruneEvents, pruneIfDue } from './analytics';
+import {
+	deleteOldestEvents,
+	pruneErrors,
+	pruneEvents,
+	pruneIfDue,
+	recordEdgeViews,
+	type EventPage,
+	type EventVisitor
+} from './analytics';
 
 const NOW = 1_800_000_000_000;
 
@@ -319,5 +327,98 @@ describe('pruneIfDue', () => {
 		pruneIfDue(epoch, { ...limits, maxClientErrors: 2 });
 
 		expect(remainingErrors()).toEqual(['client-0', 'client-1', 'recent']);
+	});
+});
+
+describe('recordEdgeViews', () => {
+	const BROWSER = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
+
+	function view(page: Partial<EventPage> = {}, visitor: Partial<EventVisitor> = {}) {
+		return {
+			page: {
+				pathname: '/game/nhl/TOR',
+				routeId: '/[[lang=locale]]/game/[league]/[team]',
+				params: { league: 'nhl', team: 'TOR' },
+				locale: 'en' as const,
+				...page
+			},
+			visitor: {
+				ip: '203.0.113.7',
+				userAgent: BROWSER,
+				referer: null,
+				hostname: 'numbrrs.app',
+				...visitor
+			}
+		};
+	}
+
+	function rows() {
+		return getDb().select().from(events).orderBy(events.id).all();
+	}
+
+	it('writes a pageview for each view and says how many', () => {
+		const written = recordEdgeViews([
+			view(),
+			view({ pathname: '/fr', routeId: '/[[lang=locale]]', params: { lang: 'fr' }, locale: 'fr' })
+		]);
+
+		expect(written).toBe(2);
+		expect(rows()).toMatchObject([
+			{ name: 'pageview', path: '/game/nhl/TOR', league: 'nhl', team: 'TOR', locale: 'en' },
+			{ name: 'pageview', path: '/fr', routeId: '/[[lang=locale]]', league: null, locale: 'fr' }
+		]);
+	});
+
+	it('leaves the bots out of the count and out of the table', () => {
+		const written = recordEdgeViews([
+			view({}, { userAgent: 'Mozilla/5.0 (compatible; bingbot/2.0)' }),
+			view(),
+			view({}, { userAgent: '' })
+		]);
+
+		expect(written).toBe(1);
+		expect(rows()).toHaveLength(1);
+	});
+
+	it('stores what a rendered view stores of a long path, and no more', () => {
+		recordEdgeViews([view({ pathname: `/${'a'.repeat(500)}` })]);
+
+		expect(rows()[0]?.path).toHaveLength(200);
+	});
+
+	it('gives one visitor one hash across a batch, and across batches', () => {
+		recordEdgeViews([view(), view({}, { ip: '203.0.113.8' }), view()]);
+		recordEdgeViews([view()]);
+
+		const [first, other, again, later] = rows().map((row) => row.visitorHash);
+		expect(again).toBe(first);
+		expect(later).toBe(first);
+		expect(other).not.toBe(first);
+	});
+
+	it('does nothing with an empty batch', () => {
+		expect(recordEdgeViews([])).toBe(0);
+		expect(rows()).toEqual([]);
+	});
+
+	it('writes all of a batch or none of it', () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		error.mockClear();
+
+		// The second row breaks a NOT NULL constraint part-way through.
+		const written = recordEdgeViews([view(), view({ locale: null as never }), view()]);
+
+		expect(written).toBe(0);
+		expect(rows()).toEqual([]);
+		expect(error).toHaveBeenCalledTimes(1);
+	});
+
+	it('never throws, whatever state the database is in', () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		error.mockClear();
+		closeDb();
+
+		expect(recordEdgeViews([view()])).toBe(0);
+		expect(error).toHaveBeenCalledTimes(1);
 	});
 });

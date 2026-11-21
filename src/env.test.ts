@@ -38,7 +38,7 @@ describe('ADMIN_DIRECT', () => {
 });
 
 describe('the other variables', () => {
-	it.each(['ALERT_WEBHOOK_URL', 'ADMIN_TOKEN', 'DATABASE_URL'] as const)(
+	it.each(['ALERT_WEBHOOK_URL', 'ADMIN_TOKEN', 'EDGE_TOKEN', 'DATABASE_URL'] as const)(
 		'%s is optional and passed through untouched',
 		async (name) => {
 			expect(await parsed(name, undefined)).toBeUndefined();

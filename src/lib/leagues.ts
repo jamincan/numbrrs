@@ -47,6 +47,29 @@ export function isLeagueId(value: string): value is LeagueId {
 	return (LEAGUE_IDS as string[]).includes(value);
 }
 
+/** The query parameter a league tab's link carries: `/?league=pwhl`. */
+export const LEAGUE_PARAM = 'league';
+
+/**
+ * Which league's grid the home page shows: the one the URL names, else the one
+ * the cookie remembers, else the default. The URL wins because it is what a
+ * visitor without JavaScript clicked, and what a shared link asked for.
+ *
+ * Anything that is not a known league id is ignored rather than refused, so
+ * each source falls through to the next. The Cloudflare Worker calls this too,
+ * to file a home page under the league the origin will render for the same
+ * request (see cloudflare/locale-cache-worker.ts) — the two have to agree, and
+ * sharing the function is what makes them.
+ */
+export function resolveLeague(
+	param: string | null | undefined,
+	cookie: string | null | undefined
+): LeagueId {
+	if (param != null && isLeagueId(param)) return param;
+	if (cookie != null && isLeagueId(cookie)) return cookie;
+	return DEFAULT_LEAGUE;
+}
+
 /** Database team ID, namespaced by league so codes like "TOR" don't collide. */
 export function teamDbId(league: LeagueId, code: string): string {
 	return `${league}:${code}`;
