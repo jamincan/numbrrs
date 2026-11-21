@@ -5,17 +5,35 @@ on:
     branches: [master]
   pull_request:
 
+# Nothing here writes to the repository, so the token can only read it.
+permissions:
+  contents: read
+
+# A newer push to a pull request makes the older run pointless. Runs on master
+# are left to finish: scripts/deploy.mjs refuses a commit whose run did not
+# succeed, and a cancelled run is not a success.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Actions are pinned to a commit, because a tag can be moved to different code
+# after the fact. The trailing comment is the release that commit belongs to;
+# Dependabot updates both together.
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step pushes or fetches, so the token isn't left in .git/config.
+          persist-credentials: false
 
       # Reads the version from package.json's packageManager field.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       # Same major as the Dockerfile's base image.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: pnpm
@@ -32,15 +50,43 @@ jobs:
 
       - run: pnpm run build
 
-      # Informational rather than blocking: pnpm's dependency graph doesn't
-      # distinguish "a build-time tool nested under a runtime dependency" from
-      # "code that actually executes in production", so failing here would
-      # gate merges on advisories in vite/esbuild's own dev server — packages
-      # that never run on Fly. Visibility is the point; a human still has to
-      # read this and decide whether a given advisory is worth acting on.
+      # Blocking: `dependencies` holds only what the built server imports, so a
+      # high-severity advisory in this tree is in code that runs on Fly.
+      - run: pnpm audit --prod --audit-level=high
+
+      # Informational rather than blocking: this adds the devDependencies, so
+      # failing here would gate merges on advisories in build and test tooling
+      # (vite's dev server, say) that never runs on Fly. Visibility is the
+      # point; a human still has to read this and decide whether a given
+      # advisory is worth acting on.
       - run: pnpm audit --audit-level=high
         continue-on-error: true
 
       - run: pnpm exec playwright install --with-deps chromium
 
-      - run: pnpm run test:e2e
+      - id: e2e
+        run: pnpm run test:e2e
+
+      # The HTML report embeds the trace recorded on each failed test's retry.
+      - if: ${{ failure() && steps.e2e.conclusion == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # `fly deploy` builds this same Dockerfile on a remote builder, and nothing
+  # else exercises it or .dockerignore's allowlist before then. Built and thrown
+  # away; nothing is pushed.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: docker build .

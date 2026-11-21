@@ -1,7 +1,17 @@
-node_modules
-build
-.svelte-kit
-local.db
-local.db-wal
-local.db-shm
-.env
+# An allowlist, because `fly deploy` uploads the whole build context to a remote
+# builder: everything is left out unless it is named below, so a database
+# snapshot, a token file or .git can't ride along by being forgotten here.
+#
+# These are everything the image build reads: the manifests for the two install
+# stages, the Vite and TypeScript config, the app itself, and the migrations the
+# final stage copies. Something new that the build needs (a config file at the
+# root, a directory imported from src/) has to be added here as well.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!vite.config.ts
+!tsconfig.json
+!src
+!static
+!drizzle

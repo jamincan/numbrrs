@@ -5,8 +5,10 @@
 # different hardware produces a number that does not transfer, which is worse
 # than no number because it reads like one.
 #
-# Two deliberate differences from production:
+# Three deliberate differences from production:
 #
+#   * ADMIN_DIRECT = '1'. Nothing here sits behind Cloudflare Access, which
+#     /admin otherwise insists on.
 #   * No [mounts]. The database lives on the container's ephemeral disk, which
 #     is fine when the data is disposable, and it avoids creating a volume that
 #     would outlive `fly apps destroy` and keep billing.
@@ -18,6 +20,8 @@
 # it — which is exactly what the test wants. See load-test/README.md.
 app = 'numbrrs-loadtest'
 primary_region = 'yyz'
+# Same shutdown timings as production; see the root fly.toml.
+kill_timeout = '15s'
 
 # The Dockerfile is passed on the command line rather than set here, so the
 # build context is unambiguously the repo root. See load-test/README.md.
@@ -26,6 +30,11 @@ primary_region = 'yyz'
 [env]
   PORT = '3000'
   PROTOCOL_HEADER = 'x-forwarded-proto'
+  SHUTDOWN_TIMEOUT = '10'
+  # /admin normally answers only requests that came through Cloudflare Access,
+  # and this app has no Cloudflare in front of it, so without this the warm-up
+  # resync in the README would get a 403. The admin token is still required.
+  ADMIN_DIRECT = '1'
   # Ephemeral, unlike production's /data volume path.
   DATABASE_URL = '/app/loadtest.db'
   # Left unset on purpose so notify() no-ops: a load test must not be able to

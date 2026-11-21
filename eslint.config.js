@@ -34,5 +34,23 @@ export default defineConfig(
 				svelteConfig
 			}
 		}
+	},
+	{
+		// The rules that need type information, and so a tsconfig that includes
+		// the file: the root one, or cloudflare/'s for the Worker. Each catches a
+		// promise that is dropped, or used where a plain value is expected — the
+		// kind of mistake that type-checks and then fails without a trace.
+		files: ['**/*.ts', '**/*.svelte'],
+		languageOptions: {
+			parserOptions: {
+				projectService: true,
+				extraFileExtensions: ['.svelte']
+			}
+		},
+		rules: {
+			'@typescript-eslint/no-floating-promises': 'error',
+			'@typescript-eslint/no-misused-promises': 'error',
+			'@typescript-eslint/await-thenable': 'error'
+		}
 	}
 );

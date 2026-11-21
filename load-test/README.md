@@ -2,20 +2,23 @@
 
 ## What this is for
 
-[`docs/hosting.md`](../docs/hosting.md) puts the current machine's sustained
-ceiling at **"~5–15 req/s"** and labels it an estimate. That estimate is load
-bearing: it is what decides whether a modest Reddit post (~8 req/s) survives and
-whether a good one (~33 req/s) does not. This measures it.
+The origin's ceiling in [`docs/hosting.md`](../docs/hosting.md)'s "Where it
+breaks" is a measurement, and this is how it was taken: **100 req/s** while the
+machine has burst credits, **~17–20 req/s** once they drain (see
+[the result](#result-2026-07-29) below). The number is load bearing: it is what
+says a modest Reddit post (~8 req/s) and a good one (~33 req/s) are both
+survivable at the origin.
 
-The output should be a single number written back into `docs/hosting.md`'s
-"Where it breaks" section, replacing the guess.
+It describes one machine size and one set of concurrency limits. Run this again
+after changing either, and write the new figures into that section.
 
 ## Why a staging app rather than production
 
-Load testing production would inject a `pageview` row per request
-(`src/hooks.server.ts:147`) into the `events` table, polluting `/admin` and
-evicting real visits via the row cap in `src/lib/server/analytics.ts`. A
-throwaway app on identical hardware costs pennies and avoids all of it.
+Load testing production would inject a `pageview` row per request (the
+`recordEvent` call in `src/hooks.server.ts`) into the `events` table, polluting
+`/admin` and evicting real visits via the row cap in
+`src/lib/server/analytics.ts`. A throwaway app on identical hardware costs
+pennies and avoids all of it.
 
 `fly.staging.toml` keeps the `[[vm]]` and `[http_service.concurrency]` blocks
 byte-identical to the root `fly.toml`. If you change one, change both, or the
@@ -58,6 +61,11 @@ API, not this app.
 Log into `/admin` on the staging app with the token from step 2 and press
 resync. Wait for it to report complete, then hit each URL in `TEAMS` once by
 hand and confirm they render. Only then measure.
+
+`/admin` normally refuses anything that did not come through Cloudflare Access,
+which this app is not behind. `fly.staging.toml` sets `ADMIN_DIRECT = '1'` to
+skip that check, so the page carries its "Direct access is on" warning here; a
+403 instead means that line has gone missing.
 
 ### 4. Run the ramp
 

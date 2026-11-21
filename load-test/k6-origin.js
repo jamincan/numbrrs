@@ -1,16 +1,16 @@
 /**
  * Measures the origin's sustained request ceiling.
  *
- * This exists to replace one estimate with a measurement. docs/hosting.md's
- * "Where it breaks" puts the current machine at "~5–15 req/s", which is a guess,
- * and it is the guess that decides whether a modest Reddit post (~8 req/s) or a
- * good one (~33 req/s) survives. Everything below is arranged to produce a real
- * number for that line.
+ * The figures in docs/hosting.md's "Where it breaks" — 100 req/s with burst
+ * credits, ~17–20 req/s once they drain — came from this script, and they are
+ * what says a modest Reddit post (~8 req/s) and a good one (~33 req/s) survive.
+ * They hold for one machine size and one set of concurrency limits; everything
+ * below is arranged to produce the same two numbers again after either changes.
  *
  * Point BASE_URL at the Fly hostname directly, never at numbrrs.app. Through
  * Cloudflare this would mostly measure cache hits — that is a useful test, but
- * it is a test of the CDN, not of the origin, and the origin is the thing whose
- * ceiling is unknown.
+ * it is a test of the CDN, not of the origin, and the origin's ceiling is what
+ * this measures.
  *
  * `ramping-arrival-rate` is deliberate. An open model holds the *arrival* rate
  * fixed regardless of how slow responses get, which is what a crowd arriving
@@ -99,8 +99,8 @@ export const options = {
 					stages: [
 						{ target: 1, duration: '30s' }, // settle
 						{ target: 5, duration: '2m' },
-						{ target: 10, duration: '2m' }, // bottom of the hosting.md estimate
-						{ target: 20, duration: '2m' },
+						{ target: 10, duration: '2m' }, // "modest post"
+						{ target: 20, duration: '2m' }, // the sustained rate once burst credits drain
 						{ target: 35, duration: '2m' }, // "good post" — the number that matters
 						{ target: 50, duration: '2m' },
 						{ target: 100, duration: '2m' } // "big post"

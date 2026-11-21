@@ -1,10 +1,22 @@
 app = 'numbrrs'
 primary_region = 'yyz'
+# How long Fly waits after its stop signal before killing the machine. The
+# default of 5s is shorter than a page load can legitimately take (a roster
+# fetch may block for 8s), so a deploy would cut those requests off. This has to
+# stay above SHUTDOWN_TIMEOUT below, or the server is killed mid-drain anyway.
+kill_timeout = '15s'
 
 [build]
 
 [env]
   PORT = '3000'
+  # Seconds the server gives in-flight requests to finish once told to stop,
+  # before it closes their connections itself (adapter-node; its default of 30
+  # would outlast kill_timeout).
+  SHUTDOWN_TIMEOUT = '10'
+  # The SQLite file on the volume mounted below. While a Fly secret of the same
+  # name exists, the secret is what the machine sees, not this.
+  DATABASE_URL = '/data/numbrrs.db'
   # Fly terminates TLS at its proxy, so the app itself is spoken to over plain
   # http. Without this the adapter guesses the scheme, and the guess is what
   # SvelteKit compares the Origin header against when a form is posted — the

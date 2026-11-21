@@ -1,0 +1,42 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Minor and patch updates arrive as two pull requests a week, split the way
+    # the image is: what ships to Fly, and what only builds and tests it. Majors
+    # match neither group, so each gets a pull request of its own to be read.
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Tracks the Node major the Dockerfile and CI run, which is moved by hand.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    ignore:
+      # A new Node major is a decision (native modules, CI's node-version), not
+      # a routine bump. Digest updates within the pinned tag still come through.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
