@@ -1,5 +1,7 @@
-FROM node:22-slim AS base
-RUN corepack enable && corepack prepare pnpm@11 --activate
+FROM node:26-slim AS base
+# Node 25 stopped shipping corepack, so pnpm is installed directly. Keep the
+# version in step with `packageManager` in package.json.
+RUN npm install -g pnpm@11.3.0
 WORKDIR /app
 
 # All dependencies, for building
