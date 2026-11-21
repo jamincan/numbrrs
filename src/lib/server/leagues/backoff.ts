@@ -1,7 +1,7 @@
 /**
  * How long to leave a failing sync alone. Kept separate from the sync layer
- * because the policy is pure arithmetic and the sync layer opens a database at
- * import — this way the schedule can be tested without one.
+ * because the policy is pure arithmetic: the schedule can be tested without a
+ * database, an adapter or a clock.
  *
  * The problem it solves: freshness is only recorded on success, so without
  * failure tracking a league that is down looks exactly like one that has never
@@ -17,7 +17,7 @@
  * is long enough to stop hammering an upstream while short enough that someone
  * reloading just after an outage ends isn't told to come back much later.
  */
-export const BACKOFF_BASE_MS = 60_000;
+const BACKOFF_BASE_MS = 60_000;
 export const BACKOFF_MAX_MS = 30 * 60_000;
 
 export interface FailureState {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reportError } from '../alerts';
 import { fetchWithTimeout } from './http';
 import { parseFeed } from './validate';
 import type { LeagueAdapter, LeagueTeam, RosterResult } from './types';
@@ -118,27 +119,60 @@ const rosterSchema = z.object({
 	goalies: z.array(playerSchema.nullable().catch(null))
 });
 
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** What a 429 with no usable Retry-After is taken to mean. */
+const DEFAULT_RETRY_AFTER_MS = 60_000;
+
+/** e.g. `Sat, 21 Nov 2026 12:00:30 GMT` */
+const HTTP_DATE = /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+/**
+ * A Retry-After header as a delay in milliseconds. The header is either a
+ * number of seconds or an HTTP date, and reading a date as a number gives NaN —
+ * which a timer treats as zero, turning "wait" into "retry immediately".
+ */
+export function retryAfterMs(header: string | null, now = Date.now()): number {
+	const value = header?.trim() ?? '';
+	if (/^\d+$/.test(value)) return Number(value) * 1000;
+
+	// Only the one date format HTTP still sends. Date.parse on its own is far
+	// too generous: it reads "-5" as a day in May 2001.
+	if (!HTTP_DATE.test(value)) return DEFAULT_RETRY_AFTER_MS;
+	const until = Date.parse(value);
+	return Number.isFinite(until) ? Math.max(0, until - now) : DEFAULT_RETRY_AFTER_MS;
+}
+
 async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
 	let payload: unknown;
 	try {
 		const res = await fetchWithTimeout(`${NHL_API_BASE}/roster/${team.code}/current`);
 		if (res.status === 429) {
-			const retryAfter = parseInt(res.headers.get('retry-after') ?? '60', 10);
-			console.warn(`429 for ${team.code}, retry after ${retryAfter}s`);
-			return { ok: false, reason: 'transient', retryAfter: retryAfter * 1000 };
+			const retryAfter = retryAfterMs(res.headers.get('retry-after'));
+			console.warn(`429 for ${team.code}, retry after ${Math.round(retryAfter / 1000)}s`);
+			return {
+				ok: false,
+				reason: 'transient',
+				retryAfter,
+				detail: `roster/${team.code} returned 429 (retry after ${Math.round(retryAfter / 1000)}s)`
+			};
 		}
 		if (res.status === 404) {
 			console.error(`No NHL roster for ${team.code}`);
-			return { ok: false, reason: 'not-found' };
+			return { ok: false, reason: 'not-found', detail: `roster/${team.code} returned 404` };
 		}
 		if (!res.ok) {
 			console.error(`Failed to fetch roster for ${team.code}: ${res.status}`);
-			return { ok: false, reason: 'transient' };
+			return {
+				ok: false,
+				reason: 'transient',
+				detail: `roster/${team.code} returned ${res.status}`
+			};
 		}
 		payload = await res.json();
 	} catch (err) {
 		console.error(`Failed to fetch roster for ${team.code}:`, err);
-		return { ok: false, reason: 'transient' };
+		return { ok: false, reason: 'transient', detail: errorMessage(err) };
 	}
 
 	// Parsing sits outside the fetch's try on purpose: a shape mismatch is not a
@@ -149,8 +183,8 @@ async function fetchRoster(team: LeagueTeam): Promise<RosterResult> {
 	} catch (err) {
 		// parseFeed is the only thing that throws here, and only for a mismatch.
 		// This function's contract is that it never throws.
-		console.error(err instanceof Error ? err.message : err);
-		return { ok: false, reason: 'invalid' };
+		console.error(errorMessage(err));
+		return { ok: false, reason: 'invalid', detail: errorMessage(err) };
 	}
 
 	const rows = [...data.defensemen, ...data.forwards, ...data.goalies];
@@ -200,6 +234,17 @@ async function fetchTeams(): Promise<LeagueTeam[]> {
 		return teams.sort((a, b) => a.code.localeCompare(b.code));
 	} catch (err) {
 		console.warn('Falling back to the static NHL team list:', err);
+		// The fallback returns a full list, so the sync layer records a success and
+		// nothing else would ever say the live list is unavailable — while French
+		// names go missing and a relocated team keeps its old tile. One report per
+		// fetch, with a fixed message so every cause folds into the same alert; the
+		// cause itself travels in the stack.
+		reportError({
+			source: 'sync',
+			message: 'NHL standings unavailable; using the static team list',
+			stack: err instanceof Error ? (err.stack ?? err.message) : String(err),
+			route: 'sync:teams:nhl'
+		});
 		return ACTIVE_TEAMS.map((code) => ({
 			code,
 			name: TEAM_NAMES[code] || code,

@@ -2,21 +2,32 @@ import { getDb, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
 import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
-import { teamDbId, type LeagueId } from '#lib/leagues.ts';
+import { LEAGUE_IDS, teamDbId, type LeagueId } from '#lib/leagues.ts';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
 import { ohlAdapter, qmjhlAdapter, whlAdapter } from './chl';
 import { inBackoff, type FailureState } from './backoff';
 import type { LeagueAdapter, LeagueTeam } from './types';
 
-const ADAPTERS: LeagueAdapter[] = [nhlAdapter, pwhlAdapter, whlAdapter, ohlAdapter, qmjhlAdapter];
-const ADAPTERS_BY_ID = new Map(ADAPTERS.map((a) => [a.id, a]));
+/**
+ * Keyed by league rather than listed, so a league added to `LEAGUES` without
+ * an adapter here fails to compile.
+ */
+const ADAPTERS_BY_ID: Record<LeagueId, LeagueAdapter> = {
+	nhl: nhlAdapter,
+	pwhl: pwhlAdapter,
+	whl: whlAdapter,
+	ohl: ohlAdapter,
+	qmjhl: qmjhlAdapter
+};
+/** In `LEAGUES` order, which is the order a full sync and the sweep walk them in. */
+const ADAPTERS = LEAGUE_IDS.map((id) => ADAPTERS_BY_ID[id]);
 
 /**
- * Rosters are fetched per team, when someone opens that team, and lists of
- * teams when someone opens the home page — so the work scales with what's
- * actually looked at instead of with the number of leagues. Freshness lives in
- * the database, so a restart doesn't re-fetch everything.
+ * How long a roster and a list of teams stay fresh. Each is fetched on its
+ * own — a roster when someone opens that team, a list when someone opens the
+ * home page, and either by the hourly sweep once it is past its TTL.
+ * Freshness lives in the database, so a restart doesn't re-fetch everything.
  */
 export const ROSTER_TTL = 12 * 60 * 60 * 1000;
 const TEAM_LIST_TTL = 24 * 60 * 60 * 1000;
@@ -44,13 +55,14 @@ const SWEEP_INITIAL_DELAY = 60 * 1000;
 /**
  * Backoff before retrying a transient roster failure, and the most a league's
  * Retry-After can stretch it. An upstream asking for an hour would otherwise
- * hold the in-flight slot (and, on Fly, the machine) that whole time — better
- * to give up and let the next visit try again.
+ * hold the in-flight slot that whole time, and a sweep or full sync behind it
+ * — better to give up and let the next visit try again.
  */
 const RETRY_DELAY = 1000;
 const MAX_RETRY_DELAY = 15_000;
 
-const teamListKey = (league: string) => `teams:${league}`;
+/** The `sync_state` key for a league's team list. */
+export const teamListKey = (league: string) => `teams:${league}`;
 const rosterKey = (dbId: string) => `roster:${dbId}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -81,7 +93,8 @@ export function once(key: string, run: () => Promise<void>): Promise<void> {
 				source: 'sync',
 				message: `Sync failed: ${err instanceof Error ? err.message : String(err)}`,
 				stack: err instanceof Error ? err.stack : `key: ${key}`,
-				route: alertScope(key)
+				route: alertScope(key),
+				error: err
 			});
 		})
 		.finally(() => inFlight.delete(key));
@@ -144,6 +157,27 @@ function failureState(key: string): FailureState | undefined {
 	return getDb().select().from(syncState).where(eq(syncState.key, key)).get();
 }
 
+/**
+ * Run a sync's database write, recording a failure against `key` if it throws.
+ * The upstream fetch has already succeeded by this point, so without this a
+ * write that keeps failing leaves no backoff behind it, and every visit fetches
+ * from the league again only to fail the same way. The error still propagates:
+ * `once()` is what reports it.
+ */
+function writeOrMarkFailed(key: string, write: () => void): void {
+	try {
+		write();
+	} catch (err) {
+		try {
+			markFailed(key);
+		} catch {
+			// If the database won't take this either, the original error is still
+			// the one worth reporting.
+		}
+		throw err;
+	}
+}
+
 export function isFresh(syncedAt: number | null | undefined, ttl: number): boolean {
 	return syncedAt != null && syncedAt > Date.now() - ttl;
 }
@@ -159,7 +193,8 @@ export async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 			source: 'sync',
 			message: `Failed to fetch ${adapter.id} team list`,
 			stack: err instanceof Error ? err.stack : String(err),
-			route: `sync:teams:${adapter.id}`
+			route: `sync:teams:${adapter.id}`,
+			error: err
 		});
 		return;
 	}
@@ -176,34 +211,36 @@ export async function syncTeamList(adapter: LeagueAdapter): Promise<void> {
 
 	const activeIds = leagueTeams.map((t) => teamDbId(adapter.id, t.code));
 
-	getDb().transaction((tx) => {
-		for (const team of leagueTeams) {
-			tx.insert(teams)
-				.values({
-					id: teamDbId(adapter.id, team.code),
-					league: adapter.id,
-					name: team.name,
-					nameFr: team.nameFr ?? null,
-					abbreviation: team.code,
-					logoUrl: team.logoUrl
-				})
-				.onConflictDoUpdate({
-					target: teams.id,
-					set: { name: team.name, nameFr: team.nameFr ?? null, logoUrl: team.logoUrl }
-				})
-				.run();
-		}
+	writeOrMarkFailed(teamListKey(adapter.id), () =>
+		getDb().transaction((tx) => {
+			for (const team of leagueTeams) {
+				tx.insert(teams)
+					.values({
+						id: teamDbId(adapter.id, team.code),
+						league: adapter.id,
+						name: team.name,
+						nameFr: team.nameFr ?? null,
+						abbreviation: team.code,
+						logoUrl: team.logoUrl
+					})
+					.onConflictDoUpdate({
+						target: teams.id,
+						set: { name: team.name, nameFr: team.nameFr ?? null, logoUrl: team.logoUrl }
+					})
+					.run();
+			}
 
-		// Remove teams (relocations, contractions) no longer reported by the
-		// league. This is the only place teams are deleted — a single failed
-		// roster request is far likelier to be a blip than a real removal.
-		tx.delete(players)
-			.where(and(eq(players.league, adapter.id), notInArray(players.teamId, activeIds)))
-			.run();
-		tx.delete(teams)
-			.where(and(eq(teams.league, adapter.id), notInArray(teams.id, activeIds)))
-			.run();
-	});
+			// Remove teams (relocations, contractions) no longer reported by the
+			// league. This is the only place teams are deleted — a single failed
+			// roster request is far likelier to be a blip than a real removal.
+			tx.delete(players)
+				.where(and(eq(players.league, adapter.id), notInArray(players.teamId, activeIds)))
+				.run();
+			tx.delete(teams)
+				.where(and(eq(teams.league, adapter.id), notInArray(teams.id, activeIds)))
+				.run();
+		})
+	);
 
 	markSynced(teamListKey(adapter.id));
 }
@@ -232,10 +269,16 @@ export async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Prom
 		// Alerts, though, are scoped to the league — when an upstream goes down
 		// every one of its teams fails the same way, and an outage reads better as
 		// one problem with a high count than as a hundred separate ones.
+		//
+		// The message and route are what the alert is fingerprinted on, so they
+		// carry only the league and the kind of failure. Which team, and what the
+		// adapter saw, go in the stack: they are what a reader needs, and putting
+		// them in the message would split one outage into an alert per team.
+		const detail = !result.ok ? result.detail : undefined;
 		reportError({
 			source: 'sync',
 			message: `Roster sync failed for ${adapter.id} (${reason}); keeping existing players`,
-			stack: `team: ${dbId}`,
+			stack: detail ? `team: ${dbId}\n${detail}` : `team: ${dbId}`,
 			route: `sync:roster:${adapter.id}`
 		});
 		return;
@@ -244,48 +287,50 @@ export async function syncRoster(adapter: LeagueAdapter, team: LeagueTeam): Prom
 	const rosterPlayers = result.players;
 	const rosterIds = rosterPlayers.map((p) => p.id);
 
-	getDb().transaction((tx) => {
-		for (const p of rosterPlayers) {
-			// Players without a sweater number are still stored (with a null
-			// number); the game treats them as already-identified.
-			tx.insert(players)
-				.values({
-					league: adapter.id,
-					id: p.id,
-					teamId: dbId,
-					firstName: p.firstName,
-					lastName: p.lastName,
-					sweaterNumber: p.sweaterNumber,
-					positionCode: p.positionCode,
-					headshotUrl: p.headshotUrl
-				})
-				.onConflictDoUpdate({
-					target: [players.league, players.id],
-					set: {
+	writeOrMarkFailed(rosterKey(dbId), () =>
+		getDb().transaction((tx) => {
+			for (const p of rosterPlayers) {
+				// Players without a sweater number are still stored (with a null
+				// number); the game treats them as already-identified.
+				tx.insert(players)
+					.values({
+						league: adapter.id,
+						id: p.id,
 						teamId: dbId,
 						firstName: p.firstName,
 						lastName: p.lastName,
 						sweaterNumber: p.sweaterNumber,
 						positionCode: p.positionCode,
 						headshotUrl: p.headshotUrl
-					}
-				})
+					})
+					.onConflictDoUpdate({
+						target: [players.league, players.id],
+						set: {
+							teamId: dbId,
+							firstName: p.firstName,
+							lastName: p.lastName,
+							sweaterNumber: p.sweaterNumber,
+							positionCode: p.positionCode,
+							headshotUrl: p.headshotUrl
+						}
+					})
+					.run();
+			}
+
+			// Remove players who are no longer on this team's roster (trades, waivers,
+			// call-ups/downs). Scoped to teamId so a player who moved to another team
+			// isn't deleted here — their new team's sync owns them.
+			tx.delete(players)
+				.where(
+					rosterIds.length > 0
+						? and(eq(players.teamId, dbId), notInArray(players.id, rosterIds))
+						: eq(players.teamId, dbId)
+				)
 				.run();
-		}
 
-		// Remove players who are no longer on this team's roster (trades, waivers,
-		// call-ups/downs). Scoped to teamId so a player who moved to another team
-		// isn't deleted here — their new team's sync owns them.
-		tx.delete(players)
-			.where(
-				rosterIds.length > 0
-					? and(eq(players.teamId, dbId), notInArray(players.id, rosterIds))
-					: eq(players.teamId, dbId)
-			)
-			.run();
-
-		tx.update(teams).set({ rosterSyncedAt: Date.now() }).where(eq(teams.id, dbId)).run();
-	});
+			tx.update(teams).set({ rosterSyncedAt: Date.now() }).where(eq(teams.id, dbId)).run();
+		})
+	);
 
 	// Outside the transaction: the roster is what mattered, and a failed bit of
 	// bookkeeping shouldn't roll back a successful sync.
@@ -354,8 +399,7 @@ export async function ensureTeams(): Promise<void> {
  * page needs before it can render anything at all.
  */
 export async function ensureTeam(league: LeagueId, code: string) {
-	const adapter = ADAPTERS_BY_ID.get(league);
-	if (!adapter) return undefined;
+	const adapter = ADAPTERS_BY_ID[league];
 
 	const dbId = teamDbId(league, code);
 	const row = teamRow(dbId);
@@ -393,17 +437,14 @@ export async function ensureTeam(league: LeagueId, code: string) {
  */
 export async function loadRoster(league: LeagueId, code: string): Promise<Player[]> {
 	const dbId = teamDbId(league, code);
-	const adapter = ADAPTERS_BY_ID.get(league);
+	const adapter = ADAPTERS_BY_ID[league];
 	const row = teamRow(dbId);
 
-	// A team with no players counts as stale however recently it synced. Nothing
-	// records an empty roster as fresh any more, but a team emptied before that
-	// guard existed would otherwise stay empty until its TTL ran out.
-	const stale =
-		adapter && row && (!isFresh(row.rosterSyncedAt, ROSTER_TTL) || !hasStoredRoster(league, code));
-	// The most exposed path of the three. Because failures used to go unrecorded,
-	// a team whose roster couldn't be fetched blocked for up to 8s on *every*
-	// visit — and the sitemap invites a crawler to walk every team page in turn.
+	const stale = row && isRosterStale(row);
+	// The most exposed path of the three, and the reason the backoff is checked:
+	// without it a team whose roster can't be fetched would block for up to 8s
+	// on *every* visit — and the sitemap invites a crawler to walk every team
+	// page in turn.
 	if (stale && !backingOff(failureState(rosterKey(dbId)))) {
 		await withTimeout(
 			once(rosterKey(dbId), () => syncRoster(adapter, toLeagueTeam(row))),
@@ -420,7 +461,10 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
  * sent before the streamed roster resolves.
  */
 export function hasStoredRoster(league: LeagueId, code: string): boolean {
-	const dbId = teamDbId(league, code);
+	return hasPlayers(teamDbId(league, code));
+}
+
+function hasPlayers(dbId: string): boolean {
 	return (
 		getDb()
 			.select({ id: players.id })
@@ -431,8 +475,25 @@ export function hasStoredRoster(league: LeagueId, code: string): boolean {
 	);
 }
 
-/** Refresh everything, ignoring TTLs. Used by the manual sync endpoint. */
-export async function syncRosters(): Promise<void> {
+/**
+ * Whether a team's roster is due a refresh: past its TTL, never synced, or
+ * holding no players. The on-demand path, the sweep and the admin page's stale
+ * count all ask this, so they cannot disagree about which teams are stale.
+ *
+ * A team with no players counts as stale however recently it synced.
+ * `syncRoster` never records an empty roster as fresh, so a recent timestamp
+ * over no players was not written by it, and trusting that timestamp would
+ * leave the team's page empty until the TTL ran out.
+ */
+export function isRosterStale(team: { id: string; rosterSyncedAt: number | null }): boolean {
+	return !isFresh(team.rosterSyncedAt, ROSTER_TTL) || !hasPlayers(team.id);
+}
+
+/**
+ * Refresh everything, ignoring TTLs: what the admin page's "Resync all rosters"
+ * runs. Started through `syncRostersOnce`, which keeps it to one run at a time.
+ */
+async function syncRosters(): Promise<void> {
 	for (const adapter of ADAPTERS) {
 		console.log(`Syncing ${adapter.id.toUpperCase()} rosters...`);
 		await once(teamListKey(adapter.id), () => syncTeamList(adapter));
@@ -473,11 +534,7 @@ export async function syncStale(): Promise<void> {
 
 		const rows = getDb().select().from(teams).where(eq(teams.league, adapter.id)).all();
 		for (const row of rows) {
-			// Same definition of stale as loadRoster: an empty team is stale however
-			// recently it synced.
-			const fresh =
-				isFresh(row.rosterSyncedAt, ROSTER_TTL) && hasStoredRoster(adapter.id, row.abbreviation);
-			if (fresh) continue;
+			if (!isRosterStale(row)) continue;
 			if (backingOff(failureState(rosterKey(row.id)))) continue;
 			if (!first) await sleep(FULL_SYNC_DELAY);
 			first = false;
@@ -506,7 +563,8 @@ export function startSweeps(): void {
 					source: 'sync',
 					message: `Sweep failed: ${err instanceof Error ? err.message : String(err)}`,
 					stack: err instanceof Error ? err.stack : null,
-					route: 'sync:sweep'
+					route: 'sync:sweep',
+					error: err
 				});
 			})
 			.finally(() => {
@@ -528,12 +586,27 @@ export function fullSyncStatus(): { running: boolean; startedAt: number | null }
 /**
  * Run a full sync, coalescing concurrent callers onto a single run. Returns
  * whether this call started a new sync or joined one already in progress.
+ *
+ * `done` never rejects. The admin action that starts a sync doesn't wait for
+ * it, and a rejection nobody is listening for takes the whole process down.
+ * The individual syncs report their own failures; what can still throw here is
+ * the walk itself, reading the database between them.
  */
 export function syncRostersOnce(): { started: boolean; done: Promise<void> } {
 	if (fullSync) return { started: false, done: fullSync };
 	fullSyncStartedAt = Date.now();
-	fullSync = syncRosters().finally(() => {
-		fullSync = null;
-	});
+	fullSync = syncRosters()
+		.catch((err) => {
+			reportError({
+				source: 'sync',
+				message: `Full sync failed: ${err instanceof Error ? err.message : String(err)}`,
+				stack: err instanceof Error ? err.stack : null,
+				route: 'sync:full',
+				error: err
+			});
+		})
+		.finally(() => {
+			fullSync = null;
+		});
 	return { started: true, done: fullSync };
 }

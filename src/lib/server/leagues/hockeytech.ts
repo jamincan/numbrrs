@@ -241,6 +241,8 @@ interface SeasonTeams {
 	teams: HockeyTechTeam[];
 }
 
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
 export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter {
 	const label = config.id.toUpperCase();
 	const teamName = config.teamName ?? ((t: HockeyTechTeam) => t.name);
@@ -337,8 +339,7 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 		return members.map((t) => ({
 			code: teamCode(t),
 			name: teamName(t),
-			logoUrl: t.team_logo_url,
-			externalId: t.id
+			logoUrl: t.team_logo_url
 		}));
 	}
 
@@ -353,17 +354,21 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			} catch (err) {
 				if (err instanceof FeedSchemaError) {
 					console.error(err.message);
-					return { ok: false, reason: 'invalid' };
+					return { ok: false, reason: 'invalid', detail: err.message };
 				}
 				console.error(`Failed to load ${label} roster params:`, err);
-				return { ok: false, reason: 'transient' };
+				return { ok: false, reason: 'transient', detail: errorMessage(err) };
 			}
 			params = rosterParams.get(team.code);
 		}
 		if (!params) {
 			// The feed answered but doesn't list this team — it really is gone.
 			console.error(`No roster params for ${label} team ${team.code}`);
-			return { ok: false, reason: 'not-found' };
+			return {
+				ok: false,
+				reason: 'not-found',
+				detail: `${label} teamsbyseason does not list ${team.code}`
+			};
 		}
 
 		// Later seasons are only asked for when an earlier one has no players, which
@@ -380,10 +385,10 @@ export function createHockeyTechAdapter(config: HockeyTechConfig): LeagueAdapter
 			} catch (err) {
 				if (err instanceof FeedSchemaError) {
 					console.error(err.message);
-					return { ok: false, reason: 'invalid' };
+					return { ok: false, reason: 'invalid', detail: err.message };
 				}
 				console.error(`Failed to fetch ${label} roster for ${team.code}:`, err);
-				return { ok: false, reason: 'transient' };
+				return { ok: false, reason: 'transient', detail: errorMessage(err) };
 			}
 
 			players = parseRosterEntries(entries, () =>

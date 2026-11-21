@@ -6,7 +6,7 @@ export const teams = sqliteTable('teams', {
 	name: text('name').notNull(), // e.g. "Toronto Maple Leafs"
 	// French name as reported by the league's own feed (currently only the NHL
 	// publishes one); null when the feed doesn't say. Curated names in
-	// $lib/team-names fill the gaps client-side.
+	// #lib/team-names fill the gaps client-side.
 	nameFr: text('name_fr'),
 	abbreviation: text('abbreviation').notNull(), // e.g. "TOR"
 	logoUrl: text('logo_url').notNull(),
@@ -54,7 +54,12 @@ export const players = sqliteTable(
 		positionCode: text('position_code').notNull(),
 		headshotUrl: text('headshot_url').notNull()
 	},
-	(table) => [primaryKey({ columns: [table.league, table.id] })]
+	(table) => [
+		primaryKey({ columns: [table.league, table.id] }),
+		// Every roster read, and every "does this team have players" check, is by
+		// team. The primary key leads with league, so it can't serve them.
+		index('players_team_id_idx').on(table.teamId)
+	]
 );
 
 /**

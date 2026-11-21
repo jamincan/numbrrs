@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { desc, inArray, lt, lte, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, lte, max, notInArray } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
 import { clientIp } from '#lib/server/client-ip.ts';
 import { getDb } from '#lib/server/db/index.ts';
@@ -9,7 +9,7 @@ import { OWN_HOSTNAMES } from '#lib/site.ts';
 
 /**
  * The salt behind the visitor hash. Regenerated whenever the day rolls over and
- * never written to disk — see $lib/server/telemetry for why that's the point.
+ * never written to disk — see #lib/server/telemetry for why that's the point.
  *
  * A machine restart mid-day rotates it early, which slightly over-counts
  * uniques for that day. The alternative is persisting the salt, which is
@@ -51,17 +51,39 @@ const PRUNE_MAX_ROWS = 20_000;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const PRUNE_CATCHUP_MS = 60 * 1000;
 
+/**
+ * Error rows fold by fingerprint, so server and sync errors are bounded by the
+ * number of distinct bugs. Browser reports are not: the message comes off a
+ * POST body anyone can send, and every new string is a new fingerprint. The
+ * endpoint's rate limit slows that down without bounding it, so the newest few
+ * hundred are kept and the rest go — far more than a real client-side bug
+ * produces, and small enough that the table can't be used to fill the volume.
+ */
+const MAX_CLIENT_ERRORS = 500;
+
 let lastPrune = 0;
 let pruneInterval = PRUNE_INTERVAL_MS;
 
-/** Deletes up to `limit` of the oldest events matching `where`. Returns how many went. */
-export function deleteOldestEvents(where: SQL, limit: number): number {
+/** Which events a prune batch takes: those older than a time, or up to an id. */
+export type EventRange = { before: number } | { throughId: number };
+
+/**
+ * Deletes up to `limit` of the oldest events in a range. Returns how many went.
+ *
+ * Each range is paired with the ordering of the index that serves it —
+ * `events_at_idx` for a time, the primary key for an id — so finding a batch
+ * reads `limit` index entries from the low end and stops. Filtering on one
+ * column while ordering by another makes SQLite walk the table instead, once
+ * per batch, and this runs inside somebody's request.
+ */
+export function deleteOldestEvents(range: EventRange, limit: number): number {
 	const db = getDb();
-	const doomed = db
-		.select({ id: events.id })
-		.from(events)
-		.where(where)
-		.orderBy(events.id)
+	const ids = db.select({ id: events.id }).from(events);
+	const doomed = (
+		'before' in range
+			? ids.where(lt(events.at, range.before)).orderBy(events.at, events.id)
+			: ids.where(lte(events.id, range.throughId)).orderBy(events.id)
+	)
 		.limit(limit)
 		.all()
 		.map((row) => row.id);
@@ -76,6 +98,7 @@ export interface PruneLimits {
 	maxEvents?: number;
 	pruneBatch?: number;
 	pruneMaxRows?: number;
+	maxClientErrors?: number;
 }
 
 /**
@@ -97,25 +120,25 @@ export function pruneEvents(
 
 	while (removed < pruneMaxRows) {
 		const batch = Math.min(pruneBatch, pruneMaxRows - removed);
-		const went = deleteOldestEvents(lt(events.at, cutoff), batch);
+		const went = deleteOldestEvents({ before: cutoff }, batch);
 		if (went === 0) break;
 		removed += went;
 	}
 
-	// `id` is autoincrementing, so the newest `maxEvents` rows are the highest
-	// ids. Anything at or below the row one past that boundary is surplus.
-	while (removed < pruneMaxRows) {
-		const [boundary] = getDb()
-			.select({ id: events.id })
+	// `id` is autoincrementing and rows only ever leave from the old end, so the
+	// newest `maxEvents` rows are the top `maxEvents` ids, and everything at or
+	// below `newest - maxEvents` is surplus. Read off the end of the primary key
+	// instead of counting back through that many rows to find the boundary.
+	const newest =
+		getDb()
+			.select({ id: max(events.id) })
 			.from(events)
-			.orderBy(desc(events.id))
-			.limit(1)
-			.offset(maxEvents)
-			.all();
-		if (!boundary) break;
+			.get()?.id ?? 0;
+	const boundary = newest - maxEvents;
 
+	while (boundary > 0 && removed < pruneMaxRows) {
 		const batch = Math.min(pruneBatch, pruneMaxRows - removed);
-		const went = deleteOldestEvents(lte(events.id, boundary.id), batch);
+		const went = deleteOldestEvents({ throughId: boundary }, batch);
 		if (went === 0) break;
 		removed += went;
 	}
@@ -124,24 +147,50 @@ export function pruneEvents(
 }
 
 /**
- * Pruning rides along on a request rather than running on a timer: the machine
- * stops when idle, so a timer would only ever fire on a busy app — the one case
- * where it isn't needed.
+ * Trims the errors table: anything not seen within the retention window, then
+ * browser reports beyond the newest `maxClientErrors`.
+ *
+ * Neither is batched. Age is bounded by how many distinct errors there are, and
+ * the cap runs every pass, so what it removes is only what arrived since the
+ * last one.
  */
-function pruneIfDue(now: number): void {
+export function pruneErrors(
+	now: number,
+	{ retentionMs = RETENTION_MS, maxClientErrors = MAX_CLIENT_ERRORS }: PruneLimits = {}
+): void {
+	const db = getDb();
+	db.delete(errors)
+		.where(lt(errors.lastSeen, now - retentionMs))
+		.run();
+
+	const fromClient = eq(errors.source, 'client');
+	const newest = db
+		.select({ fingerprint: errors.fingerprint })
+		.from(errors)
+		.where(fromClient)
+		.orderBy(desc(errors.lastSeen))
+		.limit(maxClientErrors);
+	db.delete(errors)
+		.where(and(fromClient, notInArray(errors.fingerprint, newest)))
+		.run();
+}
+
+/**
+ * Pruning rides along on a request rather than running on a timer: rows only
+ * arrive with requests, so an app nobody is visiting has nothing new to prune.
+ *
+ * A pass that hit its ceiling left a backlog, and the next one is due in a
+ * minute rather than in six hours.
+ */
+export function pruneIfDue(now: number, limits: PruneLimits = {}): void {
 	if (now - lastPrune < pruneInterval) return;
 	lastPrune = now;
 
-	const removed = pruneEvents(now);
-	pruneInterval = removed >= PRUNE_MAX_ROWS ? PRUNE_CATCHUP_MS : PRUNE_INTERVAL_MS;
+	const removed = pruneEvents(now, limits);
+	pruneInterval =
+		removed >= (limits.pruneMaxRows ?? PRUNE_MAX_ROWS) ? PRUNE_CATCHUP_MS : PRUNE_INTERVAL_MS;
 
-	// Errors need no ceiling and no batching: they fold by fingerprint, so the
-	// table is bounded by the number of distinct bugs rather than by how often
-	// they fire.
-	getDb()
-		.delete(errors)
-		.where(lt(errors.lastSeen, now - RETENTION_MS))
-		.run();
+	pruneErrors(now, limits);
 }
 
 export interface EventInput {
@@ -152,7 +201,7 @@ export interface EventInput {
 /**
  * Record one event for this request. Written synchronously — a single insert
  * into a local SQLite file is well under a millisecond, and buffering in memory
- * would lose whatever hadn't flushed when Fly stops the machine for idleness.
+ * would lose whatever hadn't flushed when a deploy or a crash ends the process.
  *
  * Never throws. Analytics failing is not a reason for a visitor's page to fail.
  */

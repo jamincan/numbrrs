@@ -13,11 +13,25 @@ import { clientIp } from '#lib/server/client-ip.ts';
 import { createRateLimiter } from '#lib/server/rate-limit.ts';
 import { getDb } from '#lib/server/db/index.ts';
 import { errors, events, syncState, teams } from '#lib/server/db/schema.ts';
-import { ROSTER_TTL, fullSyncStatus, syncRostersOnce } from '#lib/server/leagues/index.ts';
+import {
+	fullSyncStatus,
+	isRosterStale,
+	syncRostersOnce,
+	teamListKey
+} from '#lib/server/leagues/index.ts';
 import { LEAGUES } from '#lib/leagues.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 30;
+
+/**
+ * How long the usage figures are reused before being computed again. They are
+ * several GROUP BY passes over a month of events, run synchronously: at the
+ * table's row cap that is seconds during which nothing else is served, and the
+ * page asks again every few seconds while a sync runs. Nothing on a 30-day
+ * chart is worth that to have a minute sooner.
+ */
+const USAGE_TTL_MS = 60 * 1000;
 
 /**
  * Roster freshness per league, plus how far a running sync has got. Progress is
@@ -28,7 +42,6 @@ const WINDOW_DAYS = 30;
 function syncPanel() {
 	const db = getDb();
 	const status = fullSyncStatus();
-	const now = Date.now();
 
 	const listSyncedAt = new Map(
 		db
@@ -40,7 +53,7 @@ function syncPanel() {
 
 	const leagues = LEAGUES.map((league) => {
 		const rows = db
-			.select({ rosterSyncedAt: teams.rosterSyncedAt })
+			.select({ id: teams.id, rosterSyncedAt: teams.rosterSyncedAt })
 			.from(teams)
 			.where(eq(teams.league, league.id))
 			.all();
@@ -50,15 +63,16 @@ function syncPanel() {
 			id: league.id,
 			label: league.label.en,
 			teams: rows.length,
-			// Never-synced teams count as stale, which is why this tests the
-			// timestamp rather than filtering nulls out first.
-			stale: rows.filter((r) => r.rosterSyncedAt == null || r.rosterSyncedAt < now - ROSTER_TTL)
-				.length,
+			// The sync layer's own answer, so this counts exactly the teams the next
+			// sweep will refresh — never-synced and emptied ones included.
+			stale: rows.filter(isRosterStale).length,
 			// Only meaningful once every team has been synced at least once —
 			// otherwise "oldest" would quietly ignore the ones that have no
 			// timestamp at all. The stale count covers those.
 			oldestRoster: synced.length === rows.length && synced.length > 0 ? Math.min(...synced) : null,
-			teamListSyncedAt: listSyncedAt.get(`teams:${league.id}`) ?? null,
+			// A list that has only ever failed is recorded with a timestamp of 0,
+			// which is "never", not a date in 1970.
+			teamListSyncedAt: listSyncedAt.get(teamListKey(league.id)) || null,
 			done: status.startedAt
 				? rows.filter((r) => r.rosterSyncedAt != null && r.rosterSyncedAt >= status.startedAt!)
 						.length
@@ -83,9 +97,8 @@ function syncPanel() {
  * honest reading of the data, and the dashboard says so rather than presenting
  * it as a unique-people count.
  */
-function stats() {
+function computeUsage(now: number) {
 	const db = getDb();
-	const now = Date.now();
 	const today = dayKey(now);
 	const since = dayKey(now - WINDOW_DAYS * DAY_MS);
 	const pageviews = eq(events.name, 'pageview');
@@ -169,8 +182,6 @@ function stats() {
 		.orderBy(desc(sql`count(*)`))
 		.all();
 
-	const recentErrors = db.select().from(errors).orderBy(desc(errors.lastSeen)).limit(20).all();
-
 	return {
 		today: byDay.get(today) ?? { day: today, views: 0, visitors: 0 },
 		last7: recent(7),
@@ -181,8 +192,35 @@ function stats() {
 		topLeagues,
 		referrers,
 		locales,
-		recentErrors,
-		windowDays: WINDOW_DAYS,
+		windowDays: WINDOW_DAYS
+	};
+}
+
+/**
+ * The last usage figures computed, and the database they came from: a result
+ * is only reused against the same database it was read out of.
+ */
+let usageCache:
+	{ db: ReturnType<typeof getDb>; at: number; value: ReturnType<typeof computeUsage> } | undefined;
+
+function usage(now: number) {
+	const db = getDb();
+	if (!usageCache || usageCache.db !== db || now - usageCache.at >= USAGE_TTL_MS) {
+		usageCache = { db, at: now, value: computeUsage(now) };
+	}
+	return usageCache.value;
+}
+
+/**
+ * Everything above the roster panel. The usage figures may be up to a minute
+ * old; the error list is one indexed read of twenty rows and is always current,
+ * since it is the part of this page someone is most likely refreshing to watch.
+ */
+function stats() {
+	const now = Date.now();
+	return {
+		...usage(now),
+		recentErrors: getDb().select().from(errors).orderBy(desc(errors.lastSeen)).limit(20).all(),
 		alertsConfigured: Boolean(ALERT_WEBHOOK_URL)
 	};
 }
@@ -247,8 +285,8 @@ export const actions = {
 
 		// Fire-and-forget: a full sync walks every team in every league and takes
 		// minutes, which is far longer than a form post should hang. The page polls
-		// for progress instead — and that polling is also what keeps Fly from
-		// stopping the machine out from under the sync while it runs.
+		// for progress instead. Nothing waits on the returned promise, which is
+		// why syncRostersOnce guarantees it never rejects.
 		const { started } = syncRostersOnce();
 		return { message: started ? 'Sync started.' : 'A sync was already running.' };
 	}

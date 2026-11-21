@@ -168,8 +168,10 @@ describe('createHockeyTechAdapter', () => {
 	 * Stands in for the feed: a three-team league that has one visitor on its
 	 * schedule. Returns the query of every request made, in order.
 	 */
-	function serveFeed(overrides: Record<string, () => Response> = {}): URLSearchParams[] {
-		const views: Record<string, () => Response> = {
+	type View = (query: URLSearchParams) => Response;
+
+	function serveFeed(overrides: Record<string, View> = {}): URLSearchParams[] {
+		const views: Record<string, View> = {
 			seasons: () => Response.json({ SiteKit: { Seasons: [season({ season_id: '88' })] } }),
 			teamsbyseason: () =>
 				Response.json({
@@ -200,7 +202,7 @@ describe('createHockeyTechAdapter', () => {
 				requests.push(query);
 				const serve = views[query.get('view') ?? ''];
 				if (!serve) throw new Error(`Unexpected view: ${query.get('view')}`);
-				return serve();
+				return serve(query);
 			})
 		);
 		return requests;
@@ -237,6 +239,119 @@ describe('createHockeyTechAdapter', () => {
 		// The team list can't tell members from visitors without them, so it
 		// fails rather than guess — leaving the stored list as it was.
 		await expect(ohl.fetchTeams()).rejects.toThrow('statviewtype');
+	});
+
+	/** Two regular seasons with a preseason between them, as on a season's opening day. */
+	const openingDaySeasons = () =>
+		Response.json({
+			SiteKit: {
+				Seasons: [
+					season({ season_id: '88', start_date: '2026-09-15', end_date: '2027-03-23' }),
+					season({
+						season_id: '87',
+						career: '0',
+						start_date: '2026-08-11',
+						end_date: '2026-09-13'
+					}),
+					season({ season_id: '83', start_date: '2025-09-16', end_date: '2026-03-22' })
+				]
+			}
+		});
+
+	/** Serves a different roster per season, so a test can tell which one was used. */
+	function rosterBySeason(rosters: Record<string, HockeyTechRosterEntry[]>): View {
+		return (query) =>
+			Response.json({ SiteKit: { Roster: rosters[query.get('season_id') ?? ''] ?? [] } });
+	}
+
+	it('falls back to an earlier season while the current one lists no players', async () => {
+		const requests = serveFeed({
+			seasons: openingDaySeasons,
+			// The new season opens listing only staff, which parse to nobody.
+			roster: rosterBySeason({
+				'88': [{ active: '1' }],
+				'87': [entry({ player_id: '7' })],
+				'83': [entry({ player_id: '3' })]
+			})
+		});
+
+		const result = await adapter().fetchRoster({ code: 'OTT', name: "Ottawa 67's", logoUrl: '' });
+
+		expect(result.ok && result.players.map((p) => p.id)).toEqual([7]);
+		const asked = requests.filter((q) => q.get('view') === 'roster');
+		// Stops at the first season with players; last season is never asked for.
+		expect(asked.map((q) => q.get('season_id'))).toEqual(['88', '87']);
+		expect(asked.every((q) => q.get('team_id') === '5')).toBe(true);
+	});
+
+	it('does not look past the current season when it has players', async () => {
+		const requests = serveFeed({ seasons: openingDaySeasons });
+
+		const result = await adapter().fetchRoster({ code: 'OTT', name: "Ottawa 67's", logoUrl: '' });
+
+		expect(result.ok && result.players).toHaveLength(1);
+		const asked = requests.filter((q) => q.get('view') === 'roster');
+		expect(asked.map((q) => q.get('season_id'))).toEqual(['88']);
+	});
+
+	it('returns an empty roster, not a failure, when no season has players', async () => {
+		serveFeed({ seasons: openingDaySeasons, roster: rosterBySeason({}) });
+
+		const result = await adapter().fetchRoster({ code: 'OTT', name: "Ottawa 67's", logoUrl: '' });
+
+		// The sync layer is what refuses to trust an empty roster.
+		expect(result).toEqual({ ok: true, players: [] });
+	});
+
+	it('finds roster params under the normalized code, not the feed’s own casing', async () => {
+		// The QMJHL feed mixes case ("BaC"); URLs and database ids are uppercase,
+		// so that is what the sync layer asks for.
+		const requests = serveFeed({
+			teamsbyseason: () =>
+				Response.json({ SiteKit: { Teamsbyseason: [team('19', 'BaC'), team('5', 'VdO')] } })
+		});
+		const qmjhl = createHockeyTechAdapter({
+			id: 'qmjhl',
+			clientCode: 'lhjmq',
+			apiKey: 'key',
+			teamCode: (t) => t.code.toUpperCase()
+		});
+
+		const result = await qmjhl.fetchRoster({ code: 'BAC', name: 'Baie-Comeau', logoUrl: '' });
+
+		expect(result.ok).toBe(true);
+		expect(requests.at(-1)?.get('view')).toBe('roster');
+		expect(requests.at(-1)?.get('team_id')).toBe('19');
+		expect(requests.at(-1)?.get('client_code')).toBe('lhjmq');
+	});
+
+	it('reports a team the feed does not list as not-found', async () => {
+		serveFeed();
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		const result = await adapter().fetchRoster({ code: 'XXX', name: 'Nobody', logoUrl: '' });
+
+		expect(result).toMatchObject({ ok: false, reason: 'not-found' });
+	});
+
+	it('tells a changed feed shape from a feed that is down, and says which', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const ott = { code: 'OTT', name: "Ottawa 67's", logoUrl: '' };
+
+		serveFeed({ roster: () => Response.json({ SiteKit: { Roster: { not: 'a list' } } }) });
+		const invalid = await adapter().fetchRoster(ott);
+		expect(invalid).toMatchObject({ ok: false, reason: 'invalid' });
+		expect(!invalid.ok && invalid.detail).toContain('OHL roster schema mismatch');
+
+		serveFeed({ roster: () => new Response('down', { status: 502 }) });
+		const transient = await adapter().fetchRoster(ott);
+		expect(transient).toMatchObject({ ok: false, reason: 'transient' });
+		expect(!transient.ok && transient.detail).toContain('502');
+
+		serveFeed({ teamsbyseason: () => new Response('down', { status: 503 }) });
+		const noParams = await adapter().fetchRoster(ott);
+		expect(noParams).toMatchObject({ ok: false, reason: 'transient' });
+		expect(!noParams.ok && noParams.detail).toContain('503');
 	});
 });
 

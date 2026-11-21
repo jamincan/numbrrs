@@ -31,17 +31,23 @@ vi.mock('./chl', () => ({
 // in the environment running these tests (it is, in local dev). Mocked out
 // entirely: this file is testing the sync layer's own bookkeeping, not
 // alerting, and a test suite must never be able to reach a real webhook.
-vi.mock('../alerts', () => ({ reportError: vi.fn() }));
+const reportError = vi.hoisted(() => vi.fn());
+vi.mock('../alerts', () => ({ reportError }));
 
 const {
 	ensureTeam,
 	ensureTeams,
+	fullSyncStatus,
 	isFresh,
+	isRosterStale,
 	loadRoster,
 	once,
+	ROSTER_TTL,
 	syncRoster,
+	syncRostersOnce,
 	syncStale,
 	syncTeamList,
+	teamListKey,
 	withTimeout
 } = await import('./index');
 
@@ -117,6 +123,7 @@ function seedPlayer(
 
 beforeEach(() => {
 	initDb(new Database(':memory:'));
+	reportError.mockClear();
 	nhlFetchTeams.mockReset().mockResolvedValue([]);
 	nhlFetchRoster.mockReset().mockResolvedValue({ ok: true, players: [] } satisfies RosterResult);
 });
@@ -163,6 +170,77 @@ describe('syncTeamList', () => {
 		const state = getDb().select().from(syncState).where(eq(syncState.key, 'teams:nhl')).get();
 		expect(state?.syncedAt).toBe(0);
 		expect(state?.failureCount).toBe(1);
+	});
+
+	// The deletes are the only statements here that can destroy another league's
+	// data, and both are scoped by league. Each case below fails if one of those
+	// filters (or the players delete itself) is dropped.
+	it('leaves every other league’s teams and players alone', async () => {
+		seedTeam('nhl', 'TOR');
+		const pwhlTor = seedTeam('pwhl', 'TOR');
+		const pwhlBos = seedTeam('pwhl', 'BOS');
+		seedPlayer(pwhlTor, 'pwhl', 1);
+		seedPlayer(pwhlBos, 'pwhl', 2);
+
+		await syncTeamList(
+			fakeAdapter('nhl', { fetchTeams: vi.fn().mockResolvedValue([leagueTeam('TOR')]) })
+		);
+
+		const pwhlTeams = getDb().select().from(teams).where(eq(teams.league, 'pwhl')).all();
+		expect(pwhlTeams.map((t) => t.id).sort()).toEqual([pwhlBos, pwhlTor].sort());
+		const pwhlPlayers = getDb().select().from(players).where(eq(players.league, 'pwhl')).all();
+		expect(pwhlPlayers.map((p) => p.id).sort()).toEqual([1, 2]);
+	});
+
+	it('deletes a removed team’s players and keeps a kept team’s', async () => {
+		const torId = seedTeam('nhl', 'TOR');
+		const bosId = seedTeam('nhl', 'BOS');
+		seedPlayer(torId, 'nhl', 1);
+		seedPlayer(bosId, 'nhl', 2);
+		seedPlayer(bosId, 'nhl', 3);
+
+		await syncTeamList(
+			fakeAdapter('nhl', { fetchTeams: vi.fn().mockResolvedValue([leagueTeam('TOR')]) })
+		);
+
+		expect(getDb().select().from(teams).where(eq(teams.id, bosId)).get()).toBeUndefined();
+		const remaining = getDb().select().from(players).all();
+		expect(remaining.map((p) => [p.teamId, p.id])).toEqual([[torId, 1]]);
+	});
+
+	it('an OHL sync that does not list Gatineau leaves qmjhl:GAT and its players alone', async () => {
+		// The OHL and QMJHL feeds list each other's teams as interleague visitors,
+		// so the same code turns up on both sides. Only the league column tells an
+		// OHL sync that qmjhl:GAT is not its to remove.
+		const gat = seedTeam('qmjhl', 'GAT');
+		seedPlayer(gat, 'qmjhl', 64);
+		const ohlGat = seedTeam('ohl', 'GAT');
+		seedPlayer(ohlGat, 'ohl', 64);
+		seedTeam('ohl', 'OTT');
+
+		await syncTeamList(
+			fakeAdapter('ohl', { fetchTeams: vi.fn().mockResolvedValue([leagueTeam('OTT')]) })
+		);
+
+		expect(gat).toBe('qmjhl:GAT');
+		const allTeams = getDb().select().from(teams).all();
+		expect(allTeams.map((t) => t.id).sort()).toEqual(['ohl:OTT', 'qmjhl:GAT']);
+		const allPlayers = getDb().select().from(players).all();
+		expect(allPlayers.map((p) => [p.league, p.teamId, p.id])).toEqual([['qmjhl', 'qmjhl:GAT', 64]]);
+	});
+
+	it('records a success: fresh timestamp, and any failure streak forgotten', async () => {
+		const before = Date.now();
+		seedSyncState('teams:nhl', { syncedAt: 0, failedAt: before - 1000, failureCount: 3 });
+
+		await syncTeamList(
+			fakeAdapter('nhl', { fetchTeams: vi.fn().mockResolvedValue([leagueTeam('TOR')]) })
+		);
+
+		const state = getDb().select().from(syncState).where(eq(syncState.key, 'teams:nhl')).get();
+		expect(state?.syncedAt).toBeGreaterThanOrEqual(before);
+		expect(state?.failedAt).toBeNull();
+		expect(state?.failureCount).toBe(0);
 	});
 });
 
@@ -243,6 +321,23 @@ describe('syncRoster', () => {
 		expect(row?.teamId).toBe(bosId);
 	});
 
+	it('moves a player to the team whose roster now lists them', async () => {
+		const torId = seedTeam('nhl', 'TOR');
+		const bosId = seedTeam('nhl', 'BOS');
+		seedPlayer(bosId, 'nhl', 10);
+		seedPlayer(bosId, 'nhl', 11);
+
+		await syncRoster(
+			fakeAdapter('nhl', { fetchRoster: vi.fn().mockResolvedValue(rosterOf(10)) }),
+			leagueTeam('TOR')
+		);
+
+		const moved = getDb().select().from(players).where(eq(players.id, 10)).get();
+		expect(moved?.teamId).toBe(torId);
+		// One row, not a copy on each team — and the rest of BOS is untouched.
+		expect(getDb().select().from(players).where(eq(players.teamId, bosId)).all()).toHaveLength(1);
+	});
+
 	it('does not touch another league’s player with the same numeric id', async () => {
 		const nhlTorId = seedTeam('nhl', 'TOR');
 		const pwhlTorId = seedTeam('pwhl', 'TOR');
@@ -319,6 +414,191 @@ describe('syncRoster', () => {
 			.where(eq(syncState.key, `roster:${torId}`))
 			.get();
 		expect(state?.failureCount).toBe(1);
+	});
+});
+
+describe('sync failure alerts', () => {
+	it('carry the adapter’s detail and the team, without splitting the fingerprint', async () => {
+		seedTeam('nhl', 'TOR');
+		seedTeam('nhl', 'BOS');
+		const failing = (detail: string) =>
+			fakeAdapter('nhl', {
+				fetchRoster: vi
+					.fn()
+					.mockResolvedValue({ ok: false, reason: 'invalid', detail } satisfies RosterResult)
+			});
+
+		await syncRoster(failing('NHL roster TOR schema mismatch — forwards: bad'), leagueTeam('TOR'));
+		await syncRoster(failing('NHL roster BOS schema mismatch — goalies: bad'), leagueTeam('BOS'));
+
+		expect(reportError).toHaveBeenCalledTimes(2);
+		const [tor, bos] = reportError.mock.calls.map(([report]) => report);
+		expect(tor.stack).toContain('nhl:TOR');
+		expect(tor.stack).toContain('NHL roster TOR schema mismatch — forwards: bad');
+		expect(bos.stack).toContain('nhl:BOS');
+		expect(bos.stack).toContain('goalies: bad');
+		// The fingerprint is built from source, message and route. A league-wide
+		// outage must stay one alert with a count, not one per team.
+		expect(tor.message).toBe('Roster sync failed for nhl (invalid); keeping existing players');
+		expect(bos.message).toBe(tor.message);
+		expect(bos.route).toBe(tor.route);
+		expect(tor.route).toBe('sync:roster:nhl');
+		expect(tor.source).toBe('sync');
+	});
+
+	it('still name the team when the adapter has nothing more to say', async () => {
+		seedTeam('nhl', 'TOR');
+
+		await syncRoster(fakeAdapter('nhl'), leagueTeam('TOR'));
+
+		expect(reportError).toHaveBeenCalledTimes(1);
+		expect(reportError.mock.calls[0]?.[0]).toMatchObject({
+			message: 'Roster sync failed for nhl (empty); keeping existing players',
+			stack: 'team: nhl:TOR'
+		});
+	});
+});
+
+describe('a write that throws', () => {
+	// NOT NULL is enforced by the database, so a row the adapter let through with
+	// a missing name fails inside the transaction — after the fetch succeeded.
+	const unwritable = (id: number): RosterResult => ({
+		ok: true,
+		players: [
+			{
+				id,
+				firstName: 'New',
+				lastName: null as unknown as string,
+				sweaterNumber: 1,
+				positionCode: 'C',
+				headshotUrl: ''
+			}
+		]
+	});
+
+	it('is recorded as a roster failure, and rolls the roster back', async () => {
+		const torId = seedTeam('nhl', 'TOR');
+		seedPlayer(torId, 'nhl', 1);
+
+		await expect(
+			syncRoster(
+				fakeAdapter('nhl', { fetchRoster: vi.fn().mockResolvedValue(unwritable(2)) }),
+				leagueTeam('TOR')
+			)
+		).rejects.toThrow();
+
+		const state = getDb()
+			.select()
+			.from(syncState)
+			.where(eq(syncState.key, `roster:${torId}`))
+			.get();
+		expect(state?.failureCount).toBe(1);
+		expect(state?.failedAt).not.toBeNull();
+		const tor = getDb().select().from(players).where(eq(players.teamId, torId)).all();
+		expect(tor.map((p) => p.id)).toEqual([1]);
+		expect(
+			getDb().select().from(teams).where(eq(teams.id, torId)).get()?.rosterSyncedAt
+		).toBeNull();
+	});
+
+	it('stops the next visit from fetching the same roster again', async () => {
+		const torId = seedTeam('nhl', 'TOR');
+		seedPlayer(torId, 'nhl', 1);
+		nhlFetchRoster.mockResolvedValue(unwritable(2));
+
+		expect(await loadRoster('nhl', 'TOR')).toHaveLength(1);
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+		// once() is what reports a throw; the visitor still gets the stored roster.
+		expect(reportError).toHaveBeenCalledTimes(1);
+		expect(reportError.mock.calls[0]?.[0]).toMatchObject({ route: 'sync:roster:nhl' });
+
+		expect(await loadRoster('nhl', 'TOR')).toHaveLength(1);
+		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+	});
+
+	it('is recorded as a team-list failure, and is not marked fresh', async () => {
+		seedTeam('nhl', 'TOR');
+		const nameless = leagueTeam('BOS', { name: null as unknown as string });
+
+		await expect(
+			syncTeamList(
+				fakeAdapter('nhl', {
+					fetchTeams: vi.fn().mockResolvedValue([leagueTeam('TOR'), nameless])
+				})
+			)
+		).rejects.toThrow();
+
+		const state = getDb().select().from(syncState).where(eq(syncState.key, 'teams:nhl')).get();
+		expect(state?.syncedAt).toBe(0);
+		expect(state?.failureCount).toBe(1);
+		const rows = getDb().select().from(teams).where(eq(teams.league, 'nhl')).all();
+		expect(rows.map((r) => r.abbreviation)).toEqual(['TOR']);
+	});
+});
+
+describe('syncRostersOnce', () => {
+	it('never rejects, even when the walk itself throws', async () => {
+		// Nothing awaits `done` in production, so a rejection here would be an
+		// unhandled one. A closed database makes the read between two syncs throw,
+		// which is outside anything once() catches.
+		const client = new Database(':memory:');
+		initDb(client);
+		client.close();
+
+		const { started, done } = syncRostersOnce();
+
+		expect(started).toBe(true);
+		expect(fullSyncStatus().running).toBe(true);
+		await expect(done).resolves.toBeUndefined();
+		expect(fullSyncStatus().running).toBe(false);
+		const routes = reportError.mock.calls.map(([report]) => report.route);
+		expect(routes).toContain('sync:full');
+	});
+
+	it('joins a run already in progress instead of starting a second', async () => {
+		let release: (teams: LeagueTeam[]) => void = () => {};
+		nhlFetchTeams.mockReturnValue(new Promise<LeagueTeam[]>((resolve) => (release = resolve)));
+
+		const first = syncRostersOnce();
+		const second = syncRostersOnce();
+
+		expect(first.started).toBe(true);
+		expect(second.started).toBe(false);
+		expect(second.done).toBe(first.done);
+
+		release([]);
+		await first.done;
+		expect(nhlFetchTeams).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('isRosterStale', () => {
+	it('is stale when never synced, past the ttl, or holding no players', () => {
+		const now = Date.now();
+		const fresh = seedTeam('nhl', 'TOR', now - 60_000);
+		seedPlayer(fresh, 'nhl', 1);
+		const old = seedTeam('nhl', 'BOS', now - ROSTER_TTL - 60_000);
+		seedPlayer(old, 'nhl', 2);
+		const never = seedTeam('nhl', 'MTL');
+		seedPlayer(never, 'nhl', 3);
+		const emptied = seedTeam('nhl', 'OTT', now - 60_000);
+
+		expect(isRosterStale({ id: fresh, rosterSyncedAt: now - 60_000 })).toBe(false);
+		expect(isRosterStale({ id: old, rosterSyncedAt: now - ROSTER_TTL - 60_000 })).toBe(true);
+		expect(isRosterStale({ id: never, rosterSyncedAt: null })).toBe(true);
+		expect(isRosterStale({ id: emptied, rosterSyncedAt: now - 60_000 })).toBe(true);
+	});
+});
+
+describe('teamListKey', () => {
+	it('is the key the sync layer records a team list under', async () => {
+		await syncTeamList(
+			fakeAdapter('nhl', { fetchTeams: vi.fn().mockResolvedValue([leagueTeam('TOR')]) })
+		);
+
+		const keys = getDb().select({ key: syncState.key }).from(syncState).all();
+		expect(keys).toEqual([{ key: teamListKey('nhl') }]);
+		expect(teamListKey('nhl')).toBe('teams:nhl');
 	});
 });
 
@@ -498,6 +778,67 @@ describe('backoff integration (ABUSE-2)', () => {
 		const second = await loadRoster('nhl', 'TOR');
 		expect(second).toHaveLength(1);
 		expect(nhlFetchRoster).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('ensureTeams', () => {
+	const HOUR = 60 * 60 * 1000;
+	const OTHERS = ['pwhl', 'whl', 'ohl', 'qmjhl'];
+
+	it('leaves a league alone while its team list is inside the ttl', async () => {
+		const now = Date.now();
+		for (const league of OTHERS) seedSyncState(`teams:${league}`, { syncedAt: now });
+		seedSyncState('teams:nhl', { syncedAt: now - 23 * HOUR });
+		seedTeam('nhl', 'TOR');
+
+		await ensureTeams();
+
+		expect(nhlFetchTeams).not.toHaveBeenCalled();
+	});
+
+	it('refreshes a league whose team list is past the ttl', async () => {
+		const now = Date.now();
+		for (const league of OTHERS) seedSyncState(`teams:${league}`, { syncedAt: now });
+		seedSyncState('teams:nhl', { syncedAt: now - 25 * HOUR });
+		seedTeam('nhl', 'TOR');
+		nhlFetchTeams.mockResolvedValue([leagueTeam('TOR'), leagueTeam('BOS')]);
+
+		await ensureTeams();
+		// The league already has teams to show, so ensureTeams doesn't wait for the
+		// refresh. Joining the in-flight job is how the test does.
+		await once('teams:nhl', async () => {});
+
+		expect(nhlFetchTeams).toHaveBeenCalledTimes(1);
+		const rows = getDb().select().from(teams).where(eq(teams.league, 'nhl')).all();
+		expect(rows.map((r) => r.abbreviation).sort()).toEqual(['BOS', 'TOR']);
+	});
+});
+
+describe('ensureTeam', () => {
+	it('answers an unknown code from a fresh team list without asking the league', async () => {
+		seedSyncState('teams:nhl', { syncedAt: Date.now() });
+		seedTeam('nhl', 'TOR');
+
+		expect(await ensureTeam('nhl', 'XXX')).toBeUndefined();
+
+		expect(nhlFetchTeams).not.toHaveBeenCalled();
+	});
+
+	it('loads the team list for an unknown code when the list is stale', async () => {
+		seedSyncState('teams:nhl', { syncedAt: Date.now() - 25 * 60 * 60 * 1000 });
+		nhlFetchTeams.mockResolvedValue([leagueTeam('TOR')]);
+
+		const row = await ensureTeam('nhl', 'TOR');
+
+		expect(nhlFetchTeams).toHaveBeenCalledTimes(1);
+		expect(row?.id).toBe('nhl:TOR');
+	});
+
+	it('returns a known team without touching sync state or the league', async () => {
+		seedTeam('nhl', 'TOR');
+
+		expect((await ensureTeam('nhl', 'TOR'))?.id).toBe('nhl:TOR');
+		expect(nhlFetchTeams).not.toHaveBeenCalled();
 	});
 });
 

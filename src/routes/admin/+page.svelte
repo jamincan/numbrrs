@@ -7,12 +7,15 @@
 	const stats = $derived(data.state === 'open' ? data.stats : null);
 	const sync = $derived(data.state === 'open' ? data.sync : null);
 
-	// While a sync runs, refresh the page data every few seconds. This shows
-	// progress, and it doubles as a keep-alive: the sync is fire-and-forget, and
-	// Fly stops the machine once nothing is asking it for anything.
+	// While a sync runs, refresh the page data every few seconds to show its
+	// progress. Each refresh re-reads the roster panel; the usage figures above
+	// it are held server-side for a minute, so polling doesn't recompute them.
 	$effect(() => {
 		if (!sync?.running) return;
-		const id = setInterval(() => refreshAll(), 4000);
+		const id = setInterval(() => {
+			// A refresh that fails is simply tried again on the next tick.
+			refreshAll().catch(() => {});
+		}, 4000);
 		return () => clearInterval(id);
 	});
 
@@ -301,8 +304,8 @@
 						<div>
 							<h2 class="font-semibold">Roster data</h2>
 							<p class="mt-1 text-xs text-gray-500">
-								Rosters refresh on their own when someone opens a stale team. This forces every
-								league now.
+								Rosters refresh on their own: an hourly sweep picks up any that have gone stale, and
+								so does opening a stale team. This forces every league now.
 							</p>
 						</div>
 						<form method="POST" action="?/resync" use:enhance>
@@ -339,8 +342,9 @@
 								></div>
 							</div>
 							<p class="mt-2 text-xs text-gray-500">
-								Leave this page open — the sync is paced to stay polite to the leagues' APIs, and
-								this tab is what keeps the machine awake while it works.
+								The sync is paced to stay polite to the leagues' APIs, so it takes a few minutes.
+								This page checks on it every few seconds, and it keeps running on the server if you
+								close the tab.
 							</p>
 						</div>
 					{/if}

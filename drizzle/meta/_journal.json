@@ -64,6 +64,13 @@
       "when": 1785205595723,
       "tag": "0008_sync-failure-backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795270963640,
+      "tag": "0009_players-team-id-index",
+      "breakpoints": true
     }
   ]
 }

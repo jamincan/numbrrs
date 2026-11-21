@@ -7,8 +7,6 @@ export interface LeagueTeam {
 	/** French name, when the league's feed publishes one (the NHL does). */
 	nameFr?: string;
 	logoUrl: string;
-	/** Opaque league-specific identifier needed to fetch this team's roster. */
-	externalId?: string;
 }
 
 /**
@@ -25,18 +23,21 @@ export interface LeaguePlayer {
 	headshotUrl: string; // empty string when the league has no headshot
 }
 
+// A failure's `detail` is the specific thing that went wrong — the status code,
+// the field that moved — for whoever reads the alert. `reason` alone says which
+// kind of failure it was, which is all the sync layer acts on.
 export type RosterResult =
 	| { ok: true; players: LeaguePlayer[] }
 	// The league says the team has no roster — retrying won't change that.
-	| { ok: false; reason: 'not-found' }
+	| { ok: false; reason: 'not-found'; detail?: string }
 	// Network error, timeout, 5xx, rate limit... worth one retry. When the
 	// league said how long to back off (a 429's Retry-After), it's passed on.
-	| { ok: false; reason: 'transient'; retryAfter?: number }
+	| { ok: false; reason: 'transient'; retryAfter?: number; detail?: string }
 	// The feed answered, but not in a shape we recognize — the league changed
 	// their API. Never retried: the next request returns the same thing. Kept
 	// separate from 'transient' so a schema break is visible as itself rather
 	// than as another network blip.
-	| { ok: false; reason: 'invalid' };
+	| { ok: false; reason: 'invalid'; detail?: string };
 
 export interface LeagueAdapter {
 	id: LeagueId;
