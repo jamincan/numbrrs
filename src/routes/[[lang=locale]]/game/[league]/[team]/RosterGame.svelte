@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import NavSlot from '$lib/components/NavSlot.svelte';
+	import NavSlot from '#lib/components/NavSlot.svelte';
 	import DifficultyMenu from './DifficultyMenu.svelte';
 	import GameHeader from './GameHeader.svelte';
 	import CardTable from './CardTable.svelte';
 	import RosterDrawer from './RosterDrawer.svelte';
-	import type { Player, Team } from '$lib/types';
-	import { DrawerLayout } from '$lib/drawer-layout.svelte';
-	import { DIFFICULTY_OPTIONS, GameState } from '$lib/game-state.svelte';
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import { leagueGender } from '$lib/leagues';
-	import { getTeamColors } from '$lib/team-colors';
-	import { teamName } from '$lib/team-names';
+	import type { Player, Team } from '#lib/types.ts';
+	import { DrawerLayout } from '#lib/drawer-layout.svelte.ts';
+	import { DIFFICULTY_OPTIONS, GameState } from '#lib/game-state.svelte.ts';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import { leagueGender } from '#lib/leagues.ts';
+	import { getTeamColors } from '#lib/team-colors.ts';
+	import { teamName } from '#lib/team-names.ts';
 
 	const i18n = getI18n();
 

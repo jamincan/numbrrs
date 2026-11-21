@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { rememberCookie } from '$lib/cookies';
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import { LEAGUES, LEAGUE_COOKIE, LEAGUE_MAX_AGE, type LeagueId } from '$lib/leagues';
-	import { teamLogo } from '$lib/logos';
-	import { getTeamColors } from '$lib/team-colors';
-	import { teamName } from '$lib/team-names';
+	import { rememberCookie } from '#lib/cookies.ts';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import { LEAGUES, LEAGUE_COOKIE, LEAGUE_MAX_AGE, type LeagueId } from '#lib/leagues.ts';
+	import { teamLogo } from '#lib/logos.ts';
+	import { getTeamColors } from '#lib/team-colors.ts';
+	import { teamName } from '#lib/team-names.ts';
 
 	const i18n = getI18n();
 

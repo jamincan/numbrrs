@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { LOCALES, type Locale } from '$lib/i18n';
-	import { getI18n } from '$lib/i18n/state.svelte';
+	import { LOCALES, type Locale } from '#lib/i18n/index.ts';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
 
 	const i18n = getI18n();
 

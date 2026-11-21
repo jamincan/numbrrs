@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { getNavSlot } from '$lib/nav-slot.svelte';
+	import { getNavSlot } from '#lib/nav-slot.svelte.ts';
 
 	const { children }: { children: Snippet } = $props();
 

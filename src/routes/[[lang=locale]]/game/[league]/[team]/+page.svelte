@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { invalidate } from '$app/navigation';
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import { getTeamColors } from '$lib/team-colors';
-	import { teamName } from '$lib/team-names';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import { getTeamColors } from '#lib/team-colors.ts';
+	import { teamName } from '#lib/team-names.ts';
 	import GameHeader from './GameHeader.svelte';
 	import RosterGame from './RosterGame.svelte';
 

@@ -2,7 +2,7 @@ import { getDb, type Player } from '../db';
 import { teams, players, syncState } from '../db/schema';
 import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
-import { teamDbId, type LeagueId } from '$lib/leagues';
+import { teamDbId, type LeagueId } from '#lib/leagues.ts';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
 import { ohlAdapter, qmjhlAdapter, whlAdapter } from './chl';

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import type { Messages } from '$lib/i18n/messages';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import type { Messages } from '#lib/i18n/messages.ts';
 
 	const i18n = getI18n();
 

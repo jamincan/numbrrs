@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { refreshAll } from '$app/navigation';
 
 	let { data, form } = $props();
 
@@ -12,7 +12,7 @@
 	// Fly stops the machine once nothing is asking it for anything.
 	$effect(() => {
 		if (!sync?.running) return;
-		const id = setInterval(() => invalidateAll(), 4000);
+		const id = setInterval(() => refreshAll(), 4000);
 		return () => clearInterval(id);
 	});
 

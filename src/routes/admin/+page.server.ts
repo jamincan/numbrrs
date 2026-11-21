@@ -1,20 +1,20 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
-import { dayKey } from '$lib/server/telemetry';
+import { ALERT_WEBHOOK_URL, ADMIN_TOKEN } from '$app/env/private';
+import { dayKey } from '#lib/server/telemetry.ts';
 import {
 	endSession,
 	isAuthenticated,
 	loginDelay,
 	startSession,
 	tokenMatches
-} from '$lib/server/admin';
-import { clientIp } from '$lib/server/client-ip';
-import { createRateLimiter } from '$lib/server/rate-limit';
-import { getDb } from '$lib/server/db';
-import { errors, events, syncState, teams } from '$lib/server/db/schema';
-import { ROSTER_TTL, fullSyncStatus, syncRostersOnce } from '$lib/server/leagues';
-import { LEAGUES } from '$lib/leagues';
+} from '#lib/server/admin.ts';
+import { clientIp } from '#lib/server/client-ip.ts';
+import { createRateLimiter } from '#lib/server/rate-limit.ts';
+import { getDb } from '#lib/server/db/index.ts';
+import { errors, events, syncState, teams } from '#lib/server/db/schema.ts';
+import { ROSTER_TTL, fullSyncStatus, syncRostersOnce } from '#lib/server/leagues/index.ts';
+import { LEAGUES } from '#lib/leagues.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 30;
@@ -183,12 +183,12 @@ function stats() {
 		locales,
 		recentErrors,
 		windowDays: WINDOW_DAYS,
-		alertsConfigured: Boolean(env.ALERT_WEBHOOK_URL)
+		alertsConfigured: Boolean(ALERT_WEBHOOK_URL)
 	};
 }
 
 export async function load({ cookies }) {
-	if (!env.ADMIN_TOKEN) return { state: 'unconfigured' as const };
+	if (!ADMIN_TOKEN) return { state: 'unconfigured' as const };
 	if (!isAuthenticated(cookies)) return { state: 'locked' as const };
 	return { state: 'open' as const, stats: stats(), sync: syncPanel() };
 }
@@ -205,7 +205,7 @@ const loginLimiter = createRateLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
 export const actions = {
 	login: async (event) => {
 		const { cookies, request, url } = event;
-		const secret = env.ADMIN_TOKEN;
+		const secret = ADMIN_TOKEN;
 		if (!secret) return fail(503, { message: 'ADMIN_TOKEN is not set on this deployment.' });
 
 		const ip = clientIp(event);

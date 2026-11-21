@@ -1,4 +1,4 @@
-import { isLocale, localeFromPath } from '$lib/i18n';
+import { isLocale, localeFromPath } from '#lib/i18n/index.ts';
 
 // The URL owns the locale (see hooks.server.ts); this hands it to the root
 // layout so the very first render is already in the right language. It is

@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import { getDb, initDb } from '../db';
 import { teams, players, syncState } from '../db/schema';
-import { teamDbId, type LeagueId } from '$lib/leagues';
+import { teamDbId, type LeagueId } from '#lib/leagues.ts';
 import { inBackoff } from './backoff';
 import type { LeagueAdapter, LeagueTeam, LeaguePlayer, RosterResult } from './types';
 

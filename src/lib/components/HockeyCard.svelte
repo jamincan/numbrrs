@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { Player, Team } from '$lib/types';
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import { positionName } from '$lib/i18n/messages';
-	import { leagueGender } from '$lib/leagues';
-	import { teamLogo } from '$lib/logos';
-	import { getTeamColors } from '$lib/team-colors';
-	import { teamName } from '$lib/team-names';
+	import type { Player, Team } from '#lib/types.ts';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import { positionName } from '#lib/i18n/messages.ts';
+	import { leagueGender } from '#lib/leagues.ts';
+	import { teamLogo } from '#lib/logos.ts';
+	import { getTeamColors } from '#lib/team-colors.ts';
+	import { teamName } from '#lib/team-names.ts';
 
 	const i18n = getI18n();
 

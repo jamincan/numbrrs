@@ -1,4 +1,4 @@
-import type { Locale } from '$lib/i18n';
+import type { Locale } from '#lib/i18n/index.ts';
 
 /**
  * French team names, keyed `<league>:<CODE>` the same way as team colours and

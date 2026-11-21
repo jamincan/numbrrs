@@ -1,7 +1,7 @@
-import { error, json } from '@sveltejs/kit';
-import { reportError } from '$lib/server/alerts';
-import { clientIp } from '$lib/server/client-ip';
-import { createRateLimiter } from '$lib/server/rate-limit';
+import { error } from '@sveltejs/kit';
+import { reportError } from '#lib/server/alerts.ts';
+import { clientIp } from '#lib/server/client-ip.ts';
+import { createRateLimiter } from '#lib/server/rate-limit.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -48,5 +48,5 @@ export const POST: RequestHandler = async (event) => {
 		route: typeof payload.route === 'string' ? payload.route.slice(0, 200) : null
 	});
 
-	return json({ status: 'recorded' }, { status: 202 });
+	return Response.json({ status: 'recorded' }, { status: 202 });
 };

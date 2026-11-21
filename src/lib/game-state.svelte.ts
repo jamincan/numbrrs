@@ -1,6 +1,6 @@
-import { browser } from '$app/environment';
-import { buildDeck, cardOptions, drawCard, preIdentifiedIds } from '$lib/game';
-import type { Player } from '$lib/types';
+import { browser } from '$app/env';
+import { buildDeck, cardOptions, drawCard, preIdentifiedIds } from '#lib/game.ts';
+import type { Player } from '#lib/types.ts';
 
 const DIFFICULTY_KEY = 'numbrrs_difficulty';
 export const DIFFICULTY_OPTIONS = [

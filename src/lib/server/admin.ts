@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { env } from '$env/dynamic/private';
+import { ADMIN_TOKEN } from '$app/env/private';
 import type { Cookies } from '@sveltejs/kit';
 
 export const ADMIN_COOKIE = 'numbrrs_admin';
@@ -44,13 +44,13 @@ export function verifySession(cookie: string | undefined, secret: string, now: n
 }
 
 export function isAuthenticated(cookies: Cookies): boolean {
-	const secret = env.ADMIN_TOKEN;
+	const secret = ADMIN_TOKEN;
 	if (!secret) return false;
 	return verifySession(cookies.get(ADMIN_COOKIE), secret, Date.now());
 }
 
 export function startSession(cookies: Cookies, url: URL): void {
-	const secret = env.ADMIN_TOKEN;
+	const secret = ADMIN_TOKEN;
 	if (!secret) return;
 
 	const expiresAt = Date.now() + SESSION_MAX_AGE * 1000;

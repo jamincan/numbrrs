@@ -1,6 +1,6 @@
 import { getContext, setContext } from 'svelte';
-import { browser } from '$app/environment';
-import { rememberCookie } from '$lib/cookies';
+import { browser } from '$app/env';
+import { rememberCookie } from '#lib/cookies.ts';
 import { en } from './en';
 import { fr } from './fr';
 import { LOCALE_COOKIE, LOCALE_MAX_AGE, type Locale } from './index';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { getI18n } from '$lib/i18n/state.svelte';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
 
 	// At the root rather than under [[lang=locale]] so it also catches URLs that
 	// match no route at all — the most likely way someone arrives here, from a

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { isLeagueId } from '$lib/leagues';
-import { ensureTeam, hasStoredRoster, loadRoster } from '$lib/server/leagues';
+import { isLeagueId } from '#lib/leagues.ts';
+import { ensureTeam, hasStoredRoster, loadRoster } from '#lib/server/leagues/index.ts';
 
 export async function load({ params, locals, depends }) {
 	// Lets the page re-run just this load while it waits for a roster to arrive.

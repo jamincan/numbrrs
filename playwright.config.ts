@@ -27,8 +27,8 @@ export default defineConfig({
 			ORIGIN: `http://localhost:${PORT}`,
 			PORT: String(PORT),
 			// This runs as a plain `node build/index.js`, not through Vite, so
-			// .env.test (Vite-only) doesn't reach it — adapter-node reads
-			// $env/dynamic/private straight from process.env, with no .env file
+			// .env.test (Vite-only) doesn't reach it — the built server reads
+			// $app/env/private straight from process.env, with no .env file
 			// loading of its own. Blanked explicitly so this server can never
 			// pick up a real ALERT_WEBHOOK_URL from whatever shell environment
 			// happens to run this command, however that value got there.

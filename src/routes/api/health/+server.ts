@@ -1,6 +1,5 @@
-import { json } from '@sveltejs/kit';
-import { getDb } from '$lib/server/db';
-import { syncState } from '$lib/server/db/schema';
+import { getDb } from '#lib/server/db/index.ts';
+import { syncState } from '#lib/server/db/schema.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -16,5 +15,5 @@ import type { RequestHandler } from './$types';
  */
 export const GET: RequestHandler = () => {
 	getDb().select().from(syncState).limit(1).all();
-	return json({ status: 'ok' });
+	return Response.json({ status: 'ok' });
 };

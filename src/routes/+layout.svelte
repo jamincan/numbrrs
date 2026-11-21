@@ -1,16 +1,16 @@
 <script lang="ts">
 	import '../app.css';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { beforeNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page, updated } from '$app/state';
-	import favicon from '$lib/assets/favicon.svg';
-	import LocaleToggle from '$lib/components/LocaleToggle.svelte';
-	import NumbrrsIcon from '$lib/components/NumbrrsIcon.svelte';
-	import { localeFromPath, localizePath } from '$lib/i18n';
-	import { createI18n } from '$lib/i18n/state.svelte';
-	import { createNavSlot } from '$lib/nav-slot.svelte';
-	import { SITE_ORIGIN } from '$lib/site';
+	import favicon from '#lib/assets/favicon.svg';
+	import LocaleToggle from '#lib/components/LocaleToggle.svelte';
+	import NumbrrsIcon from '#lib/components/NumbrrsIcon.svelte';
+	import { localeFromPath, localizePath } from '#lib/i18n/index.ts';
+	import { createI18n } from '#lib/i18n/state.svelte.ts';
+	import { createNavSlot } from '#lib/nav-slot.svelte.ts';
+	import { SITE_ORIGIN } from '#lib/site.ts';
 
 	let { children, data } = $props();
 

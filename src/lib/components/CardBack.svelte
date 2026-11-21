@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { Team } from '$lib/types';
-	import { teamLogo } from '$lib/logos';
-	import { getTeamColors } from '$lib/team-colors';
+	import type { Team } from '#lib/types.ts';
+	import { teamLogo } from '#lib/logos.ts';
+	import { getTeamColors } from '#lib/team-colors.ts';
 
 	const { team }: { team: Team } = $props();
 

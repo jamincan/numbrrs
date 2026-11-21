@@ -1,5 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit';
-import { isCloudflareIp } from '$lib/server/cloudflare-ips';
+import { isCloudflareIp } from '#lib/server/cloudflare-ips.ts';
 
 /**
  * Fly terminates TLS at its proxy, so the socket address the server sees is the

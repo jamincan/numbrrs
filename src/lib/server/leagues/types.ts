@@ -1,4 +1,4 @@
-import type { LeagueId } from '$lib/leagues';
+import type { LeagueId } from '#lib/leagues.ts';
 
 /** A team as reported by a league's API, normalized for the sync layer. */
 export interface LeagueTeam {

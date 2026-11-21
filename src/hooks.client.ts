@@ -1,4 +1,4 @@
-import type { HandleClientError } from '@sveltejs/kit';
+import type { HandleClientError } from '@sveltejs/kit/hooks';
 
 /**
  * The game runs in the browser, so the failures most likely to break it — a CSP
@@ -9,8 +9,10 @@ import type { HandleClientError } from '@sveltejs/kit';
  * `keepalive` lets the request outlive the page, which matters because an error
  * is often immediately followed by the visitor closing the tab.
  */
-export const handleError: HandleClientError = ({ error, event, status, message }) => {
-	if (status === 404) return { message };
+export const handleError: HandleClientError = ({ kind, error, event }) => {
+	// A 404 or an error() from a load is the app working as intended; only an
+	// error nobody raised on purpose is worth reporting.
+	if (kind !== 'unknown') return;
 
 	try {
 		fetch('/api/client-error', {
@@ -28,6 +30,4 @@ export const handleError: HandleClientError = ({ error, event, status, message }
 	} catch {
 		// Ditto.
 	}
-
-	return { message };
 };

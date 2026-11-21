@@ -1,9 +1,9 @@
-import { env } from '$env/dynamic/private';
+import { ALERT_WEBHOOK_URL } from '$app/env/private';
 import { eq, sql } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
-import { errors } from '$lib/server/db/schema';
-import { MAX_MESSAGE, MAX_STACK, fingerprintOf, truncate } from '$lib/server/telemetry';
-import { SITE_ORIGIN } from '$lib/site';
+import { getDb } from '#lib/server/db/index.ts';
+import { errors } from '#lib/server/db/schema.ts';
+import { MAX_MESSAGE, MAX_STACK, fingerprintOf, truncate } from '#lib/server/telemetry.ts';
+import { SITE_ORIGIN } from '#lib/site.ts';
 
 export type ErrorSource = 'server' | 'client' | 'sync';
 
@@ -143,7 +143,7 @@ function notify(
 	route: string | null,
 	count: number
 ): Promise<void> {
-	const webhook = env.ALERT_WEBHOOK_URL;
+	const webhook = ALERT_WEBHOOK_URL;
 	if (!webhook) return Promise.resolve();
 
 	// 'server' and 'sync' never carry attacker-supplied text; 'client' does, so

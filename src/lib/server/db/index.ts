@@ -1,9 +1,9 @@
-import { env } from '$env/dynamic/private';
+import { DATABASE_URL } from '$app/env/private';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import type { Player, Team } from '$lib/types';
+import type { Player, Team } from '#lib/types.ts';
 import * as schema from './schema';
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -47,7 +47,7 @@ export function getDb(): Db {
  */
 export function bootstrap(): void {
 	try {
-		initDb(new Database(env.DATABASE_URL || 'local.db'));
+		initDb(new Database(DATABASE_URL || 'local.db'));
 	} catch (err) {
 		console.error('Database migration failed:', err);
 		process.exit(1);

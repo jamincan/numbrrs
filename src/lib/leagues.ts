@@ -1,4 +1,4 @@
-import type { Gender, Locale } from '$lib/i18n';
+import type { Gender, Locale } from '#lib/i18n/index.ts';
 
 // League identifiers shared between server and client code. Server-only
 // adapter code lives in $lib/server/leagues.

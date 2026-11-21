@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { LeagueId } from '$lib/leagues';
+import type { LeagueId } from '#lib/leagues.ts';
 import { fetchWithTimeout } from './http';
 import { FeedSchemaError, parseFeed } from './validate';
 import type { LeagueAdapter, LeaguePlayer, LeagueTeam, RosterResult } from './types';

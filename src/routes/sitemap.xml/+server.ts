@@ -1,7 +1,7 @@
-import { LOCALES, localizePath } from '$lib/i18n';
-import { SITE_ORIGIN } from '$lib/site';
-import { getDb } from '$lib/server/db';
-import { teams } from '$lib/server/db/schema';
+import { LOCALES, localizePath } from '#lib/i18n/index.ts';
+import { SITE_ORIGIN } from '#lib/site.ts';
+import { getDb } from '#lib/server/db/index.ts';
+import { teams } from '#lib/server/db/schema.ts';
 import type { RequestHandler } from './$types';
 
 /**

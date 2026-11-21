@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { DrawerLayout } from '$lib/drawer-layout.svelte';
-	import type { GameState } from '$lib/game-state.svelte';
-	import { getI18n } from '$lib/i18n/state.svelte';
-	import type { Gender } from '$lib/i18n';
-	import { FORWARD_POSITION_CODES, KNOWN_POSITION_CODES } from '$lib/i18n/messages';
-	import type { Player } from '$lib/types';
+	import type { DrawerLayout } from '#lib/drawer-layout.svelte.ts';
+	import type { GameState } from '#lib/game-state.svelte.ts';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import type { Gender } from '#lib/i18n/index.ts';
+	import { FORWARD_POSITION_CODES, KNOWN_POSITION_CODES } from '#lib/i18n/messages.ts';
+	import type { Player } from '#lib/types.ts';
 
 	const i18n = getI18n();
 

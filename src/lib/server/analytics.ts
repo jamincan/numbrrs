@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { desc, inArray, lt, lte, type SQL } from 'drizzle-orm';
 import type { RequestEvent } from '@sveltejs/kit';
-import { clientIp } from '$lib/server/client-ip';
-import { getDb } from '$lib/server/db';
-import { events, errors } from '$lib/server/db/schema';
-import { dayKey, isBot, referrerHost, visitorHash } from '$lib/server/telemetry';
-import { OWN_HOSTNAMES } from '$lib/site';
+import { clientIp } from '#lib/server/client-ip.ts';
+import { getDb } from '#lib/server/db/index.ts';
+import { events, errors } from '#lib/server/db/schema.ts';
+import { dayKey, isBot, referrerHost, visitorHash } from '#lib/server/telemetry.ts';
+import { OWN_HOSTNAMES } from '#lib/site.ts';
 
 /**
  * The salt behind the visitor hash. Regenerated whenever the day rolls over and

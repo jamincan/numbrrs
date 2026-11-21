@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getI18n } from '$lib/i18n/state.svelte';
+	import { getI18n } from '#lib/i18n/state.svelte.ts';
 
 	const i18n = getI18n();
 

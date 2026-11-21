@@ -1,11 +1,11 @@
-import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { building, dev } from '$app/environment';
-import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '$lib/i18n';
-import { recordEvent } from '$lib/server/analytics';
-import { reportError } from '$lib/server/alerts';
-import { bootstrap } from '$lib/server/db';
-import { startSweeps } from '$lib/server/leagues';
-import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '$lib/site';
+import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
+import { building, dev } from '$app/env';
+import { LOCALE_COOKIE, isLocale, localeFromPath, negotiateLocale } from '#lib/i18n/index.ts';
+import { recordEvent } from '#lib/server/analytics.ts';
+import { reportError } from '#lib/server/alerts.ts';
+import { bootstrap } from '#lib/server/db/index.ts';
+import { startSweeps } from '#lib/server/leagues/index.ts';
+import { REDIRECT_HOSTNAMES, SITE_ORIGIN } from '#lib/site.ts';
 
 // Runs once, when the server module graph loads. Guarded by `building` so it
 // doesn't fire during `vite build`, which imports this module to prerender
@@ -140,8 +140,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		response.headers.set('cache-control', PAGE_CACHE);
 	}
 
-	// The CSP itself comes from kit.csp in svelte.config.js, which lets
-	// SvelteKit hash its own inline scripts.
+	// The CSP itself comes from the csp option of sveltekit() in vite.config.ts,
+	// which lets SvelteKit hash its own inline scripts.
 	response.headers.set('X-Content-Type-Options', 'nosniff');
 	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
@@ -165,18 +165,20 @@ export const handle: Handle = async ({ event, resolve }) => {
 };
 
 /**
- * Every unhandled server error passes through here. SvelteKit already logs to
+ * Every server error passes through here. SvelteKit already logs to
  * stdout, but Fly keeps no history and stops the machine when it's idle, so by
  * the time anyone looks the evidence is gone — hence writing it down.
  *
  * The return value is what the error page renders, so it stays generic: the
  * detail goes to the database and to Discord, not to the visitor.
  */
-export const handleError: HandleServerError = ({ error, event, status, message }) => {
-	// Client errors are routine here — crawlers and stale links guessing at team
-	// codes (404), scanners POSTing to pages that have no form actions (405) — and
-	// alerting on them would bury the errors that matter.
-	if (status < 500) return { message };
+export const handleError: HandleServerError = ({ kind, error, event }) => {
+	// Every error comes through here, the routine ones included: crawlers and
+	// stale links guessing at team codes (an error(404) from the load, or
+	// SvelteKit's own 404), scanners POSTing to pages that have no form actions
+	// (405). Alerting on those would bury the errors that matter, so only an
+	// error nobody raised on purpose is recorded.
+	if (kind !== 'unknown') return;
 
 	// The returned id is the error's fingerprint, so a visitor quoting it off the
 	// error page points at exactly one row in the dashboard rather than at a log
@@ -188,5 +190,5 @@ export const handleError: HandleServerError = ({ error, event, status, message }
 		route: event.route.id ?? event.url.pathname
 	});
 
-	return { message, id };
+	return { id };
 };

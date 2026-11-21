@@ -1,7 +1,7 @@
-import { getDb } from '$lib/server/db';
-import { teams } from '$lib/server/db/schema';
-import { DEFAULT_LEAGUE, LEAGUE_COOKIE, isLeagueId } from '$lib/leagues';
-import { ensureTeams } from '$lib/server/leagues';
+import { getDb } from '#lib/server/db/index.ts';
+import { teams } from '#lib/server/db/schema.ts';
+import { DEFAULT_LEAGUE, LEAGUE_COOKIE, isLeagueId } from '#lib/leagues.ts';
+import { ensureTeams } from '#lib/server/leagues/index.ts';
 
 export async function load({ cookies }) {
 	await ensureTeams();

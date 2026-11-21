@@ -8,8 +8,8 @@ import * as schema from '../src/lib/server/db/schema';
  * A deterministic database the e2e suite runs against — no network, no
  * dependency on what the real leagues happen to be reporting today. Built
  * directly against better-sqlite3 and drizzle rather than importing
- * `$lib/server/db`: this script runs outside Vite, so the `$lib` alias isn't
- * available to it.
+ * `#lib/server/db`: this script runs outside Vite, where that module's
+ * `$app/env/private` import doesn't resolve.
  */
 export const FIXTURE_PATH = resolve('e2e/fixture.db');
 
