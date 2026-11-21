@@ -30,12 +30,12 @@ crons = ["*/5 * * * *"]
 # when, and what has been said about it. It writes only when that changes, so a
 # quiet day costs no writes against the free plan's 1,000.
 #
-# The id is not a secret, but it is this account's: replace the placeholder
-# with the one `wrangler kv namespace create` prints. Until then a deploy fails,
-# which is the intent — the alternative is a monitor running without its memory.
+# The id is not a secret, but it is this Cloudflare account's: on another
+# account, create a namespace with `wrangler kv namespace create` and put its
+# id here.
 [[kv_namespaces]]
 binding = "UPTIME_STATE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "f0b54cb74727409295378f57c883a3b5"
 
 # Each run logs one JSON line saying what it found and what it posted, which is
 # the only record of a run that had nothing to say. Dashboard → Workers & Pages

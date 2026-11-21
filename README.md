@@ -223,17 +223,28 @@ What the messages mean:
   has already said, is not answering. It lists what is failing every half hour
   until KV is back.
 
-One-time setup, in this order. Every command needs `-c wrangler.uptime.toml`;
-without it wrangler acts on the cache Worker.
+Setup, in this order. Every command needs `-c wrangler.uptime.toml`; without it
+wrangler acts on the cache Worker. The first step is done for this Cloudflare
+account (the namespace exists and its id is in `wrangler.uptime.toml`), and is
+only needed again on a different account.
 
 ```bash
 pnpm exec wrangler kv namespace create numbrrs-uptime-state -c wrangler.uptime.toml
-# answer no if it offers to add the binding; paste the id it prints over
-# REPLACE_WITH_KV_NAMESPACE_ID in wrangler.uptime.toml and commit that
-pnpm exec wrangler secret put ALERT_WEBHOOK_URL -c wrangler.uptime.toml
-# paste a Discord webhook URL; answer yes when asked to create the Worker
+# answer no if it offers to add the binding; put the id it prints in the
+# [[kv_namespaces]] block of wrangler.uptime.toml and commit that
 pnpm run cf:deploy:uptime
+pnpm exec wrangler secret put ALERT_WEBHOOK_URL -c wrangler.uptime.toml
+# paste a Discord webhook URL
 ```
+
+Until the secret is set the Worker runs and logs what it finds, but has nowhere
+to post.
+
+The Cloudflare account needs a `workers.dev` subdomain before a Cron Trigger
+can be created, even though this Worker has no address on it. Without one the
+deploy uploads the Worker and then fails on the schedule with error 10063;
+opening Workers & Pages in the dashboard and choosing a subdomain fixes it, and
+the deploy can be run again.
 
 The "started" message should arrive within twenty minutes: a new Cron Trigger
 can take fifteen to reach Cloudflare's network. Redeploy with
