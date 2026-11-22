@@ -1,4 +1,5 @@
 import type { LevelKey, Medal } from '#lib/game.ts';
+import type { TrophyId } from '#lib/trophies.ts';
 import type { Gender } from './index';
 
 /** Position codes the app has names for; anything else falls back to the code. */
@@ -50,6 +51,17 @@ export interface Messages {
 		/** On the tile of a team the visitor has completed: players on its
 		 *  roster they have not named yet. */
 		newPlayers: (count: number, gender: Gender) => string;
+	};
+
+	/** The trophies for winning a whole league, shown above the home page's
+	 *  title to whoever holds them. */
+	trophies: {
+		/** Names the row of them. */
+		title: string;
+		names: Record<TrophyId, string>;
+		/** What one was won for, shown on hovering over it and read out as its
+		 *  name. `season` is the year the season started in. */
+		tip: (trophy: TrophyId, season: number) => string;
 	};
 
 	/** The rules page. Its title also names the links to it. */

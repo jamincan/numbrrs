@@ -1,4 +1,24 @@
+import type { TrophyId } from '#lib/trophies.ts';
 import type { Messages } from './messages';
+
+const TROPHY_NAMES: Record<TrophyId, string> = {
+	stanley: 'Stanley Cup',
+	walter: 'Walter Cup',
+	memorial: 'Memorial Cup',
+	chynoweth: 'Ed Chynoweth Cup',
+	robertson: 'J. Ross Robertson Cup',
+	courteau: 'Gilles-Courteau Trophy'
+};
+
+/** Whose teams each is won by beating, as it reads before "team". */
+const TROPHY_LEAGUES: Record<TrophyId, string> = {
+	stanley: 'NHL',
+	walter: 'PWHL',
+	memorial: 'WHL, OHL and QMJHL',
+	chynoweth: 'WHL',
+	robertson: 'OHL',
+	courteau: 'QMJHL'
+};
 
 export const en: Messages = {
 	title: 'Numbrrs - Learn Hockey Jersey Numbers',
@@ -20,6 +40,13 @@ export const en: Messages = {
 		teamsSyncing: 'Teams are still syncing from the league. Refresh in a moment.',
 		goldCount: (count, total) => `gold for ${count} of ${total} teams`,
 		newPlayers: (count) => `${count} new`
+	},
+
+	trophies: {
+		title: 'Trophies',
+		names: TROPHY_NAMES,
+		tip: (trophy, season) =>
+			`${TROPHY_NAMES[trophy]}: gold for every ${TROPHY_LEAGUES[trophy]} team, ${season}–${String(season + 1).slice(-2)} season`
 	},
 
 	howTo: {
@@ -140,7 +167,7 @@ export const en: Messages = {
 
 	footer: {
 		disclaimer:
-			'An independent fan project. Not affiliated with or endorsed by the NHL, PWHL, WHL, OHL or QMJHL. Team names and logos are the property of their respective clubs.',
+			'An independent fan project. Not affiliated with or endorsed by the NHL, PWHL, WHL, OHL or QMJHL. Team names and logos are the property of their respective clubs, and trophy names of their respective leagues.',
 		privacy: 'Privacy',
 		source: 'Source'
 	},

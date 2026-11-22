@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { SHORT_PLAYERS, SHORT_TEAM } from './seed';
+import { FIXTURE_TEAM, NUMBERLESS_TEAM, SHORT_PLAYERS, SHORT_TEAM } from './seed';
 
 // Medals and best scores: earned on a team's page, kept in the browser's local
 // storage, and shown on the home page. The short roster is used throughout so
@@ -379,4 +379,107 @@ test('a medal says what it was won for when the pointer is over it', async ({ pa
 			name: /^Médaille d’or.: un sans-faute au niveau Difficile, saison \d{4}-\d{4}$/
 		})
 	).toBeVisible();
+});
+
+// A league's trophy, for gold on every one of its teams: it stands above the
+// home page's title. The fixture has three teams, all in the NHL, so the
+// Stanley Cup is the one there is to win.
+test.describe('league trophies', () => {
+	const NHL = [FIXTURE_TEAM, SHORT_TEAM, NUMBERLESS_TEAM].map((t) => `${t.league}:${t.code}`);
+	const title = (page: Page) => page.getByRole('heading', { level: 1, name: 'Numbrrs' });
+	const trophies = (page: Page, name = 'Trophies') => page.getByRole('list', { name });
+
+	/** Records of someone holding gold this season for each of these teams. */
+	async function seedGold(page: Page, teamIds: string[]) {
+		const gold = {
+			completed: true,
+			known: [],
+			seasons: { [season()]: { medal: 'gold', best: { hard: [5, 5] } } }
+		};
+		await page.goto('/how-to-play');
+		await page.evaluate(
+			([key, value]) => localStorage.setItem(key!, value!),
+			[
+				RECORDS,
+				JSON.stringify({ v: 1, teams: Object.fromEntries(teamIds.map((id) => [id, gold])) })
+			]
+		);
+	}
+
+	test('stands above the title, which stays where it was', async ({ page }) => {
+		await page.goto('/');
+		await expect(title(page)).toBeVisible();
+		await expect(trophies(page)).toHaveCount(0);
+		const before = await title(page).boundingBox();
+
+		await seedGold(page, NHL);
+		await page.goto('/');
+		const cup = trophies(page).getByRole('img');
+		await expect(cup).toHaveCount(1);
+		await expect(cup).toHaveAccessibleName(
+			/^Stanley Cup: gold for every NHL team, \d{4}–\d{2} season$/
+		);
+
+		// On the page, above the title, and centred on it.
+		const [after, box] = [await title(page).boundingBox(), await cup.boundingBox()];
+		expect(after).toEqual(before);
+		expect(box!.y).toBeGreaterThanOrEqual(0);
+		expect(box!.y + box!.height).toBeLessThanOrEqual(after!.y + 6);
+		expect(box!.height).toBeGreaterThan(80);
+		expect(Math.abs(box!.x + box!.width / 2 - (after!.x + after!.width / 2))).toBeLessThan(2);
+
+		// What it was won for, on hovering over it.
+		const tip = page.locator('[data-trophy-tip]');
+		await expect(tip).toBeHidden();
+		await cup.hover();
+		await expect(tip).toBeVisible();
+		await expect(tip).toHaveText(/^Stanley Cup: gold for every NHL team/);
+	});
+
+	test('takes gold on every team in the league', async ({ page }) => {
+		await seedGold(page, NHL.slice(1));
+		await page.goto('/');
+		// The medals have been read, and there is no trophy.
+		await expect(page.getByText('2 / 3')).toBeVisible();
+		await expect(trophies(page)).toHaveCount(0);
+	});
+
+	test('has its French name on the French page', async ({ page }) => {
+		await seedGold(page, NHL);
+		await page.goto('/fr');
+		await expect(trophies(page, 'Trophées').getByRole('img')).toHaveAccessibleName(
+			/^Coupe Stanley\u00a0: l’or pour toutes les équipes de la LNH, saison \d{4}-\d{4}$/
+		);
+	});
+
+	test('is a size smaller on a phone, under the nav, and still leaves the title alone', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 390, height: 800 });
+		await page.goto('/');
+		const before = await title(page).boundingBox();
+
+		await seedGold(page, NHL);
+		await page.goto('/');
+		const cup = trophies(page).getByRole('img');
+		await expect(cup).toBeVisible();
+		const [after, box] = [await title(page).boundingBox(), await cup.boundingBox()];
+		expect(after).toEqual(before);
+		expect(box!.height).toBe(48);
+		// Right under the site nav, and clear of the title.
+		const nav = await page.getByRole('navigation', { name: 'Main' }).boundingBox();
+		expect(box!.y).toBe(nav!.y + nav!.height);
+		expect(box!.y + box!.height).toBeLessThanOrEqual(after!.y + 6);
+	});
+
+	test('leaves the league tabs on one row on a phone, counts and all', async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 800 });
+		await seedGold(page, NHL);
+		await page.goto('/');
+		await expect(page.getByText('3 / 3')).toBeVisible();
+		const tabs = page.getByRole('navigation', { name: 'League' }).getByRole('link');
+		const tops = await tabs.evaluateAll((links) => links.map((a) => a.getBoundingClientRect().top));
+		expect(tops).toHaveLength(5);
+		expect(new Set(tops).size).toBe(1);
+	});
 });

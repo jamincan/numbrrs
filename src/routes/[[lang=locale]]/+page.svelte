@@ -14,11 +14,13 @@
 		type LeagueId
 	} from '#lib/leagues.ts';
 	import Medal from '#lib/components/Medal.svelte';
+	import Trophy from '#lib/components/Trophy.svelte';
 	import { levelForMedal, type Medal as MedalKind } from '#lib/game.ts';
 	import { teamLogo } from '#lib/logos.ts';
 	import { RecordBook } from '#lib/records.svelte.ts';
 	import { getTeamColors } from '#lib/team-colors.ts';
 	import { teamName } from '#lib/team-names.ts';
+	import { trophiesHeld } from '#lib/trophies.ts';
 
 	const i18n = getI18n();
 
@@ -83,6 +85,17 @@
 		const ids = teams.filter((t) => t.league === leagueId).map((t) => t.id);
 		return { count: records.loaded ? records.golds(ids) : 0, total: ids.length };
 	}
+
+	// A league's trophy is held while every one of its teams is at gold this
+	// season, and the Memorial Cup while all three junior leagues are. A league
+	// whose teams have not arrived has not been won. Like the medals, none of
+	// this is in the markup the server sends.
+	const trophies = $derived(
+		trophiesHeld((id) => {
+			const { count, total } = golds(id);
+			return total > 0 && count === total;
+		}, i18n.locale)
+	);
 </script>
 
 <svelte:head>
@@ -93,9 +106,42 @@
 </svelte:head>
 
 <div class="flex-1 bg-gray-950 text-white">
-	<header class="py-10 text-center">
+	<!-- More room above the title on a phone than on a wider screen: it is
+	     where the trophies go there, and it is kept whether or not there are
+	     any, so that the title is in one place for everybody. -->
+	<header class="relative pt-12 pb-10 text-center sm:pt-10">
+		<!-- The trophies this visitor holds, standing in a row above the title
+		     with their feet just clear of it. Out of the flow, so that the title
+		     is where it always is, with or without them.
+
+		     On a screen with the room they are as tall as can be had: they take
+		     up the padding above the title and the empty middle of the site nav
+		     above that, which this row is laid over, their tops just clear of
+		     the top of the page. That depends on how tall the nav is (3.25rem):
+		     the row ends 2.75rem below the top of this header and is 5.75rem
+		     tall.
+
+		     A phone's nav has no empty middle, and six that tall would not fit
+		     across one. There they are a size smaller and stand under the nav,
+		     in the padding this header keeps for them. -->
+		{#if trophies.length > 0}
+			<ul
+				class="absolute top-0 left-1/2 flex -translate-x-1/2 items-end gap-2 sm:top-auto sm:bottom-[calc(100%-2.75rem)] sm:gap-3"
+				aria-label={i18n.m.trophies.title}
+				data-trophies
+			>
+				{#each trophies as trophy (trophy)}
+					{@const tip = i18n.m.trophies.tip(trophy, records.season)}
+					<li class="flex">
+						<Trophy {trophy} label={tip} {tip} class="h-12 text-gray-300 sm:h-23" />
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		<h1 class="font-condensed text-6xl font-black tracking-tight">Numbrrs</h1>
-		<p class="mt-2 text-lg text-gray-400">{i18n.m.tagline}</p>
+		<!-- Small on a phone, where at full size it runs to two lines and the
+		     room is wanted above the title. -->
+		<p class="mt-1 px-4 text-xs text-gray-400 sm:mt-2 sm:text-lg">{i18n.m.tagline}</p>
 	</header>
 
 	<main class="mx-auto max-w-5xl px-4 pb-12">
@@ -117,7 +163,7 @@
 						href="{home}?{LEAGUE_PARAM}={option.id}"
 						aria-current={league === option.id ? 'page' : undefined}
 						onclick={(event) => chooseLeague(event, option.id)}
-						class="font-condensed flex flex-col items-center rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
+						class="font-condensed flex flex-col items-center rounded-md px-2 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
 							: 'text-gray-450 hover:text-gray-300'}"
@@ -126,10 +172,14 @@
 						<!-- Gold only, and only once there is one to count: winning a
 						     whole league is the hard thing to do, and a row of zeroes
 						     under every tab would say nothing to a first visit. The
-						     figures are for the eye; the words say what they count. -->
+						     figures are for the eye; the words say what they count.
+
+						     Smaller on a phone, where at full size the count is wider
+						     than the tab's own label and five tabs with one each no
+						     longer fit on a row. -->
 						{#if gold.count > 0}
 							<span
-								class="flex items-center gap-1 font-sans text-[0.6875rem] font-semibold tracking-normal text-gray-300 normal-case"
+								class="flex items-center gap-0.5 font-sans text-[0.5625rem] font-semibold tracking-normal text-gray-300 normal-case [word-spacing:-0.1em] sm:gap-1 sm:text-[0.6875rem] sm:[word-spacing:normal]"
 							>
 								<Medal medal="gold" />
 								<span aria-hidden="true">{gold.count} / {gold.total}</span>

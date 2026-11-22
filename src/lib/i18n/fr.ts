@@ -1,5 +1,6 @@
 import type { Messages } from './messages';
 import type { Gender } from './index';
+import type { TrophyId } from '#lib/trophies.ts';
 
 /**
  * French keeps ":" attached to the word before it with a non-breaking space.
@@ -15,6 +16,25 @@ function newcomers(count: number, gender: Gender): string {
 	if (gender === 'f') return count === 1 ? 'nouvelle' : 'nouvelles';
 	return count === 1 ? 'nouveau' : 'nouveaux';
 }
+
+const TROPHY_NAMES: Record<TrophyId, string> = {
+	stanley: 'Coupe Stanley',
+	walter: 'Coupe Walter',
+	memorial: 'Coupe Memorial',
+	chynoweth: 'Coupe Ed Chynoweth',
+	robertson: 'Coupe J. Ross Robertson',
+	courteau: 'Trophée Gilles-Courteau'
+};
+
+/** Whose teams each is won by beating, as it reads after « les équipes ». */
+const TROPHY_LEAGUES: Record<TrophyId, string> = {
+	stanley: 'de la LNH',
+	walter: 'de la LPHF',
+	memorial: 'de la WHL, de l’OHL et de la LHJMQ',
+	chynoweth: 'de la WHL',
+	robertson: 'de l’OHL',
+	courteau: 'de la LHJMQ'
+};
 
 // Quebec French, since every league here is Canadian: "chandail" rather than
 // "maillot", "alignement" for a roster, "attaquant" for a forward.
@@ -45,6 +65,13 @@ export const fr: Messages = {
 		teamsSyncing: 'Les équipes se synchronisent avec la ligue. Actualisez dans un instant.',
 		goldCount: (count, total) => `l’or pour ${count} équipes sur ${total}`,
 		newPlayers: (count, gender) => `${count} ${newcomers(count, gender)}`
+	},
+
+	trophies: {
+		title: 'Trophées',
+		names: TROPHY_NAMES,
+		tip: (trophy, season) =>
+			`${TROPHY_NAMES[trophy]}${NBSP}: l’or pour toutes les équipes ${TROPHY_LEAGUES[trophy]}, saison ${season}-${season + 1}`
 	},
 
 	// The rules speak of names, cards and the roster rather than of players:
@@ -173,7 +200,7 @@ export const fr: Messages = {
 
 	footer: {
 		disclaimer:
-			'Projet indépendant réalisé par un amateur. Sans lien avec la LNH, la LPHF, la WHL, l’OHL ou la LHJMQ, et sans leur approbation. Les noms et logos d’équipe appartiennent à leurs clubs respectifs.',
+			'Projet indépendant réalisé par un amateur. Sans lien avec la LNH, la LPHF, la WHL, l’OHL ou la LHJMQ, et sans leur approbation. Les noms et logos d’équipe appartiennent à leurs clubs respectifs, et les noms des trophées à leurs ligues respectives.',
 		privacy: 'Confidentialité',
 		source: 'Code source'
 	},
