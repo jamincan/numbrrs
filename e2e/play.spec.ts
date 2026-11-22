@@ -4,6 +4,11 @@ import { SHORT_PLAYERS, SHORT_TEAM } from './seed';
 const NUMBER_PATTERN = /^#\d+$/;
 const GAME_PATH = `/game/${SHORT_TEAM.league}/${SHORT_TEAM.code}`;
 
+/** The progress bar, when what it says starts with this: the count of players
+ *  left, which is said and not shown. */
+const progressSays = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext^="${text}"]`);
+
 /** The front of the card in the draw pile — the first of the two card slots.
  *  Once it is on screen the page has hydrated: the server's markup holds an
  *  undealt deck, and the first card is only turned up by the browser. */
@@ -79,7 +84,7 @@ for (const layout of [
 		await page.setViewportSize(layout.viewport);
 		await page.goto(GAME_PATH);
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 
 		// Arriving doesn't take focus; only a guess moves it.
 		expect(await focusedTag(page)).toBe('BODY');
@@ -147,7 +152,7 @@ for (const layout of [
 		await expect(answers).toBeFocused();
 		await expect(playAgain).toHaveCount(0);
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 		await expect(status).toBeEmpty();
 	});
 }
@@ -225,7 +230,7 @@ test.describe('a game in progress, kept for the tab', () => {
 		const found = first.right[0];
 		if (!found) throw new Error(`No answer to give for #${first.sweaterNumber}`);
 		await page.getByRole('button', { name: found, exact: true }).click();
-		await expect(page.getByText('5 left')).toBeVisible();
+		await expect(progressSays(page, '5 left')).toBeVisible();
 
 		const second = await choices(page);
 		// Easy offers five of the six, and at most two of them wear the number.
@@ -238,7 +243,7 @@ test.describe('a game in progress, kept for the tab', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto(GAME_PATH);
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 	});
 
 	test('nothing is stored until a guess is made', async ({ page }) => {
@@ -257,7 +262,7 @@ test.describe('a game in progress, kept for the tab', () => {
 		await page.reload();
 		await expect(drawnCard(page)).toBeVisible();
 
-		await expect(page.getByText('5 left')).toBeVisible();
+		await expect(progressSays(page, '5 left')).toBeVisible();
 		expect(await drawnNumber(page)).toBe(sweaterNumber);
 		expect(await offered(page)).toEqual(answers);
 		// The last guess is not replayed: nothing on the pile, nothing read out,
@@ -278,7 +283,7 @@ test.describe('a game in progress, kept for the tab', () => {
 		await expect(page).toHaveURL(`/fr${GAME_PATH}`);
 		await expect(drawnCard(page)).toBeVisible();
 
-		await expect(page.getByText('5 à trouver')).toBeVisible();
+		await expect(progressSays(page, '5 à trouver')).toBeVisible();
 		expect(await drawnNumber(page)).toBe(sweaterNumber);
 		expect(await offered(page)).toEqual(answers);
 		await expect(page.getByRole('status')).toBeEmpty();
@@ -306,12 +311,12 @@ test.describe('a game in progress, kept for the tab', () => {
 
 		await playAgain.click();
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 		expect(await savedGame(page)).toBeNull();
 
 		await page.reload();
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 		await expect(playAgain).toHaveCount(0);
 	});
 
@@ -325,13 +330,13 @@ test.describe('a game in progress, kept for the tab', () => {
 		}, SAVED_GAME);
 		await page.reload();
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 		expect(await savedGame(page)).toBeNull();
 
 		await page.evaluate((key) => sessionStorage.setItem(key, '{"v":1,'), SAVED_GAME);
 		await page.reload();
 		await expect(drawnCard(page)).toBeVisible();
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 		expect(await savedGame(page)).toBeNull();
 	});
 });
@@ -354,7 +359,7 @@ test.describe('the page as served, before any script runs', () => {
 		for (const player of SHORT_PLAYERS) {
 			await expect(page.locator('li').filter({ hasText: fullName(player) })).toHaveCount(1);
 		}
-		await expect(page.getByText('6 left')).toBeVisible();
+		await expect(progressSays(page, '6 left')).toBeVisible();
 
 		// The deck is face down and nobody's number is on the page: which card
 		// comes up first is decided in each visitor's browser, not here.

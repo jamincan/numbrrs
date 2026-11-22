@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { FIXTURE_TEAM, NUMBERLESS_TEAM, SHORT_PLAYERS, SHORT_TEAM } from './seed';
 
+/** The progress bar, when what it says starts with this: the count of players
+ *  left, which is said and not shown. */
+const progressSays = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext^="${text}"]`);
+
 // Medals and best scores: earned on a team's page, kept in the browser's local
 // storage, and shown on the home page. The short roster is used throughout so
 // a whole game is six cards.
@@ -294,7 +299,7 @@ test.describe('players new to a roster', () => {
 		// A round of Learn about that one player: dealt face up, with the rest of
 		// the roster already filled in.
 		await expect(page.getByRole('button', { name: 'Level: Learn' })).toBeVisible();
-		await expect(page.getByText('1 to learn')).toBeVisible();
+		await expect(progressSays(page, '1 to learn')).toBeVisible();
 		await expect(page.locator('.card-slot').first()).toContainText(fullName(newcomer));
 		await expect(learnNew).toHaveCount(0);
 		const known = SHORT_PLAYERS[0]!;

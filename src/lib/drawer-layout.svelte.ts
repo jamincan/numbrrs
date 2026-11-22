@@ -45,8 +45,8 @@ export class DrawerLayout {
 
 	// Two columns is the default: wider targets, easier to read. Fewer if the
 	// drawer is too narrow to hold two (the side panel), more only when the
-	// preferred count would overflow the height available — mostly Hard,
-	// which offers the whole roster, on a short viewport.
+	// preferred count would overflow the height available: Medium, with ten
+	// answers under as many as four headings, on a short viewport.
 	optionColumns = $state(2);
 
 	cardTable = $state<HTMLElement>();
@@ -75,12 +75,12 @@ export class DrawerLayout {
 	}
 
 	/**
-	 * @param activeOptionCount How many option buttons the collapsed drawer is
-	 * currently showing — the one piece of quiz state the column count needs.
-	 * Passed as a getter rather than a value so reading it here is what makes
-	 * this effect depend on it.
+	 * @param answers The answers the collapsed drawer is currently showing: the
+	 * one piece of quiz state the column count needs, and only to know when it
+	 * has changed. Passed as a getter rather than a value so reading it here
+	 * is what makes this effect depend on it.
 	 */
-	constructor(activeOptionCount: () => number) {
+	constructor(answers: () => unknown) {
 		$effect(() => {
 			// The `side` variant's query, word for word.
 			const query = window.matchMedia('(min-width: 600px) and (orientation: landscape)');
@@ -103,15 +103,9 @@ export class DrawerLayout {
 		});
 
 		$effect(() => {
-			// Re-measure whenever the option count, the drawer's shape or the
-			// viewport changes.
-			void [
-				activeOptionCount(),
-				this.drawerMax,
-				this.viewportWidth,
-				this.drawerOpen,
-				this.rightDrawer
-			];
+			// Re-measure whenever the answers, the drawer's shape or the viewport
+			// changes.
+			void [answers(), this.drawerMax, this.viewportWidth, this.drawerOpen, this.rightDrawer];
 			const box = this.optionsBox;
 			if (!box) return;
 			const cells = [...box.querySelectorAll<HTMLElement>('button')];
@@ -127,8 +121,25 @@ export class DrawerLayout {
 			// than the box, which only reports how tall the content happens to be
 			// when it fits. The side panel is stretched by its flex row, so there
 			// its own height already is the space available.
+			//
+			// The answers are in groups, one to a position, each under a heading:
+			// the headings and the gaps between the groups come out of the room
+			// the rows have.
+			// Both are read off the page, because both are smaller on a phone.
+			const headings = [...box.querySelectorAll<HTMLElement>('h2')];
+			const px = (value: string) => parseFloat(value) || 0;
+			const groupGap = px(
+				getComputedStyle(headings[0]?.parentElement?.parentElement ?? box).rowGap
+			);
+			const overhead =
+				headings.reduce(
+					(sum, heading) => sum + heading.offsetHeight + px(getComputedStyle(heading).marginBottom),
+					0
+				) +
+				Math.max(0, headings.length - 1) * groupGap;
 			const available =
-				this.drawerMax === null ? box.clientHeight : this.drawerMax - box.offsetTop - padding;
+				(this.drawerMax === null ? box.clientHeight : this.drawerMax - box.offsetTop - padding) -
+				overhead;
 			if (rowHeight <= 0 || available <= 0) return;
 			const rowsThatFit = Math.max(
 				1,
@@ -139,7 +150,17 @@ export class DrawerLayout {
 				Math.max(1, Math.floor((box.clientWidth + OPTION_GAP) / (MIN_OPTION_WIDTH + OPTION_GAP)))
 			);
 			const preferred = Math.min(2, widthAllows);
-			this.optionColumns = cells.length > rowsThatFit * preferred ? widthAllows : preferred;
+			// Each group starts a row of its own, so the rows needed are counted
+			// group by group. A button outside any group (the way on from an
+			// introduction) has a row to itself.
+			const groups = [...box.querySelectorAll<HTMLElement>('[data-answer-group]')].map(
+				(group) => group.querySelectorAll('button').length
+			);
+			const grouped = groups.reduce((sum, count) => sum + count, 0);
+			const rowsNeeded =
+				groups.reduce((sum, count) => sum + Math.ceil(count / preferred), 0) +
+				(cells.length - grouped);
+			this.optionColumns = rowsNeeded > rowsThatFit ? widthAllows : preferred;
 		});
 	}
 }

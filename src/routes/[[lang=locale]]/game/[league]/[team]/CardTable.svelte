@@ -17,7 +17,6 @@
 		gender,
 		layout,
 		onplayagain,
-		onrestart,
 		ontrylevel,
 		best = null,
 		summary = $bindable()
@@ -27,8 +26,6 @@
 		gender: Gender;
 		layout: DrawerLayout;
 		onplayagain: () => void;
-		/** Start over mid-game: offered once the medal is out of reach. */
-		onrestart: () => void;
 		/** Leave Learn for the first quiz level, from its end screen. */
 		ontrylevel: () => void;
 		/** The end-of-game summary, for the parent to move focus to. */
@@ -88,16 +85,26 @@
 			: '';
 	});
 
-	// What is under the cards: players still to be found. Learn says which of
-	// its two parts that count belongs to. Before the cards are dealt the level
-	// isn't known (it is this browser's own setting), so the plain count stands.
-	const progressText = $derived(
-		!game.dealt || game.phase === null
-			? i18n.m.game.remaining(game.remaining)
-			: game.phase === 'learn'
-				? i18n.m.game.toLearn(game.remaining)
-				: i18n.m.game.finalLap(game.remaining)
-	);
+	// What the progress bar says to whoever can't see it: players still to be
+	// found, and which of Learn's two parts that count belongs to; then, at a
+	// level with a medal, whether a run without a miss is still on. It used to
+	// be a line of its own under the bar, which took a row of a phone's screen
+	// to say what the bar and the cards already show. Before the cards are
+	// dealt the level isn't known (it is this browser's own setting), so the
+	// plain count stands.
+	const progressText = $derived.by(() => {
+		const count =
+			!game.dealt || game.phase === null
+				? i18n.m.game.remaining(game.remaining)
+				: game.phase === 'learn'
+					? i18n.m.game.toLearn(game.remaining)
+					: i18n.m.game.finalLap(game.remaining);
+		if (!stake) return count;
+		const medal = game.perfect
+			? i18n.m.game.medalInReach(i18n.m.game.medals[stake])
+			: i18n.m.game.medalLost;
+		return `${count}. ${medal}`;
+	});
 
 	// Each move in words, for whoever can't see the cards: after a guess, the
 	// verdict and who wears the number; then what is up now, or how the game
@@ -287,51 +294,27 @@
 		<!-- Progress. The roster can't show it at a closed-book level, and under a
 		     bottom drawer it is out of sight at any level, so it is here: one
 		     segment per player, filled as each is found. A player who took more
-		     than one try is marked by shape as well as colour. -->
-		<div class="flex w-full flex-col items-center gap-1.5">
-			<div
-				role="progressbar"
-				aria-label={i18n.m.game.progress}
-				aria-valuemin="0"
-				aria-valuemax={game.guessableCount}
-				aria-valuenow={game.guessableCount - game.remaining}
-				class="flex h-1.5 w-full items-center gap-px"
-			>
-				{#each { length: game.guessableCount }, i}
-					{@const outcome = game.outcomes[i]}
-					<span
-						class="flex-1 rounded-full {outcome === undefined
-							? 'h-full bg-white/10'
-							: outcome
-								? 'h-full bg-green-500'
-								: 'h-0.5 bg-red-400'}"
-					></span>
-				{/each}
-			</div>
-			<p class="flex min-h-7 items-center gap-2 text-sm text-gray-400">
-				{#if stake}
-					<!-- What is being played for, and whether it still can be won. -->
-					<Medal
-						medal={stake}
-						lost={!game.perfect}
-						label={game.perfect
-							? i18n.m.game.medalInReach(i18n.m.game.medals[stake])
-							: i18n.m.game.medalLost}
-					/>
-				{/if}
-				<span>{progressText}</span>
-				{#if stake && !game.perfect}
-					<!-- The medal needs a run with no misses, so from the first miss on
-					     the quickest way to it is to start again. Carrying on still
-					     finishes the roster. -->
-					<button
-						onclick={onrestart}
-						class="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-gray-300 hover:bg-white/10 hover:text-white"
-					>
-						{i18n.m.game.restart}
-					</button>
-				{/if}
-			</p>
+		     than one try is marked by shape as well as colour. The count, and
+		     what has become of the medal, are said and not shown. -->
+		<div
+			role="progressbar"
+			aria-label={i18n.m.game.progress}
+			aria-valuemin="0"
+			aria-valuemax={game.guessableCount}
+			aria-valuenow={game.guessableCount - game.remaining}
+			aria-valuetext={progressText}
+			class="flex h-1.5 w-full items-center gap-px"
+		>
+			{#each { length: game.guessableCount }, i}
+				{@const outcome = game.outcomes[i]}
+				<span
+					class="flex-1 rounded-full {outcome === undefined
+						? 'h-full bg-white/10'
+						: outcome
+							? 'h-full bg-green-500'
+							: 'h-0.5 bg-red-400'}"
+				></span>
+			{/each}
 		</div>
 	{:else}
 		<!-- Game over. The best run at this level so far this season, which this

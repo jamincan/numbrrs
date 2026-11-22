@@ -781,15 +781,15 @@ export async function audit(root = REPO) {
 		'drawer-heading',
 		'Roster drawer: position headings',
 		DRAWER,
-		/<h2 class="([^"]+)">\s*\{heading\}/,
+		/<h2\s+class="([^"]+)"\s*>\s*\{heading\}/,
 		drawer
 	);
-	const idle = src.capture(DRAWER, /\{:else\}\s*<li class="([^"]+)">\s*\{player\.firstName\}/);
+	const idle = src.capture(DRAWER, /\{:else\}\s*<li\s+class="([^"]+)"\s*>\s*\{player\.firstName\}/);
 	text(
 		'drawer-idle',
 		'Roster drawer: players who are not an answer',
 		DRAWER,
-		/\{:else\}\s*<li class="([^"]+)">\s*\{player\.firstName\}/,
+		/\{:else\}\s*<li\s+class="([^"]+)"\s*>\s*\{player\.firstName\}/,
 		tinted(idle, drawer)
 	);
 	const done = src.capture(DRAWER, /\{:else if revealed\}\s*<li\s+class="([^"]+)"/);
@@ -799,7 +799,6 @@ export async function audit(root = REPO) {
 		TEXT,
 		contrast(solid(done, 'text'), tinted(done, drawer))
 	);
-	text('progress', 'Game page: progress line', TABLE, /<p class="([^"]+)">\s*\{#if stake\}/, table);
 	text(
 		'picked',
 		'Game page: the number of the player wrongly picked',

@@ -4,6 +4,14 @@ import { FIXTURE_PLAYERS, FIXTURE_TEAM } from './seed';
 const NUMBER_PATTERN = /^#\d+$/;
 const SAVED_GAME = `numbrrs_game:${FIXTURE_TEAM.league}:${FIXTURE_TEAM.code}`;
 
+/** The progress bar, when what it says starts with this: the count of players
+ *  left, which is said and not shown. */
+const progressSays = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext^="${text}"]`);
+/** And when it says this anywhere: what has become of the medal. */
+const progressMentions = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext*="${text}"]`);
+
 /** The number on the card currently being asked about — scoped to the draw
  *  pile (the first of the two card slots), and to the first match within it:
  *  HockeyCard renders both card faces at all times (the flip is a CSS
@@ -72,7 +80,7 @@ test('reaches a playable state with a card showing a number', async ({ page }) =
 test('a correct guess finds the player', async ({ page }) => {
 	await chooseLevel(page, 'Easy');
 	// One fixture player has no sweater number, so ten of the eleven are asked about.
-	await expect(page.getByText('10 left')).toBeVisible();
+	await expect(progressSays(page, '10 left')).toBeVisible();
 
 	const player = playerFor(await drawnNumber(page));
 	await page.getByRole('button', { name: fullName(player) }).click();
@@ -80,7 +88,7 @@ test('a correct guess finds the player', async ({ page }) => {
 	const status = page.getByRole('status');
 	await expect(status).toContainText('Correct');
 	await expect(status).toContainText(fullName(player));
-	await expect(page.getByText('9 left')).toBeVisible();
+	await expect(progressSays(page, '9 left')).toBeVisible();
 });
 
 test('an incorrect guess finds nobody, and says what the player picked wears', async ({ page }) => {
@@ -90,7 +98,7 @@ test('an incorrect guess finds nobody, and says what the player picked wears', a
 
 	const sweaterNumber = await drawnNumber(page);
 	const wrong = someoneElse(sweaterNumber);
-	await expect(page.getByText('10 left')).toBeVisible();
+	await expect(progressSays(page, '10 left')).toBeVisible();
 	await page.getByRole('button', { name: fullName(wrong) }).click();
 
 	const picked = `${fullName(wrong)} wears #${wrong.sweaterNumber}.`;
@@ -102,13 +110,13 @@ test('an incorrect guess finds nobody, and says what the player picked wears', a
 	// On the page as well as read out: exact, so this is the line under the
 	// cards and not the announcement that contains it.
 	await expect(page.getByText(picked, { exact: true })).toBeVisible();
-	await expect(page.getByText('10 left')).toBeVisible();
+	await expect(progressSays(page, '10 left')).toBeVisible();
 });
 
 test('a miss puts the medal out of reach, and a restart brings it back', async ({ page }) => {
 	await chooseLevel(page, 'Hard');
-	const inReach = page.getByRole('img', { name: 'No misses so far: gold medal in reach' });
-	const lost = page.getByRole('img', { name: 'No medal this run' });
+	const inReach = progressMentions(page, 'No misses so far: gold medal in reach');
+	const lost = progressMentions(page, 'No medal this run');
 	const restart = page.getByRole('button', { name: 'Restart' });
 	await expect(inReach).toBeVisible();
 	await expect(restart).toHaveCount(0);
@@ -116,7 +124,7 @@ test('a miss puts the medal out of reach, and a restart brings it back', async (
 	// A right answer leaves it where it was.
 	const first = playerFor(await drawnNumber(page));
 	await page.getByRole('button', { name: fullName(first) }).click();
-	await expect(page.getByText('9 left')).toBeVisible();
+	await expect(progressSays(page, '9 left')).toBeVisible();
 	await expect(inReach).toBeVisible();
 
 	await page.getByRole('button', { name: fullName(someoneElse(await drawnNumber(page))) }).click();
@@ -124,7 +132,7 @@ test('a miss puts the medal out of reach, and a restart brings it back', async (
 	await expect(inReach).toHaveCount(0);
 
 	await restart.click();
-	await expect(page.getByText('10 left')).toBeVisible();
+	await expect(progressSays(page, '10 left')).toBeVisible();
 	await expect(inReach).toBeVisible();
 	await expect(restart).toHaveCount(0);
 	await expect(page.getByRole('status')).toBeEmpty();
@@ -138,9 +146,7 @@ test('a quiz level keeps every number out of the roster, and goes on offering pl
 	page
 }) => {
 	await chooseLevel(page, 'Easy');
-	await expect(
-		page.getByRole('img', { name: 'No misses so far: bronze medal in reach' })
-	).toBeVisible();
+	await expect(progressMentions(page, 'No misses so far: bronze medal in reach')).toBeVisible();
 
 	const found: (typeof FIXTURE_PLAYERS)[number][] = [];
 	for (let turn = 0; turn < 4; turn++) {
@@ -149,7 +155,7 @@ test('a quiz level keeps every number out of the roster, and goes on offering pl
 		const player = playerFor(await drawnNumber(page));
 		await page.getByRole('button', { name: fullName(player) }).click();
 		found.push(player);
-		await expect(page.getByText(`${9 - turn} left`)).toBeVisible();
+		await expect(progressSays(page, `${9 - turn} left`)).toBeVisible();
 	}
 
 	for (const player of found) {
@@ -184,7 +190,7 @@ test('Hard offers the whole roster, by position and then by name, the same for e
 
 	const player = playerFor(await drawnNumber(page));
 	await page.getByRole('button', { name: fullName(player) }).click();
-	await expect(page.getByText('9 left')).toBeVisible();
+	await expect(progressSays(page, '9 left')).toBeVisible();
 	expect(await offeredNames(page)).toEqual(expected);
 });
 
@@ -208,13 +214,13 @@ test('changing to or from Learn starts the game over, whatever has been done in 
 	const next = page.getByRole('button', { name: 'Next', exact: true });
 
 	// A first visit is to Learn, which opens on a player being introduced.
-	await expect(page.getByText('10 to learn')).toBeVisible();
+	await expect(progressSays(page, '10 to learn')).toBeVisible();
 	await next.click();
 	expect(await savedGame()).not.toBeNull();
 
 	await chooseLevel(page, 'Easy');
 
-	await expect(page.getByText('10 left')).toBeVisible();
+	await expect(progressSays(page, '10 left')).toBeVisible();
 	await expect(page.getByRole('status')).toBeEmpty();
 	await expect(offered(page)).toHaveCount(5);
 	// Nothing of the Learn game is kept to come back to.
@@ -222,11 +228,11 @@ test('changing to or from Learn starts the game over, whatever has been done in 
 
 	const player = playerFor(await drawnNumber(page));
 	await page.getByRole('button', { name: fullName(player) }).click();
-	await expect(page.getByText('9 left')).toBeVisible();
+	await expect(progressSays(page, '9 left')).toBeVisible();
 
 	await chooseLevel(page, 'Learn');
 
-	await expect(page.getByText('10 to learn')).toBeVisible();
+	await expect(progressSays(page, '10 to learn')).toBeVisible();
 	await expect(next).toBeVisible();
 	await expect(page.getByRole('status')).toBeEmpty();
 	expect(await savedGame()).toBeNull();

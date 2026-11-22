@@ -1,6 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { SHORT_PLAYERS, SHORT_TEAM } from './seed';
 
+/** The progress bar, when what it says starts with this: the count of players
+ *  left, which is said and not shown. */
+const progressSays = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext^="${text}"]`);
+/** And when it says this anywhere: what has become of the medal. */
+const progressMentions = (page: Page, text: string) =>
+	page.locator(`[role="progressbar"][aria-valuetext*="${text}"]`);
+
 // Learn, the level a first visit starts on: players dealt face up a batch at a
 // time, asked about soon after, and then a final lap with the roster's numbers
 // hidden. The short roster is six players, so one batch of five and one of one.
@@ -62,9 +70,9 @@ test.beforeEach(async ({ page }) => {
 
 test('a first visit is to Learn, which opens on a player dealt face up', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Level: Learn' })).toBeVisible();
-	await expect(page.getByText('6 to learn')).toBeVisible();
+	await expect(progressSays(page, '6 to learn')).toBeVisible();
 	// No medal to play for.
-	await expect(page.getByRole('img', { name: /medal/ })).toHaveCount(0);
+	await expect(progressMentions(page, 'medal')).toHaveCount(0);
 
 	// The card says who wears the number, and asks nothing.
 	const sweaterNumber = await drawnNumber(page);
@@ -83,14 +91,14 @@ test('a first visit is to Learn, which opens on a player dealt face up', async (
 	await nextButton(page).click();
 	await expect(page.getByRole('status')).toHaveText(/^New: #\d+ is .+\.$/);
 	await expect(page.getByRole('group', { name: 'Answer choices' })).toBeFocused();
-	await expect(page.getByText('6 to learn')).toBeVisible();
+	await expect(progressSays(page, '6 to learn')).toBeVisible();
 });
 
 test('plays from introductions, through an open-book quiz, to a scored final lap', async ({
 	page
 }) => {
 	const learned: FixturePlayer[] = [];
-	const lap = page.getByText('Final lap: 6 left');
+	const lap = progressSays(page, 'Final lap: 6 left');
 
 	// The first batch. Questions offer only players already introduced, never
 	// more than three of them.
@@ -103,7 +111,7 @@ test('plays from introductions, through an open-book quiz, to a scored final lap
 		const named = await advance(page);
 		if (named) learned.push(named);
 	}
-	await expect(page.getByText('5 to learn')).toBeVisible();
+	await expect(progressSays(page, '5 to learn')).toBeVisible();
 
 	// An open book: once a player is learned the roster shows their number.
 	// Looked at on an introduction, when nobody is being offered as an answer.
@@ -121,7 +129,7 @@ test('plays from introductions, through an open-book quiz, to a scored final lap
 	expect(stored).not.toBeNull();
 	await page.reload();
 	await expect(nextButton(page)).toBeVisible();
-	await expect(page.getByText(`${6 - learned.length} to learn`)).toBeVisible();
+	await expect(progressSays(page, `${6 - learned.length} to learn`)).toBeVisible();
 	await expect(page.getByRole('status')).toBeEmpty();
 	expect(await page.evaluate((key) => sessionStorage.getItem(key), SAVED_GAME)).toBe(stored);
 
@@ -155,15 +163,13 @@ test('plays from introductions, through an open-book quiz, to a scored final lap
 
 	await page.getByRole('button', { name: 'Try Easy' }).click();
 	await expect(page.getByRole('button', { name: 'Level: Easy' })).toBeVisible();
-	await expect(page.getByText('6 left')).toBeVisible();
+	await expect(progressSays(page, '6 left')).toBeVisible();
 	await expect(answers(page)).toHaveCount(5);
-	await expect(
-		page.getByRole('img', { name: 'No misses so far: bronze medal in reach' })
-	).toBeVisible();
+	await expect(progressMentions(page, 'No misses so far: bronze medal in reach')).toBeVisible();
 });
 
 test('a miss in the final lap is scored, and the player is asked twice more', async ({ page }) => {
-	const lap = page.getByText(/^Final lap: \d left$/);
+	const lap = progressSays(page, 'Final lap: ');
 	for (let turn = 0; (await lap.count()) === 0; turn++) {
 		expect(turn).toBeLessThan(40);
 		await advance(page);

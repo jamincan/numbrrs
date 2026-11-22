@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
+	import MedalIcon from '#lib/components/Medal.svelte';
 	import NavSlot from '#lib/components/NavSlot.svelte';
 	import LevelMenu from './LevelMenu.svelte';
 	import GameHeader from './GameHeader.svelte';
@@ -41,7 +42,9 @@
 	// of this component for each roster it is given. `untrack` says so
 	// explicitly, rather than leaving it looking like an oversight.
 	const game = new GameState(untrack(() => roster));
-	const layout = new DrawerLayout(() => game.activeOptions.length);
+	// The answers on the card are what the drawer's columns are fitted to: a
+	// new list of them, on a new card or at a new level, is a reason to measure.
+	const layout = new DrawerLayout(() => game.current?.optionIds);
 
 	// The same goes for the team, which is the roster's own. Its id names the
 	// saved game.
@@ -249,6 +252,20 @@
 					<!-- Gone while the round it starts is being played, and as soon as
 					     the last of the new players has been named. Opaque, because
 					     it lies over whatever is hanging at this end of the row. -->
+					<!-- Once a miss has put the level's medal out of reach: the medal
+					     needs a run with no misses, so the quickest way to it is to
+					     start again. Carrying on still finishes the roster. Here, in a
+					     row that is always kept, so that its arrival moves nothing; the
+					     greyed medal says what was lost. -->
+					{#if game.dealt && game.current && game.stake && !game.perfect}
+						<button
+							onclick={playAgain}
+							class="flex items-center gap-1 rounded-full border border-white/25 bg-gray-800 py-0.5 pr-2.5 pl-1.5 text-xs font-semibold whitespace-nowrap text-white shadow hover:bg-gray-700"
+						>
+							<MedalIcon medal={game.stake} lost />
+							{i18n.m.game.restart}
+						</button>
+					{/if}
 					{#if game.dealt && fresh.length > 0 && !game.focus}
 						<button
 							onclick={learnNew}
@@ -281,7 +298,6 @@
 				{gender}
 				{layout}
 				onplayagain={playAgain}
-				onrestart={playAgain}
 				ontrylevel={tryEasy}
 				{best}
 				bind:summary

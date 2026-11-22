@@ -42,6 +42,26 @@
 	// An introduction has nothing to answer: its one control is the way on.
 	const introducing = $derived(game.current?.kind === 'intro');
 
+	// The drawer shows the roster or, shut, only the answers on the card that's
+	// up: the same list under the same position headings, in the same order,
+	// with everyone else left out.
+	//
+	// Where everyone with a number is an answer there is nobody to leave out:
+	// Hard, or any closed-book level on a roster no bigger than its cards. The
+	// two are then the same thing, the toggle between them has nothing to do,
+	// and it is not shown.
+	//
+	// Only at a closed book. While Learn is introducing a small roster the
+	// answers can be everyone met so far, but the open roster still has more
+	// to show than they do.
+	const everyone = $derived(
+		closed &&
+			game.current?.kind === 'quiz' &&
+			roster.every((p) => p.sweaterNumber == null || game.current?.optionIds.includes(p.id))
+	);
+	// What the drawer shows: the roster, or only the answers.
+	const showRoster = $derived(layout.drawerOpen || everyone);
+
 	const toggleLabel = $derived(layout.drawerOpen ? i18n.m.game.hideRoster : i18n.m.game.showAll);
 
 	const forwards = $derived(
@@ -58,10 +78,17 @@
 	);
 </script>
 
+<!-- Everything in the drawer is a little shorter on a phone, where it comes up
+     from the bottom and what it takes it takes from the cards: the rows, the
+     space under a heading and between one position and the next, and the
+     handle. Ten answers under three headings then fit without scrolling on a
+     phone of ordinary height. With more room (a tablet, or the side panel)
+     they are their full size. A row is still 32px tall and half the screen
+     wide, which is plenty to hit. -->
 {#snippet optionButton(player: Player, interaction: string)}
 	<button
 		onclick={() => onguess(player.id)}
-		class="w-full rounded-lg border-2 px-3 py-2 text-left text-sm font-semibold transition-all {interaction}"
+		class="w-full rounded-lg border-2 px-3 py-1 text-left text-sm font-semibold transition-all sm:py-2 side:py-2 {interaction}"
 		style="border-color: {primaryColor}; background: {primaryColor}22; color: white;"
 	>
 		{player.firstName}
@@ -72,7 +99,7 @@
 {#snippet nextButton()}
 	<button
 		onclick={onnext}
-		class="w-full rounded-lg border-2 px-3 py-2 text-center text-sm font-semibold transition-all active:scale-95"
+		class="w-full rounded-lg border-2 px-3 py-1 text-center text-sm font-semibold transition-all active:scale-95 sm:py-2 side:py-2"
 		style="border-color: {primaryColor}; background: {primaryColor}22; color: white;"
 	>
 		{i18n.m.game.next}
@@ -102,7 +129,7 @@
 				</li>
 			{:else if revealed}
 				<li
-					class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
+					class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-1 text-sm text-green-400 sm:py-2 side:py-2"
 				>
 					<div>
 						{player.firstName}
@@ -111,7 +138,9 @@
 					{player.sweaterNumber ?? '--'}
 				</li>
 			{:else}
-				<li class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-450">
+				<li
+					class="rounded-lg border border-white/5 bg-white/5 px-3 py-1 text-sm text-gray-450 sm:py-2 side:py-2"
+				>
 					{player.firstName}
 					{player.lastName}
 				</li>
@@ -122,11 +151,38 @@
 
 {#snippet rosterGroup(heading: string, group: Player[])}
 	<div>
-		<h2 class="mb-1.5 text-xs font-semibold tracking-wider text-gray-450 uppercase">
+		<h2
+			class="mb-1 text-xs font-semibold tracking-wider text-gray-450 uppercase sm:mb-1.5 side:mb-1.5"
+		>
 			{heading}
 		</h2>
 		{@render playerGrid(group)}
 	</div>
+{/snippet}
+
+<!-- One position's players among the answers on the card, in the roster's
+     order. A position with none of them on the card is left out altogether: a
+     heading over nothing says only that the answer is not there. -->
+{#snippet answerGroup(heading: string, group: Player[])}
+	{@const offered = group.filter((player) => game.current?.optionIds.includes(player.id))}
+	{#if offered.length > 0}
+		<div>
+			<h2
+				class="mb-1 text-xs font-semibold tracking-wider text-gray-450 uppercase sm:mb-1.5 side:mb-1.5"
+			>
+				{heading}
+			</h2>
+			<div
+				data-answer-group
+				class="grid gap-1.5"
+				style="grid-template-columns: repeat({layout.optionColumns}, minmax(0, 1fr));"
+			>
+				{#each offered as player (player.id)}
+					{@render optionButton(player, 'active:scale-95')}
+				{/each}
+			</div>
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet rosterByPosition()}
@@ -185,38 +241,46 @@
 		     words it shows and nothing else, so what a voice-control user reads
 		     out is what activates it, and a screen reader isn't left to describe
 		     the arrow. -->
-		<button
-			onclick={() => layout.toggleDrawer()}
-			class="flex w-full shrink-0 flex-col items-center gap-1.5 px-4 pt-3 pb-2"
-			aria-label={game.dealt ? toggleLabel : undefined}
-			aria-expanded={game.dealt ? layout.drawerOpen : undefined}
-			aria-controls="{uid}-roster"
-		>
-			<div class="h-1 w-10 rounded-full bg-white/20 side:hidden"></div>
-			<span class="text-xs text-gray-450">
-				{#if game.dealt}
-					{layout.drawerOpen ? '▼' : '▲'}
-					{toggleLabel}
-				{:else}
-					<!-- Not yet a working toggle, and not yet known to be open or
+		{#if everyone}
+			<!-- No toggle, and no bar that looks like one: only the room they kept
+			     above the first heading. -->
+			<div class="h-4 shrink-0"></div>
+		{:else}
+			<button
+				onclick={() => layout.toggleDrawer()}
+				class="flex w-full shrink-0 flex-col items-center gap-1 px-4 pt-2 pb-1.5 sm:gap-1.5 sm:pt-3 sm:pb-2 side:gap-1.5 side:pt-3 side:pb-2"
+				aria-label={game.dealt ? toggleLabel : undefined}
+				aria-expanded={game.dealt ? layout.drawerOpen : undefined}
+				aria-controls="{uid}-roster"
+			>
+				<div class="h-1 w-10 rounded-full bg-white/20 side:hidden"></div>
+				<span class="text-xs text-gray-450">
+					{#if game.dealt}
+						{layout.drawerOpen ? '▼' : '▲'}
+						{toggleLabel}
+					{:else}
+						<!-- Not yet a working toggle, and not yet known to be open or
 					     closed: the button is named by whichever label shows. -->
-					<span class="side:hidden">▲ {i18n.m.game.showAll}</span>
-					<span class="hidden side:inline">▼ {i18n.m.game.hideRoster}</span>
-				{/if}
-			</span>
-		</button>
+						<span class="side:hidden">▲ {i18n.m.game.showAll}</span>
+						<span class="hidden side:inline">▼ {i18n.m.game.hideRoster}</span>
+					{/if}
+				</span>
+			</button>
+		{/if}
 
-		{#if layout.drawerOpen}
-			<!-- Expanded: full roster, scrolling only once the drawer has taken
+		{#if showRoster}
+			<!-- Expanded, or with everyone on offer: full roster, scrolling only once the drawer has taken
 			     all the space available to it. The number being asked about isn't
 			     repeated here — the drawer does not cover the card that shows it. -->
 			<div id="{uid}-roster" class="@container min-h-0 flex-1 overflow-y-auto px-4 pb-8">
 				{@render rosterGroups()}
 			</div>
 		{:else}
-			<!-- Collapsed: active options only. Before the first deal it is a
-			     container as well, and padded like the open drawer in the
-			     right-hand arrangement, because there it is showing the roster. -->
+			<!-- Collapsed: the answers on the card and nobody else, under the
+			     headings of the positions they play, as they are in the roster.
+			     Before the first deal it is a container as well, and padded like
+			     the open drawer in the right-hand arrangement, because there it is
+			     showing the roster. -->
 			<div
 				id="{uid}-roster"
 				class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 {game.dealt ? '' : '@container side:pb-8'}"
@@ -227,18 +291,15 @@
 					role="group"
 					tabindex="-1"
 					aria-label={i18n.m.game.answerChoices}
-					class="grid gap-1.5"
-					style="grid-template-columns: repeat({layout.optionColumns}, minmax(0, 1fr));"
+					class="flex flex-col gap-2 sm:gap-3 side:gap-3"
 				>
 					{#if introducing}
-						<!-- Across the whole row, however many columns the answers had. -->
-						<div class="col-span-full">
-							{@render nextButton()}
-						</div>
+						{@render nextButton()}
 					{/if}
-					{#each game.activeOptions as player (player.id)}
-						{@render optionButton(player, 'active:scale-95')}
-					{/each}
+					{@render answerGroup(i18n.m.game.groups.forwards(gender), forwards)}
+					{@render answerGroup(i18n.m.game.groups.defense(gender), defensemen)}
+					{@render answerGroup(i18n.m.game.groups.goalies(gender), goalies)}
+					{@render answerGroup(i18n.m.game.groups.other, other)}
 				</div>
 				{#if !game.dealt}
 					<!-- The whole roster, in the page as the server sends it: what "show

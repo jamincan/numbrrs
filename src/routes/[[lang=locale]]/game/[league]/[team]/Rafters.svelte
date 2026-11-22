@@ -10,7 +10,8 @@
 		 *  medal is called for whoever can't see it. */
 		medalTip?: string;
 		/** Laid over the right-hand end of the row: the game puts the way into
-		 *  a round about a roster's new players here. */
+		 *  a round about a roster's new players here, and the way to start over
+		 *  once a medal is out of reach. */
 		extra?: Snippet;
 	};
 
@@ -44,7 +45,7 @@
 		</span>
 	{/if}
 	{#if extra}
-		<div class="absolute top-1/2 right-0 flex -translate-y-1/2 side:right-4">
+		<div class="absolute top-1/2 right-0 flex -translate-y-1/2 items-center gap-2 side:right-4">
 			{@render extra()}
 		</div>
 	{/if}
