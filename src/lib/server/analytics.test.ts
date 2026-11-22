@@ -364,8 +364,22 @@ describe('recordEdgeViews', () => {
 
 		expect(written).toBe(2);
 		expect(rows()).toMatchObject([
-			{ name: 'pageview', path: '/game/nhl/TOR', league: 'nhl', team: 'TOR', locale: 'en' },
-			{ name: 'pageview', path: '/fr', routeId: '/[[lang=locale]]', league: null, locale: 'fr' }
+			{
+				name: 'pageview',
+				path: '/game/nhl/TOR',
+				league: 'nhl',
+				team: 'TOR',
+				locale: 'en',
+				servedBy: 'edge'
+			},
+			{
+				name: 'pageview',
+				path: '/fr',
+				routeId: '/[[lang=locale]]',
+				league: null,
+				locale: 'fr',
+				servedBy: 'edge'
+			}
 		]);
 	});
 

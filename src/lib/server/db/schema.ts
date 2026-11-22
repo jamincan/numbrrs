@@ -97,6 +97,12 @@ export const events = sqliteTable(
 		// direct, without recording which page someone came from.
 		referrerHost: text('referrer_host'),
 		visitorHash: text('visitor_hash').notNull(),
+		// Who answered the visitor: 'origin' for a page this server rendered,
+		// 'edge' for one the Cloudflare Worker served from its cache and reported
+		// afterwards. Null on rows from before this was recorded. It says
+		// something about the request's route through the network and nothing
+		// about the person who made it.
+		servedBy: text('served_by'),
 		// Free-form JSON for events that carry extra detail. Nothing writes it
 		// yet; it's here so adding gameplay events later needs no migration.
 		props: text('props')

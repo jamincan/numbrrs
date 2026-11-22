@@ -218,6 +218,7 @@ export const fr: Messages = {
 			'Le chemin de la page et la route correspondante',
 			'La ligue et l’équipe, s’il s’agit d’une page d’équipe',
 			'La langue dans laquelle la page a été servie',
+			'Si la page provenait du cache de Cloudflare ou du serveur du site',
 			'Le site d’où vous arrivez — le domaine seulement, jamais l’adresse complète',
 			'Un code de visite, décrit ci-dessous'
 		],

@@ -223,11 +223,24 @@ export interface EventVisitor {
 }
 
 /**
- * The one place an event becomes a row, whoever is reporting it, so a view the
- * edge answered is filtered and stored exactly as one the origin rendered.
- * Returns whether a row was written; a bot's visit is not.
+ * Who answered the visitor: this server, or the Cloudflare Worker from its
+ * cache. See cloudflare/locale-cache-worker.ts.
  */
-function insertEvent(input: EventInput, page: EventPage, visitor: EventVisitor, now: number) {
+export type ServedBy = 'origin' | 'edge';
+
+/**
+ * The one place an event becomes a row, whoever is reporting it, so a view the
+ * edge answered is filtered and stored exactly as one the origin rendered,
+ * apart from saying which of the two it was. Returns whether a row was
+ * written; a bot's visit is not.
+ */
+function insertEvent(
+	input: EventInput,
+	page: EventPage,
+	visitor: EventVisitor,
+	servedBy: ServedBy,
+	now: number
+) {
 	if (isBot(visitor.userAgent)) return false;
 
 	const day = dayKey(now);
@@ -248,6 +261,7 @@ function insertEvent(input: EventInput, page: EventPage, visitor: EventVisitor, 
 			locale: page.locale,
 			referrerHost: referrerHost(visitor.referer, [visitor.hostname, ...OWN_HOSTNAMES]),
 			visitorHash: visitorHash(saltFor(day), day, visitor.ip, visitor.userAgent),
+			servedBy,
 			props: input.props ? JSON.stringify(input.props) : null
 		})
 		.run();
@@ -279,6 +293,7 @@ export function recordEvent(event: RequestEvent, input: EventInput): void {
 				referer: event.request.headers.get('referer'),
 				hostname: event.url.hostname
 			},
+			'origin',
 			now
 		);
 
@@ -292,7 +307,8 @@ export function recordEvent(event: RequestEvent, input: EventInput): void {
  * Record page views the edge served from its cache, which never reached this
  * server as requests of their own (see src/routes/api/hit/+server.ts, the only
  * caller). Each becomes the row `recordEvent` would have written had the page
- * been rendered here: same filter, same columns, nothing extra.
+ * been rendered here: same filter, same columns, and marked as the edge's so
+ * the dashboard can say how much of the traffic the cache is carrying.
  *
  * The rows carry the time the report arrived rather than the time of the view.
  * The Worker holds a report for a few seconds at most, and taking a time from
@@ -310,7 +326,7 @@ export function recordEdgeViews(views: { page: EventPage; visitor: EventVisitor 
 		const written = getDb().transaction(() => {
 			let count = 0;
 			for (const { page, visitor } of views) {
-				if (insertEvent({ name: 'pageview' }, page, visitor, now)) count += 1;
+				if (insertEvent({ name: 'pageview' }, page, visitor, 'edge', now)) count += 1;
 			}
 			return count;
 		});

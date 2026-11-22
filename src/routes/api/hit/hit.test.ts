@@ -185,7 +185,7 @@ describe('POST /api/hit', () => {
 	});
 
 	describe('what a report becomes', () => {
-		it('writes the row a rendered view of the same page writes', async () => {
+		it('writes the row a rendered view of the same page writes, marked as the edge’s', async () => {
 			const visitor = { ip: VISITOR_IP, ua: BROWSER, ref: 'https://news.example/item?id=1' };
 
 			recordEvent(
@@ -202,7 +202,13 @@ describe('POST /api/hit', () => {
 			await send([hit({ path: '/fr/game/pwhl/MTL', ...visitor })]);
 
 			const [rendered, reported] = recorded();
-			expect(reported).toEqual({ ...rendered, id: reported?.id, at: reported?.at });
+			expect(rendered?.servedBy).toBe('origin');
+			expect(reported).toEqual({
+				...rendered,
+				id: reported?.id,
+				at: reported?.at,
+				servedBy: 'edge'
+			});
 			expect(reported).toMatchObject({
 				name: 'pageview',
 				path: '/fr/game/pwhl/MTL',

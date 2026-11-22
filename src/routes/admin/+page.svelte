@@ -26,6 +26,8 @@
 	const hasTraffic = $derived((stats?.daily ?? []).some((d) => d.views > 0));
 
 	const shortDay = (day: string) => day.slice(5).replace('-', '/');
+	/** A part of a whole as a percentage, to the nearest one; nothing of nothing is none. */
+	const share = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
 	const ago = (ms: number | null) => {
 		if (ms == null) return 'never';
 		const mins = Math.round((Date.now() - ms) / 60000);
@@ -49,7 +51,7 @@
      at >=3:1 against this surface. -->
 <div
 	class="viz-root flex-1 bg-gray-950 px-6 py-8 text-white"
-	style="--series-1:#3987e5; --status-critical:#d03b3b; --status-good:#0ca30c; --status-warning:#fab219;"
+	style="--series-1:#3987e5; --series-2:#d95926; --status-critical:#d03b3b; --status-good:#0ca30c; --status-warning:#fab219;"
 >
 	<div class="mx-auto max-w-5xl">
 		{#if data.directAccess}
@@ -191,6 +193,145 @@
 					rotates at midnight and is never stored, so someone who visits on two days counts once on
 					each — the 7- and 30-day figures add those daily counts up rather than measuring unique
 					people. Known bots are excluded.
+				</p>
+			</section>
+
+			<!-- Who answered: the Cloudflare Worker from its cache, or this server.
+			     Each row is one whole split in two, read beside its own figures, so
+			     the bar is thin and carries no text; the legend names the two parts
+			     once for the table. The two hues are the first two of the palette's
+			     categorical order, checked together against this surface. -->
+			<section class="mt-6 rounded-lg border border-white/10 bg-white/5 p-5" data-served>
+				<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+					<h2 class="font-semibold">Edge cache and server</h2>
+					<ul class="flex gap-4 text-xs text-gray-400">
+						<li class="flex items-center gap-1.5">
+							<span class="size-2 rounded-xs" style="background: var(--series-1)"></span>
+							Edge cache
+						</li>
+						<li class="flex items-center gap-1.5">
+							<span class="size-2 rounded-xs" style="background: var(--series-2)"></span>
+							Server
+						</li>
+					</ul>
+				</div>
+
+				{#if !stats.served.recorded}
+					<p class="py-6 text-center text-sm text-gray-500">
+						Nothing recorded yet. A view is marked with who served it from the first one after this
+						panel was deployed.
+					</p>
+				{:else}
+					<div class="mt-4 grid gap-x-10 gap-y-6 md:grid-cols-2">
+						<table class="w-full text-sm">
+							<caption class="mb-2 text-left text-xs text-gray-400">Page views</caption>
+							<thead>
+								<tr class="text-xs text-gray-500">
+									<th scope="col" class="pb-1 text-left font-normal">Period</th>
+									<th scope="col" class="pb-1 text-left font-normal">
+										<span class="sr-only">Split</span>
+									</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										Edge cache
+									</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										Server
+									</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										From cache
+									</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each stats.served.periods as period (period.label)}
+									{@const total = period.edgeViews + period.originViews}
+									{@const percent = share(period.edgeViews, total)}
+									<tr class="border-t border-white/5">
+										<th scope="row" class="py-2 pr-3 text-left font-normal whitespace-nowrap">
+											{period.label}
+										</th>
+										<td class="w-full py-2">
+											{#if total > 0}
+												<div
+													class="flex h-2 min-w-10 gap-[2px]"
+													role="img"
+													aria-label="{period.label}: {percent}% of views from the edge cache, {100 -
+														percent}% from the server"
+													title="Edge cache {period.edgeViews.toLocaleString()} ({percent}%) · Server {period.originViews.toLocaleString()} ({100 -
+														percent}%)"
+												>
+													{#if period.edgeViews > 0}
+														<div
+															class="min-w-1 rounded-full"
+															style="flex: {period.edgeViews} 1 0; background: var(--series-1)"
+														></div>
+													{/if}
+													{#if period.originViews > 0}
+														<div
+															class="min-w-1 rounded-full"
+															style="flex: {period.originViews} 1 0; background: var(--series-2)"
+														></div>
+													{/if}
+												</div>
+											{/if}
+										</td>
+										<td class="py-2 pl-3 text-right text-gray-300 tabular-nums">
+											{period.edgeViews.toLocaleString()}
+										</td>
+										<td class="py-2 pl-3 text-right text-gray-300 tabular-nums">
+											{period.originViews.toLocaleString()}
+										</td>
+										<td class="py-2 pl-3 text-right text-gray-400 tabular-nums">
+											{total > 0 ? `${percent}%` : '—'}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+
+						<table class="w-full self-start text-sm">
+							<caption class="mb-2 text-left text-xs text-gray-400">Visitors</caption>
+							<thead>
+								<tr class="text-xs text-gray-500">
+									<th scope="col" class="pb-1 text-left font-normal">Period</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										Cache only
+									</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										Both
+									</th>
+									<th scope="col" class="pb-1 pl-3 text-right font-normal whitespace-nowrap">
+										Server only
+									</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each stats.served.periods as period (period.label)}
+									<tr class="border-t border-white/5">
+										<th scope="row" class="py-2 pr-3 text-left font-normal whitespace-nowrap">
+											{period.label}
+										</th>
+										{#each [period.edgeOnly, period.both, period.originOnly] as count, i (i)}
+											<td class="py-2 pl-3 text-right text-gray-300 tabular-nums">
+												{count.toLocaleString()}
+											</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+
+				<p class="mt-4 border-t border-white/10 pt-3 text-xs leading-relaxed text-gray-500">
+					A page the Cloudflare Worker answers from its cache never reaches the server, so the
+					Worker reports those views afterwards, a batch at a time. A batch can be lost, so the
+					cache's share reads slightly low, never high. “Server” is every page rendered here: a
+					cache miss, or an address no Worker route covers. Visitors are daily counts added up, as
+					above; “Cache only” are the ones the server never saw.
+					{#if stats.served.since}
+						Counted from {stats.served.since}: earlier views were not marked with who served them.
+					{/if}
 				</p>
 			</section>
 

@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { ALERT_WEBHOOK_URL, ADMIN_DIRECT, ADMIN_TOKEN } from '$app/env/private';
+import type { ServedBy } from '#lib/server/analytics.ts';
 import { dayKey } from '#lib/server/telemetry.ts';
 import {
 	endSession,
@@ -104,17 +105,61 @@ function computeUsage(now: number) {
 	const pageviews = eq(events.name, 'pageview');
 	const inWindow = and(pageviews, gte(events.day, since));
 
-	const daily = db
+	// Who served each view is counted in the same pass as the totals, since a
+	// second walk over a month of events is the cost this function is cached to
+	// avoid. A row from before that was recorded has no `servedBy` and falls
+	// out of every figure but the first two.
+	const servedBy = (who: ServedBy) => sql`${events.servedBy} = ${who}`;
+	const visitorsWhere = (condition: SQL) =>
+		sql<number>`count(distinct case when ${condition} then ${events.visitorHash} end)`;
+	const rollup = db
 		.select({
 			day: events.day,
 			views: sql<number>`count(*)`,
-			visitors: sql<number>`count(distinct ${events.visitorHash})`
+			visitors: sql<number>`count(distinct ${events.visitorHash})`,
+			edgeViews: sql<number>`coalesce(sum(${servedBy('edge')}), 0)`,
+			originViews: sql<number>`coalesce(sum(${servedBy('origin')}), 0)`,
+			edgeVisitors: visitorsWhere(servedBy('edge')),
+			originVisitors: visitorsWhere(servedBy('origin')),
+			servedVisitors: visitorsWhere(sql`${events.servedBy} is not null`)
 		})
 		.from(events)
 		.where(inWindow)
 		.groupBy(events.day)
 		.orderBy(desc(events.day))
 		.all();
+
+	const daily = rollup.map(({ day, views, visitors }) => ({ day, views, visitors }));
+
+	/**
+	 * How the views and visitors of the last `days` days divide between the edge
+	 * cache and this server. A visitor can be served by both in one day (a page
+	 * from the cache, the next one rendered here), so visitors divide three
+	 * ways, worked out from the three distinct counts each day has: everyone
+	 * the server saw is in `originVisitors`, so whoever is left was served by
+	 * the cache alone, and the same the other way round.
+	 */
+	const served = (label: string, days: number) => {
+		const cutoff = dayKey(now - days * DAY_MS);
+		const split = { label, edgeViews: 0, originViews: 0, edgeOnly: 0, both: 0, originOnly: 0 };
+		for (const d of rollup) {
+			if (d.day <= cutoff) continue;
+			split.edgeViews += d.edgeViews;
+			split.originViews += d.originViews;
+			split.edgeOnly += d.servedVisitors - d.originVisitors;
+			split.originOnly += d.servedVisitors - d.edgeVisitors;
+			split.both += d.edgeVisitors + d.originVisitors - d.servedVisitors;
+		}
+		return split;
+	};
+
+	// The first day in the window with a view that says who served it, when the
+	// window also holds views that don't: the figures start there and not at the
+	// window's edge, and the page says so.
+	const servedDays = rollup.filter((d) => d.edgeViews + d.originViews > 0);
+	const servedSince = rollup.some((d) => d.views > d.edgeViews + d.originViews)
+		? (servedDays.at(-1)?.day ?? null)
+		: null;
 
 	const byDay = new Map(daily.map((d) => [d.day, d]));
 	const recent = (days: number) => {
@@ -188,6 +233,15 @@ function computeUsage(now: number) {
 		last30: recent(WINDOW_DAYS),
 		// Oldest first, so the chart reads left to right.
 		daily: [...daily].reverse(),
+		served: {
+			periods: [
+				served('Today', 1),
+				served('7 days', 7),
+				served(`${WINDOW_DAYS} days`, WINDOW_DAYS)
+			],
+			recorded: servedDays.length > 0,
+			since: servedSince
+		},
 		topTeams,
 		topLeagues,
 		referrers,

@@ -71,6 +71,13 @@
       "when": 1795270963640,
       "tag": "0009_players-team-id-index",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795383807388,
+      "tag": "0010_events-served-by",
+      "breakpoints": true
     }
   ]
 }

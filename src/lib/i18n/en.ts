@@ -185,6 +185,7 @@ export const en: Messages = {
 			'The page path and the route it matched',
 			'The league and team, when the page is a team page',
 			'The language the page was served in',
+			'Whether the page came from Cloudflare’s cache or from the site’s own server',
 			'The site you arrived from — the host only, never the full address',
 			'A visitor code, described below'
 		],

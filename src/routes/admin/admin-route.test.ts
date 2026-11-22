@@ -60,6 +60,18 @@ interface PageData {
 	stats?: {
 		today: { views: number; visitors: number };
 		last30: { views: number };
+		served: {
+			periods: {
+				label: string;
+				edgeViews: number;
+				originViews: number;
+				edgeOnly: number;
+				both: number;
+				originOnly: number;
+			}[];
+			recorded: boolean;
+			since: string | null;
+		};
 		topTeams: { name: string; views: number }[];
 		recentErrors: { fingerprint: string }[];
 		alertsConfigured: boolean;
@@ -181,6 +193,22 @@ function seedPageview(at: number, team: string | null = null): void {
 			team,
 			locale: 'en',
 			visitorHash: `visitor-${at}`
+		})
+		.run();
+}
+
+/** A view that says who served it, from a visitor named so two views can be one person's. */
+function seedServed(at: number, servedBy: 'edge' | 'origin' | null, visitor: string): void {
+	getDb()
+		.insert(events)
+		.values({
+			at,
+			day: dayKey(at),
+			name: 'pageview',
+			path: '/',
+			locale: 'en',
+			visitorHash: visitor,
+			servedBy
 		})
 		.run();
 }
@@ -367,6 +395,90 @@ describe('usage figures', () => {
 		const locked = await load({ cookies: cookieJar().cookies });
 
 		expect(locked).toEqual({ state: 'locked', directAccess: false });
+	});
+});
+
+describe('the edge cache and server split', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+
+	// Midday, so a day either side of it is the calendar day either side.
+	async function openAt(seed: (now: number) => void) {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date(2026, 10, 18, 12));
+		const jar = await signedIn();
+		seed(Date.now());
+		const data = await load({ cookies: jar.cookies });
+		if (!data.stats) throw new Error('Expected the dashboard to open');
+		return data.stats.served;
+	}
+
+	it('counts views by who served them, and visitors by who they were served by', async () => {
+		const served = await openAt((now) => {
+			// Today: one visitor served by both, one by the cache alone, twice, and
+			// one by the server alone.
+			seedServed(now, 'edge', 'ann');
+			seedServed(now, 'origin', 'ann');
+			seedServed(now, 'edge', 'bo');
+			seedServed(now, 'edge', 'bo');
+			seedServed(now, 'origin', 'cy');
+			// Yesterday: the first of them again, who is somebody new as far as a
+			// daily hash can tell, and this time saw only the server.
+			seedServed(now - DAY, 'origin', 'ann');
+		});
+
+		expect(served.periods).toEqual([
+			{ label: 'Today', edgeViews: 3, originViews: 2, edgeOnly: 1, both: 1, originOnly: 1 },
+			{ label: '7 days', edgeViews: 3, originViews: 3, edgeOnly: 1, both: 1, originOnly: 2 },
+			{ label: '30 days', edgeViews: 3, originViews: 3, edgeOnly: 1, both: 1, originOnly: 2 }
+		]);
+		expect(served.recorded).toBe(true);
+		// Every view in the window says who served it, so there is no start to name.
+		expect(served.since).toBeNull();
+	});
+
+	it('leaves out views from before it was recorded, and says when the count starts', async () => {
+		const served = await openAt((now) => {
+			seedServed(now - 10 * DAY, null, 'old');
+			seedServed(now - 3 * DAY, null, 'dee');
+			seedServed(now - 3 * DAY, 'origin', 'dee');
+			seedServed(now, 'edge', 'eve');
+		});
+
+		expect(served.periods.at(-1)).toEqual({
+			label: '30 days',
+			edgeViews: 1,
+			originViews: 1,
+			edgeOnly: 1,
+			both: 0,
+			originOnly: 1
+		});
+		expect(served.recorded).toBe(true);
+		expect(served.since).toBe(dayKey(Date.now() - 3 * DAY));
+	});
+
+	it('says so when no view yet says who served it', async () => {
+		const served = await openAt((now) => seedServed(now, null, 'old'));
+
+		expect(served.recorded).toBe(false);
+		expect(served.since).toBeNull();
+		expect(served.periods.map((period) => period.edgeViews + period.originViews)).toEqual([
+			0, 0, 0
+		]);
+	});
+
+	it('is all zeroes on a table with nothing in it', async () => {
+		const served = await openAt(() => {});
+
+		expect(served.recorded).toBe(false);
+		expect(served.periods).toHaveLength(3);
+		expect(served.periods[0]).toEqual({
+			label: 'Today',
+			edgeViews: 0,
+			originViews: 0,
+			edgeOnly: 0,
+			both: 0,
+			originOnly: 0
+		});
 	});
 });
 

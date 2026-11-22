@@ -94,8 +94,11 @@ The home page, `/privacy` and every `/game/…` page are served from the Worker'
 cache for up to five minutes at a time, and a cache hit never reaches the
 machine. So the Worker reports those views itself: it gathers them and posts
 them to `/api/hit`, up to 25 at a time or every ten seconds, signed with
-`EDGE_TOKEN`, and the origin records each one exactly as it would have recorded
-a page it rendered. A batch is lost if the Worker is evicted before it sends or
+`EDGE_TOKEN`, and the origin records each one as it would have recorded a page
+it rendered, marked as the edge's (`events.served_by`). The dashboard's "Edge
+cache and server" panel shows the split, which is also the quickest check that
+the Worker is reporting at all: a cache-only visitor count of zero on a busy
+day means it is not. A batch is lost if the Worker is evicted before it sends or
 the post fails, so under load the numbers run slightly low. If `EDGE_TOKEN` is
 missing on either side nothing is reported, and the dashboard falls back to
 counting cache misses only.
