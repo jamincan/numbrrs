@@ -288,6 +288,15 @@ describe('guess', () => {
 		game.guess(picked);
 		expect(game.confusions).toEqual([[card.player.id, picked]]);
 
+		// The picked player's own card goes to the bottom of the pile, out of
+		// the way. Turned over just before the missed card came back, it would
+		// leave their number on show, and a player whose number is on show is
+		// kept off the next card whoever they were mixed up with: see
+		// 'still leaves a preferred player out while their number is on show'
+		// in game.test.ts. That happens about one game in twenty.
+		const theirs = (step: { player: Player }) => step.player.id === picked;
+		game.deck = [...game.deck.filter((step) => !theirs(step)), ...game.deck.filter(theirs)];
+
 		// Five names out of twenty: by chance alone the one picked would be on
 		// the card one time in four. It is there because it was picked.
 		advanceUntil(game, () => current(game).player.id === card.player.id);
@@ -725,6 +734,56 @@ describe('Learn', () => {
 		finish(game);
 		expect(game.current).toBeNull();
 		expect(game.firstTry).toBe(5);
+	});
+
+	it("asks twice more all the same when the miss is next named on the card of the number's other wearer", () => {
+		// Players 2 and 3 on one number.
+		const pair = [2, 3];
+		const game = newGame(
+			players(8).map((p) => (p.id === 3 ? player(3, 2) : p)),
+			'learn'
+		);
+		advanceUntil(game, () => game.phase === 'lap');
+		const start = game.guesses;
+
+		// Whichever of the two comes up first is missed, for someone on another number.
+		advanceUntil(game, () => pair.includes(current(game).player.id));
+		const missed = current(game).player.id;
+		const other = pair.find((id) => id !== missed)!;
+		game.guess(8);
+		expect(game.missed).toEqual([missed]);
+
+		// The other one's card comes up before the missed one's does again...
+		if (current(game).player.id !== other) {
+			const theirs = game.deck.find((step) => step.player.id === other)!;
+			game.deck = [theirs, ...game.deck.filter((step) => step !== theirs)];
+			advance(game);
+		}
+		expect(current(game).player.id).toBe(other);
+		expect(game.deck.find((step) => step.player.id === missed)?.again).toBe(true);
+
+		// ...and is answered with the player who was missed, which is right: it
+		// is the number that is asked about.
+		game.guess(missed);
+		expect(game.resolved?.correct).toBe(true);
+
+		// That is the missed player named rightly soon after the correction, and
+		// no more than that. Their card is still to come, at the bottom of the
+		// pile, and so is the one just answered.
+		expect(game.identified).not.toContain(missed);
+		expect(game.identified).not.toContain(other);
+		// (The top of the pile is already up, and is one of the two when nothing
+		// else is left in it.)
+		const pile = [current(game), ...game.deck];
+		expect(pile.map((step) => step.player.id).slice(-2)).toEqual([missed, other]);
+		expect(pile.some((step) => step.again)).toBe(false);
+
+		finish(game);
+		expect(game.current).toBeNull();
+		expect(ascending(game.identified)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+		expect(game.firstTry).toBe(7);
+		// Everyone once, and two more for the miss, as for any other.
+		expect(game.guesses - start).toBe(8 + 2);
 	});
 
 	it('plays through a roster smaller than a batch', () => {

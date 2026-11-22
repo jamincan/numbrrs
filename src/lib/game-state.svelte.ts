@@ -805,10 +805,18 @@ export class GameState {
 			// has nothing left to be found as: the card's own player is found
 			// then, or the card would come round for ever.
 			const found = this.identified.includes(guessed.id) ? card.player : guessed;
-			if (!this.identified.includes(found.id)) {
+			const theirs = (step: Step<Player>) => step.kind === 'quiz' && step.player.id === found.id;
+			if (deck.some((step) => theirs(step) && step.again)) {
+				// Missed earlier in the final lap, and named now on the card of
+				// the number's other wearer before their own came round. That is
+				// the right answer straight after being told, on another card,
+				// and like it is not the last word: their card goes to the bottom
+				// of the pile for that, where it would have gone.
+				deck = [...deck.filter((step) => !theirs(step)), { kind: 'quiz', player: found }];
+			} else if (!this.identified.includes(found.id)) {
 				this.identified = [...this.identified, found.id];
 				// Their own question is done wherever it sits in the pile.
-				deck = deck.filter((step) => step.kind !== 'quiz' || step.player.id !== found.id);
+				deck = deck.filter((step) => !theirs(step));
 			}
 			// The card that was up is finished with only if its own player is now
 			// found. Otherwise the right answer found the number's other wearer:
