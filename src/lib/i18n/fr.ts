@@ -1,4 +1,5 @@
 import type { Messages } from './messages';
+import type { Gender } from './index';
 
 /**
  * French keeps ":" attached to the word before it with a non-breaking space.
@@ -7,6 +8,13 @@ import type { Messages } from './messages';
  * silently "corrected" to a normal space by editors.
  */
 const NBSP = String.fromCharCode(0xa0);
+
+/** "New", as an adjective standing for players new to a roster: it agrees with
+ *  them in gender and number. */
+function newcomers(count: number, gender: Gender): string {
+	if (gender === 'f') return count === 1 ? 'nouvelle' : 'nouvelles';
+	return count === 1 ? 'nouveau' : 'nouveaux';
+}
 
 // Quebec French, since every league here is Canadian: "chandail" rather than
 // "maillot", "alignement" for a roster, "attaquant" for a forward.
@@ -34,7 +42,50 @@ export const fr: Messages = {
 	home: {
 		league: 'Ligue',
 		chooseTeam: 'Choisissez une équipe',
-		teamsSyncing: 'Les équipes se synchronisent avec la ligue. Actualisez dans un instant.'
+		teamsSyncing: 'Les équipes se synchronisent avec la ligue. Actualisez dans un instant.',
+		goldCount: (count, total) => `l’or pour ${count} équipes sur ${total}`,
+		newPlayers: (count, gender) => `${count} ${newcomers(count, gender)}`
+	},
+
+	// The rules speak of names, cards and the roster rather than of players:
+	// the page is the same for every league, so nothing in it can take the
+	// players' gender.
+	howTo: {
+		title: 'Comment jouer',
+		description: `Le fonctionnement de Numbrrs${NBSP}: les quatre niveaux, ce qui vaut une médaille et l’endroit où vos résultats sont gardés.`,
+		intro:
+			'Chaque carte montre une équipe et un numéro de chandail. Choisissez qui le porte, et continuez jusqu’à avoir trouvé tout l’alignement.',
+		levelsTitle: 'Niveaux',
+		levels: {
+			learn: `Le point de départ pour une équipe que vous ne connaissez pas. Les nouvelles cartes sont distribuées face visible, cinq à la fois, et chacune vous est redemandée quelques cartes plus tard. L’alignement est un livre ouvert pendant l’apprentissage${NBSP}: chaque nom trouvé est marqué de son numéro. Un dernier tour repasse ensuite tout l’alignement, numéros cachés, et c’est ce tour qui donne votre résultat.`,
+			easy: 'Cinq noms sur chaque carte.',
+			medium: 'Dix noms sur chaque carte.',
+			hard: 'Chaque carte propose tout l’alignement.'
+		},
+		quizBody:
+			'Facile, Moyen et Difficile sont des quiz. L’alignement garde ses numéros pour lui, et chaque carte propose autant de noms, peu importe combien vous en avez déjà trouvé.',
+		missesTitle: 'Erreurs',
+		missesBody:
+			'Une mauvaise réponse vous montre qui porte vraiment le numéro, ainsi que le numéro de la personne que vous aviez choisie. La carte revient quelques cartes plus tard, et la partie continue jusqu’à ce que tout l’alignement soit trouvé. Il arrive que deux noms partagent un numéro au cours d’une saison; les deux sont alors de bonnes réponses.',
+		medalsTitle: 'Médailles',
+		medalsBody: `Trouvez tout l’alignement à un niveau de quiz sans une seule erreur et vous gagnez sa médaille${NBSP}: le bronze pour Facile, l’argent pour Moyen, l’or pour Difficile. La médaille à côté du décompte, sous les cartes, indique si le sans-faute tient toujours. Après une erreur, vous pouvez recommencer, ou continuer et terminer l’alignement. Changer de niveau en cours de partie fait compter celle-ci au plus facile des niveaux utilisés, et passer au niveau Apprendre ou le quitter recommence la partie.`,
+		medalsWhere:
+			'Votre meilleure médaille pour une équipe figure sur sa tuile à la page d’accueil et à côté de son nom quand vous y jouez. L’onglet de chaque ligue compte les équipes pour lesquelles vous avez l’or.',
+		newTitle: 'Changements à l’alignement',
+		newBody:
+			'Les alignements changent au fil de la saison. Quand une équipe que vous avez jouée jusqu’au bout ajoute quelqu’un ou change un numéro, sa tuile à la page d’accueil indique combien de cartes sont nouvelles pour vous, et la page de l’équipe propose une courte partie au niveau Apprendre pour celles-là seulement. Votre médaille n’est pas touchée.',
+		seasonsTitle: 'Saisons',
+		seasonsBody:
+			'Les médailles et les meilleurs résultats valent pour la saison en cours, qui change le 1er septembre. Une médaille gagnée vous reste jusque-là, quoi qu’il arrive à l’alignement.',
+		recordsTitle: 'Vos résultats',
+		recordsBody: `Les médailles et les résultats sont gardés dans ce navigateur, et nulle part ailleurs. Ils ne sont jamais envoyés au serveur${NBSP}: ils ne vous suivent donc pas sur un autre appareil, et effacer les données de site de votre navigateur les supprime.`,
+		recordsEmpty: 'Rien n’est encore enregistré.',
+		reset: 'Effacer mes résultats',
+		resetConfirm:
+			'Effacer toutes les médailles et tous les résultats gardés dans ce navigateur? C’est irréversible.',
+		resetYes: 'Effacer',
+		resetCancel: 'Garder',
+		resetDone: 'Vos résultats ont été effacés.'
 	},
 
 	card: {
@@ -48,32 +99,59 @@ export const fr: Messages = {
 		// would need the team's grammatical gender for the article.
 		description: (team) =>
 			`${team} — devinez qui porte chaque numéro et complétez l’alignement, une carte à la fois.`,
-		difficultyLabel: 'Difficulté',
-		difficultyCurrent: (level) => `Difficulté${NBSP}: ${level}`,
-		difficulty: {
+		levelLabel: 'Niveau',
+		levelCurrent: (level) => `Niveau${NBSP}: ${level}`,
+		levels: {
+			learn: 'Apprendre',
 			easy: 'Facile',
 			medium: 'Moyen',
-			hard: 'Difficile',
-			expert: 'Expert'
+			hard: 'Difficile'
+		},
+		levelOption: (level, choices) => `${level}${NBSP}: ${choices}`,
+		levelChoices: (count) => (count === null ? 'alignement complet' : `${count} choix`),
+		medals: {
+			bronze: 'médaille de bronze',
+			silver: 'médaille d’argent',
+			gold: 'médaille d’or'
 		},
 		congratulations: 'Félicitations!',
 		allIdentified: (gender) =>
 			gender === 'f'
 				? 'Vous avez identifié toutes les joueuses de cette équipe!'
 				: 'Vous avez identifié tous les joueurs de cette équipe!',
-		accuracy: (percent) => `Précision${NBSP}: ${percent}`,
+		// "À trouver" and "à revoir" rather than "restants" or "ratés": neither
+		// takes the players' gender.
+		remaining: (count) => `${count} à trouver`,
+		progress: 'Progression',
+		medalInReach: (medal) => `Sans faute jusqu’ici${NBSP}: ${medal} à portée`,
+		medalLost: 'Pas de médaille cette fois-ci',
+		medalTip: (medal, level, season) =>
+			`${medal.charAt(0).toUpperCase()}${medal.slice(1)}${NBSP}: un sans-faute au niveau ${level}, saison ${season}-${season + 1}`,
+		restart: 'Recommencer',
+		wears: (name, sweaterNumber) => `${name} porte le numéro ${sweaterNumber}.`,
+		firstTry: (found, total) => `Du premier coup${NBSP}: ${found} / ${total}`,
+		medalEarned: (medal) => `Sans faute${NBSP}: ${medal}`,
+		missedHeading: 'À revoir',
+		best: (level, found, total) =>
+			`Meilleur résultat de la saison au niveau ${level}${NBSP}: ${found} / ${total}`,
 		playAgain: 'Rejouer',
 		loadingRoster: 'Chargement de l’alignement',
 		noScript:
 			'Numbrrs a besoin de JavaScript pour distribuer les cartes. Activez-le, puis rechargez la page.',
 		noRoster: 'L’alignement n’est pas disponible pour le moment.',
 		retryRoster: 'Réessayer',
-		identified: (found, total, gender) =>
-			`${found} / ${total} ${gender === 'f' ? 'identifiées' : 'identifiés'}`,
 		answerChoices: 'Choix de réponse',
 		guessResult: (correct, sweaterNumber, name) =>
 			`${correct ? 'Exact' : 'Raté'} — le numéro ${sweaterNumber}, c’est ${name}.`,
 		nextNumber: (sweaterNumber) => `Prochain numéro${NBSP}: ${sweaterNumber}.`,
+		introduced: (sweaterNumber, name) =>
+			`Nouvelle carte${NBSP}: le numéro ${sweaterNumber}, c’est ${name}.`,
+		next: 'Continuer',
+		toLearn: (count) => `${count} à apprendre`,
+		finalLap: (count) => `Dernier tour${NBSP}: ${count} à trouver`,
+		lapStart: `Dernier tour${NBSP}: toutes les cartes une dernière fois, et cette fois l’alignement garde ses numéros pour lui.`,
+		tryLevel: (level) => `Essayer le niveau ${level}`,
+		learnNew: (count, gender) => `Apprendre ${count} ${newcomers(count, gender)}`,
 		hideRoster: 'masquer l’alignement',
 		showAll: 'tout afficher',
 		groups: {
@@ -118,7 +196,7 @@ export const fr: Messages = {
 		hashBody: `Pour distinguer deux visiteurs au cours d’une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n’est jamais écrite sur disque${NBSP}: une fois la journée terminée, plus rien ne relie le code à vous, et le code d’aujourd’hui ne peut être rapproché de celui de demain. Votre adresse IP elle-même n’est jamais inscrite dans la base de données du site. Le seul endroit où le site consigne une adresse IP est le journal de son serveur, conservé peu de temps${NBSP}: une tentative refusée ou échouée d’accéder à la page d’administration du site y est notée avec l’adresse d’où elle provient.`,
 		cookiesTitle: 'Témoins (cookies)',
 		cookiesBody:
-			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de difficulté est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Vous pouvez effacer les trois en tout temps dans votre navigateur. La partie en cours est gardée dans le stockage de session de l’onglet (sous des clés commençant par numbrrs_game, une par équipe), n’est jamais envoyée au serveur et disparaît à la fermeture de l’onglet.',
+			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de jeu est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Il en va de même des médailles et des meilleurs résultats que vous obtenez, et des noms que vous avez déjà trouvés (numbrrs_records), qui ne sont pas envoyés non plus. Vous pouvez tout effacer en tout temps dans votre navigateur, et la page Comment jouer a un bouton qui efface vos résultats. La partie en cours est gardée dans le stockage de session de l’onglet (sous des clés commençant par numbrrs_game, une par équipe), n’est jamais envoyée au serveur et disparaît à la fermeture de l’onglet.',
 		errorsTitle: 'Erreurs',
 		errorsBody:
 			'Lorsqu’une erreur survient — sur le serveur ou dans votre navigateur —, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Votre adresse IP n’y est pas jointe. Les occurrences répétées d’une même erreur sont regroupées en une seule entrée.',

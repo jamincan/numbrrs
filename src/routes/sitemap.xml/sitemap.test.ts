@@ -35,6 +35,8 @@ describe('sitemap.xml', () => {
 		expect(locs(await sitemap())).toEqual([
 			'https://numbrrs.app/',
 			'https://numbrrs.app/fr',
+			'https://numbrrs.app/how-to-play',
+			'https://numbrrs.app/fr/how-to-play',
 			'https://numbrrs.app/privacy',
 			'https://numbrrs.app/fr/privacy',
 			'https://numbrrs.app/game/nhl/TOR',
@@ -56,8 +58,8 @@ describe('sitemap.xml', () => {
 			'<loc>https://numbrrs.app/game/ohl/&lt;/loc&gt;&lt;loc&gt;https://example.com/</loc>'
 		);
 		expect(xml).toContain('<loc>https://numbrrs.app/game/ohl/Q&quot;&apos;</loc>');
-		// Two fixed pages and three teams, each in two languages, and nothing more.
-		expect(locs(xml)).toHaveLength(10);
+		// Three fixed pages and three teams, each in two languages, and nothing more.
+		expect(locs(xml)).toHaveLength(12);
 		expect(xml).not.toMatch(/&(?!(amp|lt|gt|quot|apos);)/);
 	});
 });

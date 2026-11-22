@@ -14,7 +14,7 @@
 	let { children, data } = $props();
 
 	// Pages can claim a spot in the nav for their own controls (the game page's
-	// difficulty menu) via the <NavSlot> component.
+	// level menu) via the <NavSlot> component.
 	const navSlot = createNavSlot();
 
 	// The URL owns the locale — hooks.server.ts resolves it from the /fr prefix
@@ -201,6 +201,12 @@
 			>
 				<p class="max-w-prose">{i18n.m.footer.disclaimer}</p>
 				<nav class="flex shrink-0 gap-4" aria-label={i18n.m.nav.footer}>
+					<a
+						href={resolve('/[[lang=locale]]/how-to-play', { lang: i18n.lang })}
+						class="transition-colors hover:text-gray-300"
+					>
+						{i18n.m.howTo.title}
+					</a>
 					<a
 						href={resolve('/[[lang=locale]]/privacy', { lang: i18n.lang })}
 						class="transition-colors hover:text-gray-300"

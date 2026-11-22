@@ -792,19 +792,44 @@ export async function audit(root = REPO) {
 		/\{:else\}\s*<li class="([^"]+)">\s*\{player\.firstName\}/,
 		tinted(idle, drawer)
 	);
-	const done = src.capture(DRAWER, /\{#if identified\}\s*<li\s+class="([^"]+)"/);
+	const done = src.capture(DRAWER, /\{:else if revealed\}\s*<li\s+class="([^"]+)"/);
 	fixed(
 		'drawer-identified',
 		'Roster drawer: identified players',
 		TEXT,
 		contrast(solid(done, 'text'), tinted(done, drawer))
 	);
+	text('progress', 'Game page: progress line', TABLE, /<p class="([^"]+)">\s*\{#if stake\}/, table);
 	text(
-		'progress',
-		'Game page: progress line',
+		'picked',
+		'Game page: the number of the player wrongly picked',
 		TABLE,
-		/<p class="([^"]+)">\s*\{i18n\.m\.game\.identified/,
+		/<p class="([^"]+)">\{pickedLine\}<\/p>/,
 		table
+	);
+	text(
+		'best',
+		'Game page: best score this season',
+		TABLE,
+		/<p class="([^"]+)">\{bestLine\}<\/p>/,
+		table
+	);
+	text(
+		'missed-heading',
+		'Game page: heading over the players missed',
+		TABLE,
+		/<h2\s+id="\{uid\}-missed"\s+class="([^"]+)"/,
+		table
+	);
+	const missedRow = src.capture(
+		TABLE,
+		/\{#each game\.missedPlayers[^}]*\}\s*<li\s+class="([^"]+)"/
+	);
+	fixed(
+		'missed',
+		'Game page: players missed',
+		TEXT,
+		contrast(solid(missedRow, 'text'), tinted(missedRow, table))
 	);
 	text('error-detail', 'Error page: detail line', ERROR, /<p class="([^"]+)">\{detail\}/, page);
 	text(

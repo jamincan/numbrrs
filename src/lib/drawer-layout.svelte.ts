@@ -45,8 +45,8 @@ export class DrawerLayout {
 
 	// Two columns is the default: wider targets, easier to read. Fewer if the
 	// drawer is too narrow to hold two (the side panel), more only when the
-	// preferred count would overflow the height available — mostly expert
-	// difficulty on a short viewport.
+	// preferred count would overflow the height available — mostly Hard,
+	// which offers the whole roster, on a short viewport.
 	optionColumns = $state(2);
 
 	cardTable = $state<HTMLElement>();

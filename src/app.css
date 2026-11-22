@@ -37,6 +37,21 @@
 	}
 }
 
+/* The same arrangement where there is height to spare as well: a desktop, a
+   laptop, a tablet on its side, as against a phone on its side. Here the
+   rafters row, which hangs under the nav on the game page, runs the full width
+   of the page; where there isn't it is tucked over the roster panel, so that
+   the cards keep what height there is. Declared after `side` so that, where
+   both apply, this one's rules are the later ones and win.
+
+   600px is about where the row stops costing the cards anything: below it
+   they are already being shrunk to fit. */
+@custom-variant side-tall {
+	@media (min-width: 600px) and (orientation: landscape) and (min-height: 600px) {
+		@slot;
+	}
+}
+
 .font-condensed {
 	font-family: var(--font-family-condensed);
 }

@@ -22,13 +22,19 @@ function escapeXml(text: string): string {
 }
 
 /**
- * The home page, the privacy page, and every team page, in both languages.
+ * The home page, the rules and privacy pages, and every team page, in both
+ * languages.
  * Team pages are built from the database rather than a static list so new teams
  * (and new leagues) show up on their own.
  */
 export const GET: RequestHandler = () => {
 	const rows = getDb().select().from(teams).all();
-	const paths = ['/', '/privacy', ...rows.map((t) => `/game/${t.league}/${t.abbreviation}`)];
+	const paths = [
+		'/',
+		'/how-to-play',
+		'/privacy',
+		...rows.map((t) => `/game/${t.league}/${t.abbreviation}`)
+	];
 
 	const urls = paths
 		.flatMap((path) => LOCALES.map((locale) => localizePath(path, locale)))

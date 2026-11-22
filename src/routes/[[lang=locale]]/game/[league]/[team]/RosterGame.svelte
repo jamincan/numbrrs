@@ -1,14 +1,17 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import NavSlot from '#lib/components/NavSlot.svelte';
-	import DifficultyMenu from './DifficultyMenu.svelte';
+	import LevelMenu from './LevelMenu.svelte';
 	import GameHeader from './GameHeader.svelte';
+	import Rafters from './Rafters.svelte';
 	import CardTable from './CardTable.svelte';
 	import RosterDrawer from './RosterDrawer.svelte';
 	import type { Player, Team } from '#lib/types.ts';
 	import { DrawerLayout } from '#lib/drawer-layout.svelte.ts';
-	import { DIFFICULTY_OPTIONS, GameState, sessionGameStorage } from '#lib/game-state.svelte.ts';
+	import { levelForMedal, LEVELS, type LevelKey } from '#lib/game.ts';
+	import { GameState, sessionGameStorage } from '#lib/game-state.svelte.ts';
 	import { getI18n } from '#lib/i18n/state.svelte.ts';
+	import { RecordBook } from '#lib/records.svelte.ts';
 	import { leagueGender } from '#lib/leagues.ts';
 	import { getTeamColors } from '#lib/team-colors.ts';
 	import { teamName } from '#lib/team-names.ts';
@@ -40,6 +43,20 @@
 	const teamId = untrack(() => team.id);
 	const storage = sessionGameStorage();
 
+	// Medals and best scores, kept in this browser's local storage and read
+	// once the page has mounted, like the game itself and for the same reason.
+	const records = new RecordBook();
+	const seasonMedal = $derived(records.loaded ? records.medal(teamId) : null);
+	// Nothing to compare a round about a few players with: it isn't the roster.
+	const best = $derived(records.loaded && !game.focus ? records.best(teamId, game.countsAs) : null);
+	// Players on this roster the visitor has no record of naming, on a team they
+	// have played to the end before: arrivals, and changes of number, since.
+	const fresh = $derived(records.loaded ? records.newPlayers(teamId, roster) : []);
+
+	// Once the last card is answered the roster panel is gone, and the page is
+	// the cards and the summary alone.
+	const over = $derived(game.dealt && !game.current);
+
 	// The cards are dealt here rather than when the game is constructed. The
 	// server renders this component too, and its markup is shared by everyone
 	// the edge serves it to: nothing shuffled, and nothing read from this tab's
@@ -47,6 +64,7 @@
 	// it. So both show an undealt deck, and the game in progress (or a fresh
 	// shuffle) arrives once the component has mounted.
 	onMount(() => {
+		records.load();
 		if (!game.restore(storage, teamId)) game.reset();
 	});
 
@@ -70,7 +88,51 @@
 	}
 
 	function guess(playerId: number) {
+		const foundBefore = game.identified.length;
 		game.guess(playerId);
+		game.save(storage, teamId);
+
+		// A right answer adds the player it found to the end of the list. That
+		// player and number are now ones this visitor has named correctly.
+		const foundId = game.identified.length > foundBefore ? game.identified.at(-1) : undefined;
+		const found = roster.find((p) => p.id === foundId);
+		if (found?.sweaterNumber != null) records.learned(teamId, found.id, found.sweaterNumber);
+		// The last card: the run goes on record. Only here, as it ends, and not
+		// when a finished game is restored after a reload, or it would count twice.
+		// A round about a few new players is not a run at the roster, and is left
+		// out: two out of two would otherwise stand as the best score at Learn.
+		if (!game.current && !game.focus) {
+			records.runFinished(teamId, {
+				level: game.countsAs,
+				found: game.firstTry,
+				total: game.guessableCount
+			});
+		}
+		void refocus();
+	}
+
+	// On from an introduction, in Learn. Saved like a guess: which players have
+	// been looked at is part of the game.
+	function next() {
+		game.next();
+		game.save(storage, teamId);
+		void refocus();
+	}
+
+	// A round of Learn about only the players who are new. Whatever game was
+	// up is given up for it: this is asked for by name, on a button that says so.
+	function learnNew() {
+		game.setLevel('learn');
+		game.reset(fresh.map((p) => p.id));
+		game.save(storage, teamId);
+		void refocus();
+	}
+
+	// From Learn's end screen to the first level with a medal. The level alone
+	// would only be remembered for next time, the game being over; this deals it.
+	function tryEasy() {
+		game.setLevel('easy');
+		game.reset();
 		game.save(storage, teamId);
 		void refocus();
 	}
@@ -82,10 +144,15 @@
 		void refocus();
 	}
 
-	// Saved too, because the card that's up is kept along with its answers.
-	function setDifficulty(value: number) {
-		game.setDifficulty(value);
+	// Saved too, because the card that's up is kept along with its answers. A
+	// change between Learn and a quiz level deals a new game, and saving that
+	// clears the old one. Focus is only moved when it does: otherwise it is back
+	// on the menu's button, where the menu put it.
+	function setLevel(value: LevelKey) {
+		const before = game.current?.key;
+		game.setLevel(value);
 		game.save(storage, teamId);
+		if (game.guesses === 0 && game.current?.key !== before) void refocus();
 	}
 </script>
 
@@ -95,10 +162,10 @@
 	bind:innerWidth={layout.viewportWidth}
 />
 
-<!-- The difficulty menu rides in the site nav rather than a header of its own,
+<!-- The level menu rides in the site nav rather than a header of its own,
      keeping the play area clear. -->
 <NavSlot>
-	<DifficultyMenu options={DIFFICULTY_OPTIONS} value={game.difficulty} onselect={setDifficulty} />
+	<LevelMenu levels={LEVELS} value={game.level} onselect={setLevel} />
 </NavSlot>
 
 <!-- Which arrangement this is in is decided by the stylesheet (the `side`
@@ -111,25 +178,88 @@
      the default so a page that genuinely outgrows the viewport can still scroll
      rather than clip. -->
 <div class="flex flex-1 flex-col bg-gray-900 text-white side:min-h-0">
-	<!-- Two arrangements of the same pieces. The right-hand panel is meant to
-	     sit flush against the nav and the screen edge, so that layout takes no
-	     padding or max width of its own — the breathing room goes on the card
-	     column instead. The bottom padding on the other one is only for the
-	     case where the page is forced to scroll anyway; the drawer otherwise
-	     sizes itself to the space under the cards. -->
+	<!-- Two arrangements of the same pieces. Under a bottom drawer they stack:
+	     the rafters row flush beneath the nav, the team's name, the cards. With
+	     the roster as a panel down the right they are two columns under a row,
+	     a grid: the rafters across the top, then the name and the cards on the
+	     left and the panel on the right.
+
+	     That is where the screen is tall enough to give the row its height (the
+	     `side-tall` variant). On a short one, which is a phone on its side, the
+	     rafters are tucked over the panel instead and the card column runs the
+	     full height of the left, so the row costs the cards no height where
+	     height is what there is least of.
+
+	     The right-hand panel is meant to sit flush against the nav and the
+	     screen edge, so that layout takes no padding or max width of its own —
+	     the breathing room goes on the card column instead. The bottom padding
+	     on the other one is only for the case where the page is forced to
+	     scroll anyway; the drawer otherwise sizes itself to the space under the
+	     cards.
+
+	     When the game is over there is no panel to put the rafters over, and
+	     the stacked arrangement serves at every size. -->
 	<main
-		class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-40 side:mx-0 side:min-h-0 side:max-w-none side:flex-row side:px-0 side:pb-0"
+		class="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-40 side:mx-0 side:min-h-0 side:max-w-none side:px-0 side:pb-0 {over
+			? ''
+			: 'side:grid side:grid-cols-[minmax(0,1fr)_clamp(18rem,40vw,34rem)] side:grid-rows-[auto_minmax(0,1fr)]'}"
 	>
 		<div
-			class="flex min-w-0 flex-1 flex-col items-center side:min-h-0 side:justify-start side:gap-3 side:px-4 side:py-3"
+			class={over
+				? ''
+				: 'side:col-start-2 side:row-start-1 side-tall:col-span-2 side-tall:col-start-1'}
+		>
+			<Rafters
+				medal={seasonMedal}
+				medalTip={seasonMedal
+					? i18n.m.game.medalTip(
+							i18n.m.game.medals[seasonMedal],
+							i18n.m.game.levels[levelForMedal(seasonMedal).key],
+							records.season
+						)
+					: undefined}
+			>
+				{#snippet extra()}
+					<!-- Gone while the round it starts is being played, and as soon as
+					     the last of the new players has been named. Opaque, because
+					     it lies over whatever is hanging at this end of the row. -->
+					{#if game.dealt && fresh.length > 0 && !game.focus}
+						<button
+							onclick={learnNew}
+							class="rounded-full border border-white/25 bg-gray-800 px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap text-white shadow hover:bg-gray-700"
+						>
+							{i18n.m.game.learnNew(fresh.length, gender)}
+						</button>
+					{/if}
+				{/snippet}
+			</Rafters>
+		</div>
+
+		<!-- Once the game is over the column also holds the list of players
+		     missed, which on a short screen is more than it has height for: it
+		     scrolls then, rather than the list being cut off. Not before, so
+		     that nothing clips the cards' glow while they are in play. -->
+		<div
+			class="flex min-w-0 flex-1 flex-col items-center side:min-h-0 side:justify-start side:gap-3 side:px-4 side:py-3 {over
+				? 'side:overflow-y-auto'
+				: 'side:col-start-1 side:row-span-2 side:row-start-1 side-tall:row-span-1 side-tall:row-start-2'}"
 		>
 			<!-- The title heads the card column in both arrangements. Over a
 			     bottom drawer it spans the page; with the drawer on the right it
-			     stays within the column, so the panel gets the full height under
-			     the nav to work with. -->
+			     stays within the column. -->
 			<GameHeader {name} color={colors.heading} inCardColumn />
 
-			<CardTable {team} {game} {gender} {layout} onplayagain={playAgain} bind:summary />
+			<CardTable
+				{team}
+				{game}
+				{gender}
+				{layout}
+				onplayagain={playAgain}
+				onrestart={playAgain}
+				ontrylevel={tryEasy}
+				{best}
+				bind:summary
+			/>
 		</div>
 
 		<RosterDrawer
@@ -139,6 +269,7 @@
 			{layout}
 			primaryColor={colors.primary}
 			onguess={guess}
+			onnext={next}
 			bind:choices
 		/>
 	</main>

@@ -3,6 +3,7 @@ import { teams, players, syncState } from '../db/schema';
 import { and, count, eq, notInArray, sql } from 'drizzle-orm';
 import { reportError } from '../alerts';
 import { LEAGUE_IDS, teamDbId, type LeagueId } from '#lib/leagues.ts';
+import { rosterOrder } from '#lib/game.ts';
 import { nhlAdapter } from './nhl';
 import { pwhlAdapter } from './pwhl';
 import { ohlAdapter, qmjhlAdapter, whlAdapter } from './chl';
@@ -489,7 +490,9 @@ export async function loadRoster(league: LeagueId, code: string): Promise<Player
 		);
 	}
 
-	return getDb().select().from(players).where(eq(players.teamId, dbId)).all();
+	// In the game's own order, not the one the rows were stored in: that is the
+	// league feed's, which for some leagues is by sweater number.
+	return rosterOrder(getDb().select().from(players).where(eq(players.teamId, dbId)).all());
 }
 
 /**

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -9,16 +10,20 @@
 		LEAGUE_COOKIE,
 		LEAGUE_MAX_AGE,
 		LEAGUE_PARAM,
+		leagueGender,
 		type LeagueId
 	} from '#lib/leagues.ts';
+	import Medal from '#lib/components/Medal.svelte';
+	import { levelForMedal, type Medal as MedalKind } from '#lib/game.ts';
 	import { teamLogo } from '#lib/logos.ts';
+	import { RecordBook } from '#lib/records.svelte.ts';
 	import { getTeamColors } from '#lib/team-colors.ts';
 	import { teamName } from '#lib/team-names.ts';
 
 	const i18n = getI18n();
 
 	let { data } = $props();
-	let { teams } = $derived(data);
+	let { teams, marks } = $derived(data);
 
 	// The league to show arrives from the server (the URL's, else the cookie's),
 	// so the grid is in the SSR payload — links and all — with no flash of the
@@ -56,6 +61,28 @@
 	}
 
 	const leagueTeams = $derived(teams.filter((t) => t.league === league));
+
+	// Medals are this browser's own, read once the page has mounted: the markup
+	// the server sends is shared by every visitor and shows none. So a tile or a
+	// tab gains its medal a moment after the page appears, and only for someone
+	// who has earned one.
+	const records = new RecordBook();
+	onMount(() => records.load());
+
+	/** What a team's medal was won for, to show on hovering over it. */
+	function medalTip(medal: MedalKind): string {
+		return i18n.m.game.medalTip(
+			i18n.m.game.medals[medal],
+			i18n.m.game.levels[levelForMedal(medal).key],
+			records.season
+		);
+	}
+
+	/** How many of a league's teams are held at gold this season, and of how many. */
+	function golds(leagueId: LeagueId) {
+		const ids = teams.filter((t) => t.league === leagueId).map((t) => t.id);
+		return { count: records.loaded ? records.golds(ids) : 0, total: ids.length };
+	}
 </script>
 
 <svelte:head>
@@ -85,16 +112,30 @@
 				data-sveltekit-preload-data="false"
 			>
 				{#each LEAGUES as option (option.id)}
+					{@const gold = golds(option.id)}
 					<a
 						href="{home}?{LEAGUE_PARAM}={option.id}"
 						aria-current={league === option.id ? 'page' : undefined}
 						onclick={(event) => chooseLeague(event, option.id)}
-						class="font-condensed rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
+						class="font-condensed flex flex-col items-center rounded-md px-3 py-1.5 text-sm font-bold tracking-widest uppercase transition-colors sm:px-5 {league ===
 						option.id
 							? 'bg-white/15 text-white'
 							: 'text-gray-450 hover:text-gray-300'}"
 					>
 						{option.label[i18n.locale]}
+						<!-- Gold only, and only once there is one to count: winning a
+						     whole league is the hard thing to do, and a row of zeroes
+						     under every tab would say nothing to a first visit. The
+						     figures are for the eye; the words say what they count. -->
+						{#if gold.count > 0}
+							<span
+								class="flex items-center gap-1 font-sans text-[0.6875rem] font-semibold tracking-normal text-gray-300 normal-case"
+							>
+								<Medal medal="gold" />
+								<span aria-hidden="true">{gold.count} / {gold.total}</span>
+								<span class="sr-only">{i18n.m.home.goldCount(gold.count, gold.total)}</span>
+							</span>
+						{/if}
 					</a>
 				{/each}
 			</nav>
@@ -122,16 +163,45 @@
 					{@const colors = getTeamColors(team.league, team.abbreviation)}
 					{@const logo = teamLogo(team.league, team.abbreviation, team.logoUrl)}
 					{@const name = teamName(i18n.locale, team)}
+					{@const medal = records.loaded ? records.medal(team.id) : null}
+					{@const fresh = records.loaded ? records.newCount(team.id, marks[team.id] ?? '') : 0}
 					<a
 						href={resolve('/[[lang=locale]]/game/[league]/[team]', {
 							lang: i18n.lang,
 							league: team.league,
 							team: team.abbreviation
 						})}
-						class="team-tile group flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
+						class="team-tile group relative flex flex-col items-center gap-2 rounded-xl border p-4 transition-all duration-200 hover:scale-105"
 						style="--glow: {colors.primary}44; border-color: {colors.primary}44; background: linear-gradient(160deg, {colors
 							.darkGradient[0]}, {colors.darkGradient[1]});"
 					>
+						<!-- The best medal earned for the team this season, hanging from
+						     the tile's top edge: its ribbon starts on the border, and it
+						     is allowed to lap over the top of the logo. Out of the flow,
+						     so a tile with one is laid out exactly like one without. It is
+						     named, so the link reads as the medal and then the team.
+
+						     Raised, here and on the count beside it, because the logo's
+						     drop shadow makes the logo a layer of its own: coming later
+						     in the markup, it would otherwise be painted on top. -->
+						{#if medal}
+							<span
+								class="absolute -top-0.5 left-1/2 z-10 -translate-x-1/2 text-xl leading-none drop-shadow-md"
+							>
+								<Medal {medal} label={i18n.m.game.medals[medal]} tip={medalTip(medal)} />
+							</span>
+						{/if}
+						<!-- On a team this visitor has played to the end: how many players
+						     on its roster they have not named. Arrivals and changes of
+						     number since, in other words, and a reason to come back. In
+						     the corner, out of the flow like the medal. -->
+						{#if fresh > 0}
+							<span
+								class="absolute top-1.5 right-1.5 z-10 rounded-full bg-white/15 px-1.5 py-0.5 text-[0.6875rem] leading-none font-semibold text-white"
+							>
+								{i18n.m.home.newPlayers(fresh, leagueGender(team.league))}
+							</span>
+						{/if}
 						<!-- Decorative: the name is right below, inside the same link. -->
 						<img
 							src={logo.url}

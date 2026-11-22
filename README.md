@@ -8,12 +8,12 @@ The whole site is available in English and French — each language has its own 
 
 You're shown a hockey card with a team and jersey number. Guess the player from the options highlighted in the roster — then the card flips to reveal whether you got it right.
 
-- **Easy** — 2 choices
-- **Medium** — 4 choices
-- **Hard** — 8 choices
-- **Expert** — the entire roster
+- **Learn** — 3 choices, open book
+- **Easy** — 5 choices, bronze medal
+- **Medium** — 10 choices, silver medal
+- **Hard** — the entire roster, gold medal
 
-Correctly identified players are marked in the roster and won't appear as options again, so the game gets progressively easier as you learn the team.
+Learn is for getting to know a team: players you identify are marked in the roster with their numbers and stop appearing as options, so it gets easier as you go. The other three are quizzes. The roster shows no numbers, every card offers the full count of names however many players you've found, and a run with no misses earns the level's medal. At every level a missed card comes back a few cards later, and you play until the whole roster is found.
 
 Roster data is pulled from the league APIs — the NHL's own feed, and HockeyTech's for the other four — and refreshed on demand as pages are visited, so it stays up to date as trades and signings happen. Each league is wired up through a small adapter (`src/lib/server/leagues/`), so adding another league mostly means writing a new adapter.
 

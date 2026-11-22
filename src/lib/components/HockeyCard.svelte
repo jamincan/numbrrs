@@ -13,9 +13,12 @@
 		player: Player;
 		team: Team;
 		correct?: boolean | null;
+		/** Shown back-side up with no verdict on it: a player being introduced
+		 *  rather than asked about. */
+		faceUp?: boolean;
 	};
 
-	let { player, team, correct = null }: Props = $props();
+	let { player, team, correct = null, faceUp = false }: Props = $props();
 
 	let colors = $derived(getTeamColors(team.league, team.abbreviation));
 	let primaryColor = $derived(colors.primary);
@@ -26,7 +29,7 @@
 	let sweaterNumber = $derived(player.sweaterNumber);
 	let position = $derived(positionName(i18n.m, player.positionCode, leagueGender(team.league)));
 	let headshotUrl = $derived(player.headshotUrl);
-	let flipped = $derived(correct !== null);
+	let flipped = $derived(correct !== null || faceUp);
 	// A logo with a baked-in background can't be used as a watermark — it shows
 	// up as a pale square over the card instead of the logo's shape.
 	let logo = $derived(teamLogo(team.league, team.abbreviation, team.logoUrl));

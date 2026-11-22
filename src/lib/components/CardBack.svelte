@@ -13,7 +13,8 @@
 </script>
 
 <!-- A face-down card in the draw pile. Deliberately generic — nothing on the
-     back may hint at the number underneath, or expert mode leaks answers. -->
+     back may hint at the number underneath, or the answer leaks at every
+     level. -->
 <div
 	class="h-full w-full overflow-clip rounded-2xl border-2 shadow-xl"
 	style="border-color: {colors.primary}44; background: linear-gradient(160deg, {colors

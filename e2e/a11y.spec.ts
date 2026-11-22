@@ -20,6 +20,8 @@ async function playerOnCard(page: Page) {
 
 test.describe('the cards, to a screen reader', () => {
 	test('the card being asked about keeps its answer to itself', async ({ page }) => {
+		// A quiz level: a first visit's Learn opens on an introduction instead.
+		await page.addInitScript(() => localStorage.setItem('numbrrs_difficulty', 'easy'));
 		await page.goto(GAME_PATH);
 		await expect(drawnCard(page)).toBeVisible();
 		const { sweaterNumber, name } = await playerOnCard(page);
@@ -41,40 +43,44 @@ test.describe('the cards, to a screen reader', () => {
 	});
 });
 
-test.describe('the difficulty menu, by keyboard', () => {
+test.describe('the level menu, by keyboard', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto(GAME_PATH);
 		await expect(drawnCard(page)).toBeVisible();
 	});
 
 	test('opens on the current setting and moves with the arrow keys', async ({ page }) => {
-		const trigger = page.getByRole('button', { name: 'Difficulty: Easy' });
+		const trigger = page.getByRole('button', { name: 'Level: Learn' });
 		await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
 		await trigger.focus();
 		await page.keyboard.press('Enter');
 		await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-		await expect(page.getByRole('menu', { name: 'Difficulty' })).toBeVisible();
-		await expect(page.getByRole('menuitemradio', { name: 'Easy' })).toBeFocused();
-		await expect(page.getByRole('menuitemradio', { name: 'Easy' })).toHaveAttribute(
+		await expect(page.getByRole('menu', { name: 'Level' })).toBeVisible();
+		await expect(page.getByRole('menuitemradio', { name: 'Learn' })).toBeFocused();
+		await expect(page.getByRole('menuitemradio', { name: 'Learn' })).toHaveAttribute(
 			'aria-checked',
 			'true'
 		);
 
 		await page.keyboard.press('ArrowDown');
-		await expect(page.getByRole('menuitemradio', { name: 'Medium' })).toBeFocused();
+		await expect(page.getByRole('menuitemradio', { name: 'Easy' })).toBeFocused();
+		// The link to the rules is the menu's last item, after the levels.
 		await page.keyboard.press('End');
-		await expect(page.getByRole('menuitemradio', { name: 'Expert' })).toBeFocused();
-		await page.keyboard.press('ArrowDown');
-		await expect(page.getByRole('menuitemradio', { name: 'Easy' })).toBeFocused();
+		await expect(page.getByRole('menuitem', { name: 'How to play' })).toBeFocused();
 		await page.keyboard.press('ArrowUp');
-		await expect(page.getByRole('menuitemradio', { name: 'Expert' })).toBeFocused();
+		await expect(page.getByRole('menuitemradio', { name: 'Hard' })).toBeFocused();
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('ArrowDown');
+		await expect(page.getByRole('menuitemradio', { name: 'Learn' })).toBeFocused();
+		await page.keyboard.press('ArrowUp');
+		await expect(page.getByRole('menuitem', { name: 'How to play' })).toBeFocused();
 		await page.keyboard.press('Home');
-		await expect(page.getByRole('menuitemradio', { name: 'Easy' })).toBeFocused();
+		await expect(page.getByRole('menuitemradio', { name: 'Learn' })).toBeFocused();
 	});
 
 	test('Escape closes it and hands focus back', async ({ page }) => {
-		const trigger = page.getByRole('button', { name: 'Difficulty' });
+		const trigger = page.getByRole('button', { name: 'Level' });
 		await trigger.focus();
 		await page.keyboard.press('ArrowDown');
 		await expect(page.getByRole('menu')).toBeVisible();
@@ -87,20 +93,26 @@ test.describe('the difficulty menu, by keyboard', () => {
 	test('choosing a setting closes it, hands focus back and renames the button', async ({
 		page
 	}) => {
+		// From one quiz level to another: to or from Learn would deal a new game.
+		await page.evaluate(() => localStorage.setItem('numbrrs_difficulty', 'easy'));
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
 		const { sweaterNumber } = await playerOnCard(page);
-		await page.getByRole('button', { name: 'Difficulty' }).focus();
+		await page.getByRole('button', { name: 'Level' }).focus();
 		await page.keyboard.press('Enter');
+		// End is the link to the rules; one up from it is Hard.
 		await page.keyboard.press('End');
+		await page.keyboard.press('ArrowUp');
 		await page.keyboard.press('Enter');
 
 		await expect(page.getByRole('menu')).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'Difficulty: Expert' })).toBeFocused();
+		await expect(page.getByRole('button', { name: 'Level: Hard' })).toBeFocused();
 		// Same card, more answers.
 		expect((await playerOnCard(page)).sweaterNumber).toBe(sweaterNumber);
 	});
 
 	test('tabbing away closes it', async ({ page }) => {
-		await page.getByRole('button', { name: 'Difficulty' }).focus();
+		await page.getByRole('button', { name: 'Level' }).focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('menu')).toBeVisible();
 

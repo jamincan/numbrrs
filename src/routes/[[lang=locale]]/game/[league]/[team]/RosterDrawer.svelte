@@ -15,6 +15,7 @@
 		layout,
 		primaryColor,
 		onguess,
+		onnext,
 		choices = $bindable()
 	}: {
 		roster: Player[];
@@ -23,12 +24,23 @@
 		layout: DrawerLayout;
 		primaryColor: string;
 		onguess: (playerId: number) => void;
+		/** Move on from a player being introduced. */
+		onnext: () => void;
 		/** Whatever currently wraps the answer buttons, for the parent to move
 		 *  focus to. */
 		choices?: HTMLElement;
 	} = $props();
 
 	const uid = $props.id();
+
+	// At a closed-book level the roster is a list of names and nothing more:
+	// a number shown beside one would be an answer to rule out, or to read off.
+	// Only once the cards are dealt, though: the level comes from this browser's
+	// storage, and until then the markup has to be what the server sent.
+	const closed = $derived(game.dealt && game.closedBook);
+
+	// An introduction has nothing to answer: its one control is the way on.
+	const introducing = $derived(game.current?.kind === 'intro');
 
 	const toggleLabel = $derived(layout.drawerOpen ? i18n.m.game.hideRoster : i18n.m.game.showAll);
 
@@ -57,15 +69,38 @@
 	</button>
 {/snippet}
 
+{#snippet nextButton()}
+	<button
+		onclick={onnext}
+		class="w-full rounded-lg border-2 px-3 py-2 text-center text-sm font-semibold transition-all active:scale-95"
+		style="border-color: {primaryColor}; background: {primaryColor}22; color: white;"
+	>
+		{i18n.m.game.next}
+	</button>
+{/snippet}
+
 {#snippet playerGrid(group: Player[])}
 	<!-- Columns follow the container, not the viewport: this grid renders at
 	     widths from a narrow landscape-phone panel to a full-width bottom
 	     drawer on a tablet. -->
 	<ul class="grid grid-cols-1 gap-1.5 @min-[20rem]:grid-cols-2 @min-[30rem]:grid-cols-3">
 		{#each group as player (player.id)}
-			{@const identified = game.identified.includes(player.id)}
 			{@const selectable = game.current?.optionIds.includes(player.id) ?? false}
-			{#if identified}
+			<!-- A player with no number has nothing to give away, so is marked as
+			     done at every level. -->
+			{@const revealed =
+				game.identified.includes(player.id) && (!closed || player.sweaterNumber == null)}
+			<!-- An answer first, whatever else is known about the player: while
+			     Learn is introducing a roster, players already learned are still
+			     offered, and one shown with their number beside them would be an
+			     answer to rule out at a glance. -->
+			{#if selectable}
+				<!-- A one-cell grid, so the button still stretches to the height of
+				     its row the way it would as the grid item itself. -->
+				<li class="grid">
+					{@render optionButton(player, 'hover:scale-105')}
+				</li>
+			{:else if revealed}
 				<li
 					class="flex flex-row justify-between rounded-lg border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-400"
 				>
@@ -74,12 +109,6 @@
 						{player.lastName}
 					</div>
 					{player.sweaterNumber ?? '--'}
-				</li>
-			{:else if selectable}
-				<!-- A one-cell grid, so the button still stretches to the height of
-				     its row the way it would as the grid item itself. -->
-				<li class="grid">
-					{@render optionButton(player, 'hover:scale-105')}
 				</li>
 			{:else}
 				<li class="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-gray-450">
@@ -121,6 +150,10 @@
 		aria-label={i18n.m.game.answerChoices}
 		class="flex flex-col gap-4"
 	>
+		<!-- Above the roster, where it is in reach without scrolling. -->
+		{#if introducing}
+			{@render nextButton()}
+		{/if}
 		{@render rosterByPosition()}
 	</div>
 {/snippet}
@@ -139,12 +172,12 @@
      stealing width from the cards. The floor keeps one readable column on a
      landscape phone. Its height is measured by the script; until that has
      run, the panel is held to what the measurement will come to — the
-     viewport less the nav, which is 3.25rem tall — so a long roster cannot
+     viewport less the nav and the rafters row, 5rem between them — so a long roster cannot
      stretch the page in the meantime. -->
 {#if game.current || !game.dealt}
 	<div
 		bind:this={layout.drawerEl}
-		class="fixed right-0 bottom-0 left-0 z-40 flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl side:static side:z-auto side:max-h-[calc(100dvh-3.25rem)] side:w-[clamp(18rem,40vw,34rem)] side:shrink-0 side:self-stretch side:rounded-none side:border-t-0 side:shadow-none"
+		class="fixed right-0 bottom-0 left-0 z-40 flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-gray-900 shadow-2xl side:static side:z-auto side:col-start-2 side:row-start-2 side:max-h-[calc(100dvh-5rem)] side:w-[clamp(18rem,40vw,34rem)] side:shrink-0 side:self-stretch side:rounded-none side:border-t-0 side:shadow-none"
 		style:max-height={layout.drawerMax === null ? undefined : `${layout.drawerMax}px`}
 	>
 		<!-- Handle / toggle. The grab bar reads as "drag me" on the bottom sheet;
@@ -197,6 +230,12 @@
 					class="grid gap-1.5"
 					style="grid-template-columns: repeat({layout.optionColumns}, minmax(0, 1fr));"
 				>
+					{#if introducing}
+						<!-- Across the whole row, however many columns the answers had. -->
+						<div class="col-span-full">
+							{@render nextButton()}
+						</div>
+					{/if}
 					{#each game.activeOptions as player (player.id)}
 						{@render optionButton(player, 'active:scale-95')}
 					{/each}

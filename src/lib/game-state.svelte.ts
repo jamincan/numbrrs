@@ -1,23 +1,73 @@
 import { browser } from '$app/env';
-import { buildDeck, cardOptions, drawCard, preIdentifiedIds } from '#lib/game.ts';
+import {
+	buildDeck,
+	cardOptions,
+	DEFAULT_LEVEL,
+	drawCard,
+	GROUP_SIZE,
+	isLevelKey,
+	learnOptions,
+	levelFor,
+	lowerLevel,
+	preIdentifiedIds,
+	QUIZ_AFTER_MAX,
+	QUIZ_AFTER_MIN,
+	reinsertCard,
+	REVIEWS_PER_GROUP,
+	shuffle,
+	type Level,
+	type LevelKey,
+	type Medal,
+	type Step
+} from '#lib/game.ts';
 import type { Player } from '#lib/types.ts';
 
-const DIFFICULTY_KEY = 'numbrrs_difficulty';
-export const DIFFICULTY_OPTIONS = [
-	{ key: 'easy', value: 2 },
-	{ key: 'medium', value: 4 },
-	{ key: 'hard', value: 8 },
-	{ key: 'expert', value: Infinity }
-] as const;
+// Named for what it held before the levels had names: the number of answers on
+// a card. The key is kept so a returning visitor's setting carries over, and
+// because the privacy page names it.
+const LEVEL_STORAGE_KEY = 'numbrrs_difficulty';
 
-const DEFAULT_DIFFICULTY = 2;
+/** What the setting used to be stored as, and the level nearest each one. */
+const LEGACY_LEVELS: Partial<Record<string, LevelKey>> = {
+	'2': 'learn',
+	'4': 'easy',
+	'8': 'medium',
+	Infinity: 'hard'
+};
+
+/** Learn's final lap: the same three names to choose from, with the book shut. */
+const LAP_LEVEL: Level = { ...levelFor('learn'), closedBook: true };
+
+/** How many mix-ups are remembered; the oldest are dropped past this. */
+const MAX_CONFUSIONS = 60;
 
 // The quiz is a physical deck. A card is drawn from the pile and shows its
 // number; a guess flips it and sends it to the guessed pile, where it stays
 // readable while the next card is already up — so there is no reveal phase
 // that blocks play, and no auto-advance timer.
-export type ActiveCard = { key: number; player: Player; optionIds: number[] };
-export type ResolvedCard = { key: number; player: Player; correct: boolean };
+//
+// In Learn a player's first card is an introduction: dealt face up, with
+// nothing to answer, and put back into the pile as a question once it has
+// been looked at.
+export type ActiveCard = {
+	key: number;
+	kind: 'intro' | 'quiz';
+	player: Player;
+	optionIds: number[];
+	/** See `Step.again`. */
+	again: boolean;
+};
+/** `picked` is whoever was wrongly chosen for the card, so their own number
+ *  can be shown beside the right answer; null after a right guess. */
+export type ResolvedCard = { key: number; player: Player; correct: boolean; picked: Player | null };
+
+/**
+ * Where a game of Learn has got to. `learn` is the roster being introduced, a
+ * few players at a time, with the roster as an open book. `lap` is the final
+ * lap: every player once more, with the book shut, which is what the score is
+ * taken from. Null at the quiz levels, which are one closed-book run.
+ */
+export type Phase = 'learn' | 'lap' | null;
 
 // Reading and writing are both wrapped because localStorage throws rather
 // than degrading when storage is unavailable — Safari private browsing, site
@@ -26,22 +76,22 @@ export type ResolvedCard = { key: number; player: Player; correct: boolean };
 // setting, it would take the whole game down with it. Someone who can't
 // persist a preference should still be able to play.
 //
-// Anything unexpected in storage (an old format, a hand-edited value) falls
-// back to easy — Number(junk) is NaN, and NaN options would break the quiz.
-function savedDifficulty(): number {
-	if (!browser) return DEFAULT_DIFFICULTY;
+// Anything unexpected in storage (a hand-edited value) falls back to Learn.
+function savedLevel(): LevelKey {
+	if (!browser) return DEFAULT_LEVEL;
 	try {
-		const stored = Number(localStorage.getItem(DIFFICULTY_KEY));
-		return DIFFICULTY_OPTIONS.some((o) => o.value === stored) ? stored : DEFAULT_DIFFICULTY;
+		const stored = localStorage.getItem(LEVEL_STORAGE_KEY);
+		if (isLevelKey(stored)) return stored;
+		return (stored !== null && LEGACY_LEVELS[stored]) || DEFAULT_LEVEL;
 	} catch {
-		return DEFAULT_DIFFICULTY;
+		return DEFAULT_LEVEL;
 	}
 }
 
-function saveDifficulty(value: number): void {
+function saveLevel(value: LevelKey): void {
 	if (!browser) return;
 	try {
-		localStorage.setItem(DIFFICULTY_KEY, String(value));
+		localStorage.setItem(LEVEL_STORAGE_KEY, value);
 	} catch {
 		// Nothing else reads this, so the setting simply stays in memory for
 		// the session rather than surviving a reload.
@@ -71,7 +121,7 @@ export function sessionGameStorage(): GameStorage | null {
 const SAVE_KEY_PREFIX = 'numbrrs_game:';
 // Bumped whenever the saved shape changes: a game written by an older build is
 // dropped rather than read as something it isn't.
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 3;
 
 /**
  * One entry per team. The id carries no locale, so /game/… and /fr/game/… share
@@ -81,16 +131,34 @@ export function saveKey(teamId: string): string {
 	return SAVE_KEY_PREFIX + teamId;
 }
 
+/** A card in the pile as it is stored: `i`ntroduction or `q`uestion, whose,
+ *  and whether it is the question that follows a miss in the final lap. */
+type SavedStep = { k: 'i' | 'q'; id: number; a?: true };
+
 /** A game as it is written to storage: player ids only, in pile order. The
  *  guessed pile is left out on purpose — see `restore`. */
 type SavedGame = {
 	v: typeof SAVE_VERSION;
 	roster: string;
+	/** The level the card that's up was dealt at. */
+	level: LevelKey;
+	/** The level the run counts as: the easiest one used during it. */
+	countsAs: LevelKey;
+	phase: Phase;
+	/** Learn about part of the roster: the players it is for. See `GameState.focus`. */
+	focus: number[] | null;
 	identified: number[];
+	/** Players whose card has been answered wrongly at least once. */
+	missed: number[];
 	guesses: number;
-	deck: number[];
-	recycle: number[];
-	current: { id: number; options: number[] } | null;
+	deck: SavedStep[];
+	/** Learn: players not yet dealt into a batch. */
+	waiting: number[];
+	/** Learn: players whose introduction has been looked at. */
+	introduced: number[];
+	/** Pairs of players one of whom was picked for the other's card. */
+	confusions: [number, number][];
+	current: (SavedStep & { options: number[] }) | null;
 };
 
 /**
@@ -106,8 +174,22 @@ function rosterSignature(roster: readonly Player[]): string {
 		.join(',');
 }
 
+function isId(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
 function isIdList(value: unknown): value is number[] {
-	return Array.isArray(value) && value.every((id) => Number.isSafeInteger(id));
+	return Array.isArray(value) && value.every(isId);
+}
+
+const unique = (ids: readonly number[]) => new Set(ids).size === ids.length;
+
+function parseStep(value: unknown): SavedStep | null {
+	if (typeof value !== 'object' || value === null) return null;
+	const { k, id, a } = value as Record<string, unknown>;
+	if ((k !== 'i' && k !== 'q') || !isId(id)) return null;
+	if (a !== undefined && a !== true) return null;
+	return a ? { k, id, a } : { k, id };
 }
 
 /**
@@ -125,62 +207,152 @@ function parseSavedGame(raw: string, roster: readonly Player[]): SavedGame | nul
 		return null;
 	}
 	if (typeof data !== 'object' || data === null) return null;
-	const {
-		v,
-		roster: signature,
-		identified,
-		guesses,
-		deck,
-		recycle,
-		current
-	} = data as Record<string, unknown>;
+	const stored = data as Record<string, unknown>;
+	const { level, countsAs, phase, identified, missed, guesses, waiting, introduced } = stored;
 
-	const expected = rosterSignature(roster);
-	if (v !== SAVE_VERSION || signature !== expected) return null;
-	if (!isIdList(identified) || !isIdList(deck) || !isIdList(recycle)) return null;
+	const signature = rosterSignature(roster);
+	if (stored.v !== SAVE_VERSION || stored.roster !== signature) return null;
+	if (!isIdList(identified) || !isIdList(missed)) return null;
+	if (!isIdList(waiting) || !isIdList(introduced)) return null;
 	if (typeof guesses !== 'number' || !Number.isSafeInteger(guesses) || guesses < 0) return null;
 
-	let card: SavedGame['current'] = null;
-	if (current !== null) {
-		if (typeof current !== 'object') return null;
-		const { id, options } = current as Record<string, unknown>;
-		if (typeof id !== 'number' || !Number.isSafeInteger(id) || !isIdList(options)) return null;
-		card = { id, options };
+	// A run counts as the easiest level it used, so never as a harder one than
+	// the one in play — and Learn and the quiz levels are never mixed in a run.
+	if (!isLevelKey(level) || !isLevelKey(countsAs)) return null;
+	if (lowerLevel(countsAs, level) !== countsAs) return null;
+	const learning = !levelFor(level).closedBook;
+	if (levelFor(countsAs).closedBook === learning) return null;
+	// Learn is always in one of its two phases; a quiz level has none.
+	const lap = phase === 'lap';
+	if (learning ? phase !== 'learn' && !lap : phase !== null) return null;
+	const savedPhase: Phase = learning ? (lap ? 'lap' : 'learn') : null;
+
+	if (!Array.isArray(stored.deck)) return null;
+	const deck: SavedStep[] = [];
+	for (const item of stored.deck) {
+		const step = parseStep(item);
+		if (!step) return null;
+		deck.push(step);
+	}
+	// Far more cards than any game holds: a pile this long is not one the game
+	// built, and is not worth dealing.
+	if (deck.length > roster.length * 4 + 8) return null;
+
+	let current: SavedGame['current'] = null;
+	if (stored.current !== null) {
+		const step = parseStep(stored.current);
+		const options = (stored.current as Record<string, unknown> | undefined)?.options;
+		if (!step || !isIdList(options)) return null;
+		current = { ...step, options };
 	}
 
-	// Every player sits in exactly one place: identified, one of the two piles,
-	// or on the card that's up.
-	const placed = [...identified, ...deck, ...recycle, ...(card ? [card.id] : [])];
-	const rosterIds = new Set(roster.map((p) => p.id));
-	if (placed.length !== roster.length || new Set(placed).size !== placed.length) return null;
-	if (!placed.every((id) => rosterIds.has(id))) return null;
-
-	// Numberless players are never dealt, and each right guess identifies exactly
-	// one player — so there can't be more players found than guesses made.
 	const preIdentified = preIdentifiedIds(roster);
-	if (!preIdentified.every((id) => identified.includes(id))) return null;
-	if (guesses < identified.length - preIdentified.length) return null;
+	const numbered = new Set(roster.filter((p) => p.sweaterNumber != null).map((p) => p.id));
+	const onRoster = new Set(roster.map((p) => p.id));
+	const cards = current ? [current, ...deck] : deck;
 
-	if (card) {
-		// The card's own player has to be among its answers, and nobody already
-		// identified can be offered as one.
-		if (!card.options.includes(card.id) || new Set(card.options).size !== card.options.length) {
-			return null;
-		}
-		if (!card.options.every((id) => rosterIds.has(id) && !identified.includes(id))) return null;
-	} else if (deck.length > 0 || recycle.length > 0) {
-		// No card up with cards still to draw is not a state the game passes through.
+	// A game about part of the roster is a round of Learn. Everyone it is not
+	// about counts as found, and as introduced, from its first card.
+	let focus: number[] | null = null;
+	if (stored.focus !== null) {
+		if (!learning || !isIdList(stored.focus) || stored.focus.length === 0) return null;
+		if (!unique(stored.focus) || !stored.focus.every((id) => numbered.has(id))) return null;
+		focus = stored.focus;
+	}
+	const outside = focus ? [...numbered].filter((id) => !focus.includes(id)) : [];
+	if (!outside.every((id) => identified.includes(id))) return null;
+	if (missed.some((id) => outside.includes(id))) return null;
+
+	// Players with no number are found from the start and never dealt; nobody
+	// is found twice; only a player with a number has a card, or can be missed.
+	if (!unique(identified) || !identified.every((id) => onRoster.has(id))) return null;
+	if (!preIdentified.every((id) => identified.includes(id))) return null;
+	if (!unique(missed) || !missed.every((id) => numbered.has(id))) return null;
+	if (!cards.every((card) => numbered.has(card.id))) return null;
+	if (!unique(waiting) || !unique(introduced)) return null;
+	const found = identified.length - preIdentified.length - outside.length;
+
+	if (current) {
+		const { options } = current;
+		if (!unique(options) || !options.every((id) => numbered.has(id))) return null;
+		// A question's own player is among its answers; an introduction has none.
+		if (current.k === 'q' ? !options.includes(current.id) : options.length > 0) return null;
+	} else if (deck.length > 0 || waiting.length > 0 || phase === 'learn') {
+		// No card up with cards still to come is not a state the game passes through.
 		return null;
 	}
 
-	return { v: SAVE_VERSION, roster: expected, identified, guesses, deck, recycle, current: card };
+	const questions = cards.filter((card) => card.k === 'q').map((card) => card.id);
+	const unfound = [...numbered].filter((id) => !identified.includes(id));
+
+	if (phase === 'learn') {
+		// Every player with a number is in exactly one place: waiting for a batch,
+		// dealt but not yet looked at, or introduced.
+		const pending = cards.filter((card) => card.k === 'i').map((card) => card.id);
+		const placed = [...waiting, ...pending, ...introduced];
+		if (placed.length !== numbered.size || !unique(placed)) return null;
+		if (!placed.every((id) => numbered.has(id))) return null;
+		// Only someone introduced is asked about, offered as an answer, or
+		// learned; and everyone introduced but not yet learned has a question
+		// coming, or they never would be.
+		if (!questions.every((id) => introduced.includes(id))) return null;
+		if (!identified.every((id) => preIdentified.includes(id) || introduced.includes(id))) {
+			return null;
+		}
+		if (current && !current.options.every((id) => introduced.includes(id))) return null;
+		if (!introduced.every((id) => identified.includes(id) || questions.includes(id))) return null;
+		if (!outside.every((id) => introduced.includes(id))) return null;
+		// Misses are only scored in the final lap.
+		if (missed.length > 0 || cards.some((card) => card.a)) return null;
+	} else {
+		// One closed-book run, at a quiz level or as Learn's final lap: nothing
+		// but questions, one for each player still to be found and none for
+		// anyone who has been.
+		if (waiting.length > 0 || cards.some((card) => card.k === 'i')) return null;
+		if (!unique(questions)) return null;
+		if (questions.length !== unfound.length) return null;
+		if (!questions.every((id) => unfound.includes(id))) return null;
+		if (phase === null && cards.some((card) => card.a)) return null;
+		// Each right guess finds exactly one player and each player missed took
+		// at least one wrong one — so there can't be more of either than there
+		// were guesses to produce them.
+		if (guesses < found + missed.length) return null;
+	}
+
+	// Mix-ups only steer which wrong answers are offered, so one that makes no
+	// sense is left out rather than costing the game.
+	const confusions: [number, number][] = [];
+	if (Array.isArray(stored.confusions)) {
+		for (const pair of stored.confusions.slice(-MAX_CONFUSIONS)) {
+			if (isIdList(pair) && pair.length === 2 && pair.every((id) => numbered.has(id))) {
+				confusions.push([pair[0]!, pair[1]!]);
+			}
+		}
+	}
+
+	return {
+		v: SAVE_VERSION,
+		roster: signature,
+		level,
+		countsAs,
+		phase: savedPhase,
+		focus,
+		identified,
+		missed,
+		guesses,
+		deck,
+		waiting,
+		introduced,
+		confusions,
+		current
+	};
 }
 
 /**
  * The quiz's state and the moves that change it: dealing, guessing, and
- * switching difficulty mid-game. `roster` is fixed for the life of an
- * instance — the page remounts this whenever the roster it's for changes
- * (see RosterGame.svelte), so nothing here needs to react to it changing.
+ * switching level mid-game. `roster` is fixed for the life of an instance —
+ * the page remounts this whenever the roster it's for changes (see
+ * RosterGame.svelte), so nothing here needs to react to it changing.
  *
  * A new instance has dealt nothing. The page is rendered on the server and
  * held at the edge for every visitor, so a deck shuffled during construction
@@ -190,83 +362,225 @@ function parseSavedGame(raw: string, roster: readonly Player[]): SavedGame | nul
  */
 export class GameState {
 	#roster: Player[];
-	// Cards are keyed by draw, not by player: a recycled player gets a fresh
-	// card element, so no card on screen ever mutates its face. The counter
-	// never resets (not even on Play Again) so a key can't collide with a
-	// still-transitioning element from the previous game.
+	#numbered: Player[];
+	#preIdentified: number[];
+	// Cards are keyed by draw, not by player: a card that comes round again gets
+	// a fresh card element, so no card on screen ever mutates its face. The
+	// counter never resets (not even on Play Again) so a key can't collide with
+	// a still-transitioning element from the previous game.
 	#nextKey = 0;
 
-	difficulty = $state(savedDifficulty());
+	level = $state<LevelKey>(savedLevel());
+	/**
+	 * The level this run counts as: the easiest one used since the first guess.
+	 * Turning the level down for one hard card and back up again doesn't earn
+	 * the harder level's medal.
+	 */
+	countsAs = $state<LevelKey>(this.level);
+	phase = $state<Phase>(null);
+	/**
+	 * Learn, when it is about only some of the roster: the players it is for, by
+	 * id. Everyone else counts as known from the start: shown with their numbers,
+	 * offered as answers, and never dealt except to be asked about again beside
+	 * the new ones. Null for a game about the whole roster, which every game at
+	 * a quiz level is.
+	 */
+	focus = $state<number[] | null>(null);
 
 	/** False until the first deal or a restore. `current` being null isn't
 	 *  enough to tell: it is also null once the game is over. */
 	dealt = $state(false);
 
-	/** Face-down draw pile; the top card gets dealt into `current`. */
-	deck = $state<Player[]>([]);
-	/** Players whose card resolved without them being identified; reshuffled
-	 *  into a fresh deck when the draw pile runs out. */
-	recycle = $state<Player[]>([]);
+	/** Face-down draw pile; the top card gets dealt into `current`. A card
+	 *  answered wrongly goes back into it a few cards down. */
+	deck = $state<Step<Player>[]>([]);
+	/** Learn: players still to be dealt into a batch, in the order they will be. */
+	waiting = $state<Player[]>([]);
+	/** Learn: players whose introduction has been looked at. */
+	introduced = $state<number[]>([]);
+	/** Pairs of players, one of whom was picked for the other's card. Each is
+	 *  then offered as an answer when the other comes up. */
+	confusions = $state<[number, number][]>([]);
 	identified = $state<number[]>([]);
+	/** Players whose card has been answered wrongly at least once in the part
+	 *  of the game that is scored: a quiz level's run, or Learn's final lap. */
+	missed = $state<number[]>([]);
 	guesses = $state(0);
-	/** The drawn card being guessed at; null before the first deal, and again
-	 *  once both piles run dry (game over). */
+	/** The drawn card; null before the first deal, and again once the game is
+	 *  over. */
 	current = $state<ActiveCard | null>(null);
 	/** The most recent guess, face-up on top of the guessed pile. */
 	resolved = $state<ResolvedCard | null>(null);
 	/** The card underneath it — visible while the newest one flies in, and
 	 *  peeking out at an angle after it lands. */
 	previous = $state<ResolvedCard | null>(null);
+	/**
+	 * What the player last did, and how many times they have done anything: a
+	 * guess, or moving on from an introduction. For announcing each move as it
+	 * happens. A deal or a restore is neither, and leaves these alone.
+	 */
+	lastMove = $state<'guess' | 'next' | null>(null);
+	moves = $state(0);
 
-	/** Players who can be asked about — everyone else starts pre-identified. */
-	readonly guessableCount: number;
 	readonly rosterLength: number;
 
 	constructor(roster: Player[]) {
 		this.#roster = roster;
-		this.guessableCount = roster.length - preIdentifiedIds(roster).length;
+		this.#numbered = roster.filter((p) => p.sweaterNumber != null);
+		this.#preIdentified = preIdentifiedIds(roster);
 		this.rosterLength = roster.length;
 
 		// Stored from the first game, before anything is chosen, so storage always
-		// holds the difficulty in play: the default on a first visit, and a valid
-		// value in place of one savedDifficulty() had to discard.
-		saveDifficulty(this.difficulty);
+		// holds the level in play: the default on a first visit, and a current
+		// value in place of one savedLevel() had to translate or discard.
+		saveLevel(this.level);
 
 		// Known without shuffling anything, so the progress line is already right
 		// in the server's markup.
-		this.identified = preIdentifiedIds(roster);
+		this.identified = [...this.#preIdentified];
 	}
 
-	// In the shuffled order the card chose — deriving this by filtering the
-	// roster would quietly re-impose roster order instead.
+	#find(id: number): Player | undefined {
+		return this.#roster.find((p) => p.id === id);
+	}
+
+	// In the order the card chose — deriving this by filtering the roster would
+	// quietly re-impose roster order on a shuffled card.
 	get activeOptions(): Player[] {
-		return this.current
-			? this.current.optionIds.flatMap((id) => this.#roster.find((p) => p.id === id) ?? [])
-			: [];
+		return this.current ? this.current.optionIds.flatMap((id) => this.#find(id) ?? []) : [];
 	}
 
-	/** Deal the top card, with its answer options at the current difficulty.
-	 *  `avoidId`, when given, is left out of the options where possible — see
-	 *  cardOptions. */
-	#dealt(
-		drawn: ReturnType<typeof drawCard<Player>>,
-		identified: number[],
-		avoidId?: number
-	): ActiveCard | null {
-		return (
-			drawn && {
-				key: this.#nextKey++,
-				player: drawn.player,
-				optionIds: cardOptions(
-					this.#roster,
-					identified,
-					drawn.player,
-					this.difficulty,
-					undefined,
-					avoidId
-				)
-			}
-		);
+	/** Whether the roster keeps its numbers to itself: at a quiz level, and in
+	 *  Learn's final lap. See `Level.closedBook`. */
+	get closedBook(): boolean {
+		return levelFor(this.level).closedBook || this.phase === 'lap';
+	}
+
+	/** How many players are still to be found: in Learn, still to be learned,
+	 *  and then in the final lap still to be named. */
+	get remaining(): number {
+		return this.rosterLength - this.identified.length;
+	}
+
+	/** How many players were, or still can be, found without a miss. */
+	get firstTry(): number {
+		return this.guessableCount - this.missed.length;
+	}
+
+	/** The players this game asks about: everyone with a number, or the few a
+	 *  round of Learn is focused on. */
+	#scope(): Player[] {
+		const focus = this.focus;
+		return focus ? this.#numbered.filter((p) => focus.includes(p.id)) : this.#numbered;
+	}
+
+	/** Everyone found from the start: those with no number to be asked about,
+	 *  and those a focused round is not about. */
+	#base(): number[] {
+		const scope = this.#scope();
+		return this.#roster.filter((p) => !scope.includes(p)).map((p) => p.id);
+	}
+
+	/** How many players the game asks about. */
+	get guessableCount(): number {
+		return this.#scope().length;
+	}
+
+	/** One entry per player found, in the order they were: whether it took no
+	 *  wrong answer to get there. */
+	get outcomes(): boolean[] {
+		const base = this.#base();
+		return this.identified
+			.filter((id) => !base.includes(id))
+			.map((id) => !this.missed.includes(id));
+	}
+
+	/** Everyone missed this run, in roster order. */
+	get missedPlayers(): Player[] {
+		return this.#roster.filter((p) => this.missed.includes(p.id));
+	}
+
+	/** The medal a perfect run at this level is worth, if it is worth one. */
+	get stake(): Medal | null {
+		return levelFor(this.countsAs).medal;
+	}
+
+	/** Whether that medal is still there to be won — or, once the game is
+	 *  over, has been. */
+	get perfect(): boolean {
+		return this.missed.length === 0;
+	}
+
+	/** Players whose numbers are on show from the last guess: see cardOptions. */
+	#onShow(): number[] {
+		const resolved = this.resolved;
+		if (!resolved) return [];
+		return resolved.picked ? [resolved.player.id, resolved.picked.id] : [resolved.player.id];
+	}
+
+	/** Everyone a player has been mixed up with, whichever way round it was. */
+	#confusedWith(id: number): number[] {
+		return this.confusions.flatMap(([a, b]) => (a === id ? [b] : b === id ? [a] : []));
+	}
+
+	/** The answers for a question about `player`, as the game stands. */
+	#options(player: Player): number[] {
+		const avoid = this.#onShow();
+		const prefer = this.#confusedWith(player.id);
+		if (this.phase === 'learn') {
+			const introduced = this.#numbered.filter((p) => this.introduced.includes(p.id));
+			return learnOptions(introduced, player, LAP_LEVEL.choices, undefined, avoid, prefer);
+		}
+		const level = this.phase === 'lap' ? LAP_LEVEL : levelFor(this.level);
+		return cardOptions(this.#roster, this.identified, player, level, undefined, avoid, prefer);
+	}
+
+	/**
+	 * Learn, with nothing left in the pile: deal the next batch of players, or
+	 * once everyone has been through one, start the final lap.
+	 */
+	#refill(): void {
+		if (this.phase !== 'learn') return;
+		if (this.waiting.length > 0) {
+			const batch = this.waiting.slice(0, GROUP_SIZE);
+			this.waiting = this.waiting.slice(GROUP_SIZE);
+			let deck: Step<Player>[] = batch.map((player) => ({ kind: 'intro', player }));
+			// A few of the players learned in earlier batches come round again with
+			// each new one, spaced out among the introductions.
+			const learned = shuffle(this.#numbered.filter((p) => this.identified.includes(p.id)));
+			learned.slice(0, REVIEWS_PER_GROUP).forEach((player, i) => {
+				const at = Math.min(deck.length, 2 + i * 2);
+				deck = [...deck.slice(0, at), { kind: 'quiz', player }, ...deck.slice(at)];
+			});
+			this.deck = deck;
+			return;
+		}
+		// The final lap is a closed-book run of its own: everyone is to be found
+		// again, and this time a miss counts.
+		this.phase = 'lap';
+		this.identified = this.#base();
+		this.missed = [];
+		this.deck = buildDeck(this.#scope()).map((player) => ({ kind: 'quiz', player }));
+	}
+
+	/** Turn up the top card of the pile, refilling it first if Learn has more
+	 *  to deal. No card means the game is over. */
+	#draw(): void {
+		if (this.deck.length === 0) this.#refill();
+		const drawn = drawCard(this.deck);
+		if (!drawn) {
+			this.current = null;
+			return;
+		}
+		const { kind, player, again = false } = drawn.card;
+		this.deck = drawn.deck;
+		this.current = {
+			key: this.#nextKey++,
+			kind,
+			player,
+			again,
+			optionIds: kind === 'intro' ? [] : this.#options(player)
+		};
 	}
 
 	/**
@@ -274,17 +588,34 @@ export class GameState {
 	 * where nobody has a number deals no cards, so it starts (and stays) with no
 	 * current card instead of crashing on a question that can't be built. The
 	 * page doesn't start a game for one — see isPlayable in game.ts.
+	 *
+	 * `focus` makes it a round of Learn about those players only: the ones new
+	 * to a roster somebody already knows. It is ignored at a quiz level, and
+	 * when it names nobody on the roster or everybody on it.
 	 */
-	reset() {
-		const identified = preIdentifiedIds(this.#roster);
-		const drawn = drawCard(buildDeck(this.#roster), []);
-		this.deck = drawn?.deck ?? [];
-		this.recycle = [];
-		this.identified = identified;
+	reset(focus?: readonly number[]) {
+		const learning = !levelFor(this.level).closedBook;
+		const wanted = this.#numbered.filter((p) => focus?.includes(p.id)).map((p) => p.id);
+		const partial = learning && wanted.length > 0 && wanted.length < this.#numbered.length;
+		this.focus = partial ? wanted : null;
+		const base = this.#base();
+		const order = buildDeck(this.#scope());
+		this.countsAs = this.level;
+		this.phase = learning ? 'learn' : null;
+		// Learn deals its players a batch at a time, so the pile starts empty and
+		// the first draw fills it. A quiz level deals everyone at once.
+		this.waiting = learning ? order : [];
+		this.deck = learning ? [] : order.map((player) => ({ kind: 'quiz', player }));
+		// Whoever a focused round is not about has been met already.
+		this.introduced = base.filter((id) => !this.#preIdentified.includes(id));
+		this.confusions = [];
+		this.identified = base;
+		this.missed = [];
 		this.guesses = 0;
-		this.current = this.#dealt(drawn, identified);
 		this.resolved = null;
 		this.previous = null;
+		this.lastMove = null;
+		this.#draw();
 		this.dealt = true;
 	}
 
@@ -304,37 +635,60 @@ export class GameState {
 			const raw = storage.getItem(saveKey(teamId));
 			if (raw === null) return false;
 			saved = parseSavedGame(raw, this.#roster);
+			// The level may have been changed since, on another team's page or in
+			// another tab. Between Learn and a quiz level that is a restart, the
+			// same as making the change mid-game — see setLevel.
+			if (saved?.current && levelFor(saved.level).closedBook !== levelFor(this.level).closedBook) {
+				saved = null;
+			}
 			if (!saved) storage.removeItem(saveKey(teamId));
 		} catch {
 			return false;
 		}
 		if (!saved) return false;
 
-		const find = (id: number) => this.#roster.find((p) => p.id === id);
-		const players = (ids: number[]) => ids.flatMap((id) => find(id) ?? []);
-		const player = saved.current && find(saved.current.id);
+		const players = (ids: number[]) => ids.flatMap((id) => this.#find(id) ?? []);
+		const steps = (cards: SavedStep[]): Step<Player>[] =>
+			cards.flatMap((card) => {
+				const player = this.#find(card.id);
+				if (!player) return [];
+				const step: Step<Player> = { kind: card.k === 'i' ? 'intro' : 'quiz', player };
+				return card.a ? [{ ...step, again: true }] : [step];
+			});
 
-		this.deck = players(saved.deck);
-		this.recycle = players(saved.recycle);
+		this.phase = saved.phase;
+		this.focus = saved.focus;
+		this.deck = steps(saved.deck);
+		this.waiting = players(saved.waiting);
+		this.introduced = saved.introduced;
+		this.confusions = saved.confusions;
 		this.identified = saved.identified;
+		this.missed = saved.missed;
 		this.guesses = saved.guesses;
 		this.resolved = null;
 		this.previous = null;
-		if (saved.current && player) {
+		this.lastMove = null;
+
+		const [card] = saved.current ? steps([saved.current]) : [];
+		if (saved.current && card) {
 			// The saved answers are kept so a refresh shows the same card it left,
-			// unless the difficulty was changed in the meantime (in another tab, say)
-			// and they are no longer the right number of them.
-			const remaining = this.#roster.length - saved.identified.length;
-			const expected = Math.min(this.difficulty, remaining);
+			// unless the level was changed in the meantime, or they are not the
+			// number of answers it would deal. The run then counts as the easier of
+			// the two levels.
+			this.countsAs = lowerLevel(saved.countsAs, this.level);
+			const dealt = card.kind === 'intro' ? [] : this.#options(card.player);
+			const kept = saved.level === this.level && saved.current.options.length === dealt.length;
 			this.current = {
 				key: this.#nextKey++,
-				player,
-				optionIds:
-					saved.current.options.length === expected
-						? saved.current.options
-						: cardOptions(this.#roster, saved.identified, player, this.difficulty)
+				kind: card.kind,
+				player: card.player,
+				again: card.again ?? false,
+				optionIds: kept ? saved.current.options : dealt
 			};
 		} else {
+			// Finished: it counts as what it was played at, whatever the setting
+			// has been moved to since.
+			this.countsAs = saved.countsAs;
 			this.current = null;
 		}
 		this.dealt = true;
@@ -343,28 +697,42 @@ export class GameState {
 
 	/**
 	 * Write the game to storage, or clear its entry while there is nothing to
-	 * keep — a game with no guesses in it, which is also what Play Again leaves.
-	 * So storage holds nothing for a team until somebody has actually played.
+	 * keep — a game nothing has been done in, which is also what Play Again
+	 * leaves. So storage holds nothing for a team until somebody has actually
+	 * played.
 	 *
-	 * Guarded like the difficulty setting above: a full or blocked store costs
-	 * the saved game, never the game being played.
+	 * Guarded like the level setting above: a full or blocked store costs the
+	 * saved game, never the game being played.
 	 */
 	save(storage: GameStorage | null, teamId: string): void {
 		if (!storage || !this.dealt) return;
 		try {
-			if (this.guesses === 0) {
+			if (this.guesses === 0 && this.introduced.length === 0) {
 				storage.removeItem(saveKey(teamId));
 				return;
 			}
+			const step = ({ kind, player, again }: Step<Player>): SavedStep => {
+				const saved: SavedStep = { k: kind === 'intro' ? 'i' : 'q', id: player.id };
+				return again ? { ...saved, a: true } : saved;
+			};
 			const saved: SavedGame = {
 				v: SAVE_VERSION,
 				roster: rosterSignature(this.#roster),
+				// A finished game has no card up, so nothing was dealt at the
+				// setting it has since been moved to: it is saved as what it was.
+				level: this.current ? this.level : this.countsAs,
+				countsAs: this.countsAs,
+				phase: this.phase,
+				focus: this.focus && [...this.focus],
 				identified: [...this.identified],
+				missed: [...this.missed],
 				guesses: this.guesses,
-				deck: this.deck.map((p) => p.id),
-				recycle: this.recycle.map((p) => p.id),
+				deck: this.deck.map(step),
+				waiting: this.waiting.map((p) => p.id),
+				introduced: [...this.introduced],
+				confusions: this.confusions.map(([a, b]) => [a, b]),
 				current: this.current && {
-					id: this.current.player.id,
+					...step(this.current),
 					options: [...this.current.optionIds]
 				}
 			};
@@ -374,61 +742,120 @@ export class GameState {
 		}
 	}
 
+	/**
+	 * Move on from an introduction. The player has now been seen, so can be
+	 * asked about and offered as an answer; their first question goes into the
+	 * pile a couple of cards down, soon enough that the face-up card is still
+	 * in mind.
+	 */
+	next() {
+		const card = this.current;
+		if (!card || card.kind !== 'intro') return;
+		this.introduced = [...this.introduced, card.player.id];
+		this.deck = reinsertCard<Step<Player>>(
+			this.deck,
+			{ kind: 'quiz', player: card.player },
+			undefined,
+			QUIZ_AFTER_MIN,
+			QUIZ_AFTER_MAX
+		);
+		this.lastMove = 'next';
+		this.moves += 1;
+		this.#draw();
+	}
+
 	guess(playerId: number) {
 		const card = this.current;
-		if (!card) return;
-		const guessed = this.#roster.find((p) => p.id === playerId);
+		if (!card || card.kind !== 'quiz') return;
+		const guessed = this.#find(playerId);
 		const answer = card.player.sweaterNumber;
+		const question: Step<Player> = { kind: 'quiz', player: card.player };
 		// Teams regularly carry two players on one number over a season — someone
 		// departs and their replacement takes the sweater. The card only shows a
 		// number, so every player wearing it is a right answer; picking the one the
-		// card wasn't built from isn't a mistake. Only the player actually picked
-		// is identified though, so the other still has to be found later.
+		// card wasn't built from isn't a mistake.
 		const correct = guessed != null && answer != null && guessed.sweaterNumber === answer;
-		const identified = correct ? [...this.identified, guessed.id] : this.identified;
-		// The guessed player's own card is done wherever it sits, deck or recycle
-		// pile — their number has been learned.
-		const deck = correct ? this.deck.filter((p) => p.id !== guessed.id) : this.deck;
-		const recycle = correct ? this.recycle.filter((p) => p.id !== guessed.id) : this.recycle;
-		// The resolved card is discarded only if its own player is now identified;
-		// otherwise it returns to the pool — after a wrong guess, or a right guess
-		// that identified the number's other wearer.
-		const pool = identified.includes(card.player.id) ? recycle : [...recycle, card.player];
-		const drawn = drawCard(deck, pool);
-		const previous = this.resolved;
+		let deck = this.deck;
+
+		if (!correct) {
+			// Remembered, so each is offered when the other next comes up.
+			if (guessed) {
+				this.confusions = [
+					...this.confusions,
+					[card.player.id, guessed.id] as [number, number]
+				].slice(-MAX_CONFUSIONS);
+			}
+			// A miss only counts where the score is taken: not while Learn is
+			// still introducing the roster, which is what misses there are for.
+			if (this.phase !== 'learn' && !this.missed.includes(card.player.id)) {
+				this.missed = [...this.missed, card.player.id];
+			}
+			// Back a few cards down, to be asked again while the correction is
+			// fresh. In the final lap that next right answer won't be the last
+			// word: see `Step.again`.
+			deck = reinsertCard(deck, this.phase === 'lap' ? { ...question, again: true } : question);
+		} else if (card.again) {
+			// Right, straight after being told. Once more, at the bottom of the
+			// pile, before it counts.
+			deck = [...deck, question];
+		} else {
+			// Only the player actually picked is found, so the number's other
+			// wearer still has to be named later. A closed book goes on offering
+			// players who have been found, though, and one of those picked again
+			// has nothing left to be found as: the card's own player is found
+			// then, or the card would come round for ever.
+			const found = this.identified.includes(guessed.id) ? card.player : guessed;
+			if (!this.identified.includes(found.id)) {
+				this.identified = [...this.identified, found.id];
+				// Their own question is done wherever it sits in the pile.
+				deck = deck.filter((step) => step.kind !== 'quiz' || step.player.id !== found.id);
+			}
+			// The card that was up is finished with only if its own player is now
+			// found. Otherwise the right answer found the number's other wearer:
+			// nothing to correct, so it goes to the bottom.
+			if (!this.identified.includes(card.player.id)) deck = [...deck, question];
+		}
+
+		this.deck = deck;
+		this.guesses += 1;
+		this.previous = this.resolved;
 		// Reveal whoever was picked when the guess was right, not whichever
 		// player the card happened to be built from — showing the other one
-		// reads as a correction when the answer was accepted. Computed before
-		// dealing the next card so its options can try to leave this player out.
-		const justRevealed = correct ? guessed : card.player;
-
-		this.deck = drawn?.deck ?? [];
-		this.recycle = drawn?.recycle ?? [];
-		this.identified = identified;
-		this.guesses += 1;
-		this.current = this.#dealt(drawn, identified, justRevealed.id);
-		this.resolved = { key: card.key, player: justRevealed, correct };
-		this.previous = previous;
+		// reads as a correction when the answer was accepted.
+		this.resolved = {
+			key: card.key,
+			player: correct ? guessed : card.player,
+			correct,
+			picked: correct ? null : (guessed ?? null)
+		};
+		this.lastMove = 'guess';
+		this.moves += 1;
+		// Dealt last, knowing what the guess has just put on show, so the next
+		// card's options can try to leave those players out.
+		this.#draw();
 	}
 
 	/**
-	 * Same card, refreshed options: the drawn number stays the question, only
-	 * how many candidates surround it changes.
+	 * Change level. Between two quiz levels the card that's up stays the
+	 * question and only its answers are dealt again; the run then counts as the
+	 * easier of the levels it has used, unless nothing has been guessed yet, in
+	 * which case it simply becomes a game at the new level.
+	 *
+	 * To or from Learn the game starts over. Learn is a different game, not a
+	 * different number of answers: its cards are dealt in batches and its
+	 * roster is an open book.
 	 */
-	setDifficulty(value: number) {
-		this.difficulty = value;
-		saveDifficulty(value);
-		if (!this.current) return;
-		this.current = {
-			...this.current,
-			optionIds: cardOptions(
-				this.#roster,
-				this.identified,
-				this.current.player,
-				value,
-				undefined,
-				this.resolved?.player.id
-			)
-		};
+	setLevel(key: LevelKey) {
+		const from = levelFor(this.level);
+		const to = levelFor(key);
+		this.level = key;
+		saveLevel(key);
+		if (!this.current || from.key === to.key) return;
+		if (!from.closedBook || !to.closedBook) {
+			this.reset();
+			return;
+		}
+		this.countsAs = this.guesses === 0 ? key : lowerLevel(this.countsAs, key);
+		this.current = { ...this.current, optionIds: this.#options(this.current.player) };
 	}
 }

@@ -1,18 +1,19 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { getI18n } from '#lib/i18n/state.svelte.ts';
-	import type { Messages } from '#lib/i18n/messages.ts';
+	import Medal from '#lib/components/Medal.svelte';
+	import type { Level, LevelKey } from '#lib/game.ts';
 
 	const i18n = getI18n();
 
-	type Option = { key: keyof Messages['game']['difficulty']; value: number };
 	type Props = {
-		options: readonly Option[];
-		value: number;
-		onselect: (value: number) => void;
+		levels: readonly Level[];
+		value: LevelKey;
+		onselect: (value: LevelKey) => void;
 	};
 
-	const { options, value, onselect }: Props = $props();
+	const { levels, value, onselect }: Props = $props();
 
 	const uid = $props.id();
 
@@ -21,8 +22,7 @@
 	let trigger = $state<HTMLElement>();
 	let menu = $state<HTMLElement>();
 
-	const current = $derived(options.find((o) => o.value === value));
-	const currentName = $derived(current && i18n.m.game.difficulty[current.key]);
+	const currentName = $derived(i18n.m.game.levels[value]);
 
 	// A menu button, as assistive technology expects one to behave: opening
 	// moves focus into the menu (to the setting in force), the arrow keys, Home
@@ -30,7 +30,9 @@
 	// except when focus has already gone somewhere else, which is the other way
 	// a menu closes.
 	function items(): HTMLElement[] {
-		return menu ? [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]')] : [];
+		return menu
+			? [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]')]
+			: [];
 	}
 
 	async function openMenu() {
@@ -117,9 +119,7 @@
 	<button
 		bind:this={trigger}
 		onclick={() => (open ? closeMenu() : void openMenu())}
-		aria-label={currentName
-			? i18n.m.game.difficultyCurrent(currentName)
-			: i18n.m.game.difficultyLabel}
+		aria-label={i18n.m.game.levelCurrent(currentName)}
 		aria-haspopup="menu"
 		aria-expanded={open}
 		aria-controls={open ? `${uid}-menu` : undefined}
@@ -146,14 +146,12 @@
 		     button's aria-label says the same thing whether or not there is room
 		     for this, in words that include these so the button can be asked for
 		     by what it shows. -->
-		{#if currentName}
-			<span
-				class="font-condensed hidden text-xs font-bold tracking-widest uppercase sm:inline"
-				aria-hidden="true"
-			>
-				{currentName}
-			</span>
-		{/if}
+		<span
+			class="font-condensed hidden text-xs font-bold tracking-widest uppercase sm:inline"
+			aria-hidden="true"
+		>
+			{currentName}
+		</span>
 	</button>
 
 	{#if open}
@@ -161,44 +159,74 @@
 			bind:this={menu}
 			id="{uid}-menu"
 			role="menu"
-			aria-label={i18n.m.game.difficultyLabel}
-			class="absolute right-0 z-50 mt-2 w-36 rounded-lg border border-white/10 bg-gray-900 py-1 shadow-2xl"
+			aria-label={i18n.m.game.levelLabel}
+			class="absolute right-0 z-50 mt-2 w-max max-w-[calc(100vw-1rem)] rounded-lg border border-white/10 bg-gray-900 py-1 shadow-2xl"
 		>
-			{#each options as opt (opt.key)}
-				{@const active = value === opt.value}
+			{#each levels as level (level.key)}
+				{@const active = value === level.key}
 				<!-- Out of the tab order: within a menu the arrow keys do the moving,
-				     and Tab leaves it. -->
+				     and Tab leaves it.
+
+				     A row says what the level is, not just what it is called: how many
+				     names each card offers, and the medal a run without a miss earns.
+				     The medal is a named picture, so it is part of what the row is
+				     called. -->
 				<button
 					role="menuitemradio"
 					aria-checked={active}
 					tabindex="-1"
 					onclick={() => {
-						onselect(opt.value);
+						onselect(level.key);
 						closeMenu();
 					}}
-					class="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm hover:bg-white/10 {active
+					class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm whitespace-nowrap hover:bg-white/10 {active
 						? 'text-white'
 						: 'text-gray-400'}"
 				>
-					{i18n.m.game.difficulty[opt.key]}
-					{#if active}
-						<!-- Lucide "check" -->
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="M20 6 9 17l-5-5" />
-						</svg>
+					<span class="w-3.5 shrink-0">
+						{#if active}
+							<!-- Lucide "check" -->
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M20 6 9 17l-5-5" />
+							</svg>
+						{/if}
+					</span>
+					<span class="flex-1">
+						{i18n.m.game.levelOption(
+							i18n.m.game.levels[level.key],
+							i18n.m.game.levelChoices(Number.isFinite(level.choices) ? level.choices : null)
+						)}
+					</span>
+					{#if level.medal}
+						<Medal medal={level.medal} label={i18n.m.game.medals[level.medal]} />
 					{/if}
 				</button>
 			{/each}
+			<!-- The rules, where the levels are chosen: this menu is the one place
+			     on the page that names them, and the nav has no room on a phone for
+			     a button of its own. A game in progress is kept for the tab, so
+			     following the link doesn't lose it. -->
+			<div role="separator" class="my-1 border-t border-white/10"></div>
+			<a
+				role="menuitem"
+				tabindex="-1"
+				href={resolve('/[[lang=locale]]/how-to-play', { lang: i18n.lang })}
+				class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm whitespace-nowrap text-gray-400 hover:bg-white/10 hover:text-white"
+			>
+				<span class="w-3.5 shrink-0"></span>
+				{i18n.m.howTo.title}
+			</a>
 		</div>
 	{/if}
 </div>

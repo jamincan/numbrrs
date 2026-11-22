@@ -5,7 +5,7 @@
 
 	// The date the wording last changed, not a build timestamp — a policy that
 	// claims to have been updated on every deploy tells a reader nothing.
-	const UPDATED = '2026-11-21';
+	const UPDATED = '2026-11-22';
 	const updated = $derived(
 		new Intl.DateTimeFormat(i18n.locale, { dateStyle: 'long' }).format(
 			new Date(`${UPDATED}T12:00:00Z`)
