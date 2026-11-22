@@ -128,6 +128,8 @@ export const fr: Messages = {
 			`${team} — devinez qui porte chaque numéro et complétez l’alignement, une carte à la fois.`,
 		levelLabel: 'Niveau',
 		levelCurrent: (level) => `Niveau${NBSP}: ${level}`,
+		levelHint: 'Envie d’un défi? Changez de niveau ici.',
+		levelHintDismiss: 'Fermer',
 		levels: {
 			learn: 'Apprendre',
 			easy: 'Facile',
@@ -223,7 +225,7 @@ export const fr: Messages = {
 		hashBody: `Pour distinguer deux visiteurs au cours d’une même journée, votre adresse IP et votre navigateur sont hachés avec une valeur aléatoire. Cette valeur est régénérée chaque jour et n’est jamais écrite sur disque${NBSP}: une fois la journée terminée, plus rien ne relie le code à vous, et le code d’aujourd’hui ne peut être rapproché de celui de demain. Votre adresse IP elle-même n’est jamais inscrite dans la base de données du site. Le seul endroit où le site consigne une adresse IP est le journal de son serveur, conservé peu de temps${NBSP}: une tentative refusée ou échouée d’accéder à la page d’administration du site y est notée avec l’adresse d’où elle provient.`,
 		cookiesTitle: 'Témoins (cookies)',
 		cookiesBody:
-			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de jeu est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Il en va de même des médailles et des meilleurs résultats que vous obtenez, et des noms que vous avez déjà trouvés (numbrrs_records), qui ne sont pas envoyés non plus. Vous pouvez tout effacer en tout temps dans votre navigateur, et la page Comment jouer a un bouton qui efface vos résultats. La partie en cours est gardée dans le stockage de session de l’onglet (sous des clés commençant par numbrrs_game, une par équipe), n’est jamais envoyée au serveur et disparaît à la fermeture de l’onglet.',
+			'Aucun n’est utilisé à des fins de mesure. Deux témoins retiennent vos préférences — votre langue (numbrrs_locale) et le dernier onglet de ligue ouvert (numbrrs_league) — pendant un an chacun. Votre niveau de jeu est gardé dans le stockage local de votre navigateur (numbrrs_difficulty) et n’est jamais envoyé au serveur. Il en va de même des médailles et des meilleurs résultats que vous obtenez, et des noms que vous avez déjà trouvés (numbrrs_records), qui ne sont pas envoyés non plus. Il en va de même d’une note indiquant que vous avez fermé l’indice sur le changement de niveau (numbrrs_level_hint). Vous pouvez tout effacer en tout temps dans votre navigateur, et la page Comment jouer a un bouton qui efface vos résultats. La partie en cours est gardée dans le stockage de session de l’onglet (sous des clés commençant par numbrrs_game, une par équipe), n’est jamais envoyée au serveur et disparaît à la fermeture de l’onglet.',
 		errorsTitle: 'Erreurs',
 		errorsBody:
 			'Lorsqu’une erreur survient — sur le serveur ou dans votre navigateur —, son message, la page concernée et une trace technique sont enregistrés afin de pouvoir la corriger. Votre adresse IP n’y est pas jointe. Les occurrences répétées d’une même erreur sont regroupées en une seule entrée.',

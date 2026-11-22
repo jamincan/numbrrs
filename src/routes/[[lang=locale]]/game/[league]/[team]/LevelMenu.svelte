@@ -11,9 +11,14 @@
 		levels: readonly Level[];
 		value: LevelKey;
 		onselect: (value: LevelKey) => void;
+		/** Words for someone who has not played before, shown under the button
+		 *  until they are sent away. */
+		hint?: string;
+		/** The hint has been read, or the menu found without it. */
+		onhintdismiss?: () => void;
 	};
 
-	const { levels, value, onselect }: Props = $props();
+	const { levels, value, onselect, hint, onhintdismiss }: Props = $props();
 
 	const uid = $props.id();
 
@@ -36,6 +41,8 @@
 	}
 
 	async function openMenu() {
+		// Whoever opens the menu has found it.
+		if (hint) onhintdismiss?.();
 		open = true;
 		await tick();
 		const all = items();
@@ -123,6 +130,7 @@
 		aria-haspopup="menu"
 		aria-expanded={open}
 		aria-controls={open ? `${uid}-menu` : undefined}
+		aria-describedby={hint && !open ? `${uid}-hint` : undefined}
 		class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 p-1 text-gray-400 transition-colors hover:text-white sm:pr-2"
 		class:text-white={open}
 	>
@@ -153,6 +161,67 @@
 			{currentName}
 		</span>
 	</button>
+
+	<!-- For a first visit: what the button is for, said once, by a bubble that
+	     hangs under it and points at it. Light on the dark page so that it is
+	     seen, and it stays until it is sent away, the menu is opened, or the
+	     page that asked for it says it is no longer wanted. Its words describe
+	     the button, so they are read out with it; the link beside them goes to
+	     the rules, which say what each level is, and following it is taken as
+	     having read the hint.
+
+	     Short, and no taller than two lines: it hangs over the top of the game,
+	     and anything deeper covers the team's name on a phone and, beside a
+	     side panel, the very button a new player has to press next.
+
+	     On a phone it is centred on the button, which is near the middle of
+	     the nav there, and narrow enough to stay on the screen either side of
+	     it, with the link on a line of its own. With more room it is one line,
+	     ending where the button ends: the button is near the right-hand edge
+	     then, and a line that long centred on it would run off the screen. -->
+	{#if hint && !open}
+		<div
+			data-level-hint
+			class="absolute top-full left-1/2 z-40 mt-2 flex w-max max-w-[17rem] -translate-x-1/2 items-start gap-1 rounded-lg bg-white py-1 pr-1 pl-3 text-left font-sans text-xs leading-tight font-semibold tracking-normal text-gray-900 normal-case shadow-2xl sm:right-0 sm:left-auto sm:mt-2.5 sm:max-w-none sm:translate-x-0 sm:items-center"
+		>
+			<span
+				class="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 bg-white sm:right-8 sm:left-auto sm:translate-x-0"
+				aria-hidden="true"
+			></span>
+			<span class="relative flex flex-col sm:flex-row sm:gap-1.5 sm:py-0.5">
+				<span id="{uid}-hint">{hint}</span>
+				<a
+					href={resolve('/[[lang=locale]]/how-to-play', { lang: i18n.lang })}
+					onclick={() => onhintdismiss?.()}
+					class="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+				>
+					{i18n.m.howTo.title}
+				</a>
+			</span>
+			<button
+				onclick={() => onhintdismiss?.()}
+				aria-label={i18n.m.game.levelHintDismiss}
+				class="relative shrink-0 rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-900"
+			>
+				<!-- Lucide "x" -->
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M18 6 6 18" />
+					<path d="m6 6 12 12" />
+				</svg>
+			</button>
+		</div>
+	{/if}
 
 	{#if open}
 		<div

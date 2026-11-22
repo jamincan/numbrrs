@@ -9,7 +9,12 @@
 	import type { Player, Team } from '#lib/types.ts';
 	import { DrawerLayout } from '#lib/drawer-layout.svelte.ts';
 	import { levelForMedal, LEVELS, type LevelKey } from '#lib/game.ts';
-	import { GameState, sessionGameStorage } from '#lib/game-state.svelte.ts';
+	import {
+		GameState,
+		levelHintSeen,
+		markLevelHintSeen,
+		sessionGameStorage
+	} from '#lib/game-state.svelte.ts';
 	import { getI18n } from '#lib/i18n/state.svelte.ts';
 	import { RecordBook } from '#lib/records.svelte.ts';
 	import { leagueGender } from '#lib/leagues.ts';
@@ -53,6 +58,20 @@
 	// have played to the end before: arrivals, and changes of number, since.
 	const fresh = $derived(records.loaded ? records.newPlayers(teamId, roster) : []);
 
+	// Someone with nothing on record has not played before, or not so that it
+	// was kept, and may not know the level can be changed: the button for it is
+	// small and up in the site nav. So it is pointed out, until they send the
+	// hint away or have a first right answer on record, which is the same thing
+	// as no longer being new. Sending it away is remembered, in local storage
+	// like the records, and read with them once the page has mounted: until
+	// then it counts as sent away, so that nothing is shown and then taken back.
+	let hintSeen = $state(true);
+	const levelHint = $derived(records.loaded && !records.any && !hintSeen);
+	function dismissHint() {
+		hintSeen = true;
+		markLevelHintSeen();
+	}
+
 	// Once the last card is answered the roster panel is gone, and the page is
 	// the cards and the summary alone.
 	const over = $derived(game.dealt && !game.current);
@@ -65,6 +84,7 @@
 	// shuffle) arrives once the component has mounted.
 	onMount(() => {
 		records.load();
+		hintSeen = levelHintSeen();
 		if (!game.restore(storage, teamId)) game.reset();
 	});
 
@@ -165,7 +185,13 @@
 <!-- The level menu rides in the site nav rather than a header of its own,
      keeping the play area clear. -->
 <NavSlot>
-	<LevelMenu levels={LEVELS} value={game.level} onselect={setLevel} />
+	<LevelMenu
+		levels={LEVELS}
+		value={game.level}
+		onselect={setLevel}
+		hint={levelHint ? i18n.m.game.levelHint : undefined}
+		onhintdismiss={dismissHint}
+	/>
 </NavSlot>
 
 <!-- Which arrangement this is in is decided by the stylesheet (the `side`

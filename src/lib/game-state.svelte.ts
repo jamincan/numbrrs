@@ -27,6 +27,10 @@ import type { Player } from '#lib/types.ts';
 // because the privacy page names it.
 const LEVEL_STORAGE_KEY = 'numbrrs_difficulty';
 
+// Set once the hint that points out the level menu has been sent away, so
+// that it is not shown again. The privacy page names this key too.
+const LEVEL_HINT_KEY = 'numbrrs_level_hint';
+
 /** What the setting used to be stored as, and the level nearest each one. */
 const LEGACY_LEVELS: Partial<Record<string, LevelKey>> = {
 	'2': 'learn',
@@ -85,6 +89,29 @@ function savedLevel(): LevelKey {
 		return (stored !== null && LEGACY_LEVELS[stored]) || DEFAULT_LEVEL;
 	} catch {
 		return DEFAULT_LEVEL;
+	}
+}
+
+/**
+ * Whether the hint about the level menu has been sent away in this browser.
+ * Where storage can't be read it has not, as far as anyone can tell: the hint
+ * is shown, and sending it away lasts for the page.
+ */
+export function levelHintSeen(): boolean {
+	if (!browser) return false;
+	try {
+		return localStorage.getItem(LEVEL_HINT_KEY) !== null;
+	} catch {
+		return false;
+	}
+}
+
+export function markLevelHintSeen(): void {
+	if (!browser) return;
+	try {
+		localStorage.setItem(LEVEL_HINT_KEY, '1');
+	} catch {
+		// Then it is only gone for this page.
 	}
 }
 

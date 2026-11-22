@@ -483,3 +483,127 @@ test.describe('league trophies', () => {
 		expect(new Set(tops).size).toBe(1);
 	});
 });
+
+// Someone with nothing on record is shown where the level is changed: the
+// button for it is small, and up in the site nav.
+test.describe('the level hint on a first visit', () => {
+	const hint = (page: Page) => page.locator('[data-level-hint]');
+	const levelButton = (page: Page) => page.getByRole('button', { name: /^Level: / });
+
+	test('points at the level button until it is sent away, which is remembered', async ({
+		page
+	}) => {
+		await page.goto(GAME_PATH);
+		await expect(hint(page)).toBeVisible();
+		await expect(hint(page)).toContainText('Want a challenge? Change the level here.');
+		// Those words are the button's description, so they are read out with it.
+		await expect(levelButton(page)).toHaveAccessibleDescription(
+			'Want a challenge? Change the level here.'
+		);
+		// And the rules, which say what each level is, are a link away.
+		await expect(hint(page).getByRole('link', { name: 'How to play' })).toHaveAttribute(
+			'href',
+			'/how-to-play'
+		);
+
+		// It hangs over the top of the game, and must not cover the way on.
+		await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Next', exact: true }).click({ trial: true });
+
+		// Under the button, ending where it ends, and on the screen.
+		const [bubble, button] = [
+			await hint(page).boundingBox(),
+			await levelButton(page).boundingBox()
+		];
+		expect(bubble!.y).toBeGreaterThanOrEqual(button!.y + button!.height);
+		expect(Math.abs(bubble!.x + bubble!.width - (button!.x + button!.width))).toBeLessThan(2);
+		expect(bubble!.x).toBeGreaterThanOrEqual(0);
+
+		await hint(page).getByRole('button', { name: 'Dismiss' }).click();
+		await expect(hint(page)).toHaveCount(0);
+		await expect(levelButton(page)).toHaveAccessibleDescription('');
+
+		// Sent away for good, though nothing is on record yet: a note of it is
+		// kept beside the records.
+		expect(await page.evaluate(() => localStorage.getItem('numbrrs_level_hint'))).toBe('1');
+		expect(await stored(page)).toBeNull();
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(levelButton(page)).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+	});
+
+	test('goes when the menu is opened, which is what it was for', async ({ page }) => {
+		await page.goto(GAME_PATH);
+		await expect(hint(page)).toBeVisible();
+		await levelButton(page).click();
+		await expect(page.getByRole('menu', { name: 'Level' })).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+		await page.keyboard.press('Escape');
+		await expect(page.getByRole('menu', { name: 'Level' })).toHaveCount(0);
+		await expect(hint(page)).toHaveCount(0);
+
+		// And stays gone: whoever opened the menu has found it.
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(levelButton(page)).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+	});
+
+	test('goes when its link to the rules is followed', async ({ page }) => {
+		await page.goto(GAME_PATH);
+		await hint(page).getByRole('link', { name: 'How to play' }).click();
+		await expect(page).toHaveURL(/\/how-to-play$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'How to play' })).toBeVisible();
+
+		await page.goBack();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(levelButton(page)).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+	});
+
+	test('goes with the first right answer, for good', async ({ page }) => {
+		await page.goto(GAME_PATH);
+		await expect(hint(page)).toBeVisible();
+
+		// Learn opens on players dealt face up: on past those to a question.
+		const next = page.getByRole('button', { name: 'Next', exact: true });
+		for (let turn = 0; (await next.count()) > 0; turn++) {
+			expect(turn).toBeLessThan(10);
+			// Still there: looking at a card is not history.
+			await expect(hint(page)).toBeVisible();
+			await next.click();
+		}
+		await answer(page, true);
+		await expect(hint(page)).toHaveCount(0);
+
+		// That answer is on record, so this is no longer a first visit.
+		await page.reload();
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(levelButton(page)).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+	});
+
+	test('is not shown to someone with a record', async ({ page }) => {
+		await seed(page, season(), 'gold');
+		await page.goto(GAME_PATH);
+		await expect(drawnCard(page)).toBeVisible();
+		await expect(levelButton(page)).toBeVisible();
+		await expect(hint(page)).toHaveCount(0);
+	});
+
+	test('fits on a small phone, in French', async ({ page }) => {
+		await page.setViewportSize({ width: 320, height: 700 });
+		await page.goto('/fr' + GAME_PATH);
+		await expect(hint(page)).toBeVisible();
+		await expect(hint(page)).toContainText('Envie d’un défi? Changez de niveau ici.');
+		await expect(hint(page).getByRole('link', { name: 'Comment jouer' })).toHaveAttribute(
+			'href',
+			'/fr/how-to-play'
+		);
+		await expect(hint(page).getByRole('button', { name: 'Fermer' })).toBeVisible();
+		const box = await hint(page).boundingBox();
+		expect(box!.x).toBeGreaterThanOrEqual(0);
+		expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+	});
+});

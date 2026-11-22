@@ -111,6 +111,12 @@ export interface Messages {
 		/** Accessible name for the button that opens it; `level` is the current
 		 *  setting, which is also the button's visible text. */
 		levelCurrent: (level: string) => string;
+		/** Under that button on a first visit: that the level can be changed.
+		 *  One short line: it hangs over the top of the game. A link to the rules
+		 *  follows it, named by their title. */
+		levelHint: string;
+		/** Sends the hint away. */
+		levelHintDismiss: string;
 		levels: Record<LevelKey, string>;
 		/** A row of the level menu: the level's name, then what `levelChoices`
 		 *  says its cards offer. */
