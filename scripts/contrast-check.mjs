@@ -509,10 +509,10 @@ export async function audit(root = REPO) {
 		src.capture(CARD, /<img\s+src=\{headshotUrl\}\s+alt=""\s+class="([^"]+)"/),
 		'h'
 	);
-	const playerClasses = src.capture(CARD, /<span\s+class="([^"]+)"\s*>\{playerName\}/);
+	const playerClasses = src.capture(CARD, /<span\s+class="([^"]+)"\s*>\s*\{playerName\}/);
 	const backNumberClasses = src.capture(
 		CARD,
-		/<span\s+class="([^"]+)"\s+style="color: \{primaryColor\};"\s*>#\{sweaterNumber\}/
+		/<span\s+class="([^"]+)"\s+style="color: \{primaryColor\};"\s*>\s*#\{sweaterNumber\}/
 	);
 	const positionClasses = src.capture(CARD, /<span\s+class="([^"]+)"\s*>\{position\}/);
 	const verdictClasses = src.capture(CARD, /\{#if correct === true\}\s*<span\s+class="([^"]+)"/);

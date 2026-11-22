@@ -203,14 +203,18 @@
 				<nav class="flex shrink-0 gap-4" aria-label={i18n.m.nav.footer}>
 					<a
 						href={resolve('/[[lang=locale]]/privacy', { lang: i18n.lang })}
-						class="transition-colors hover:text-gray-300">{i18n.m.footer.privacy}</a
+						class="transition-colors hover:text-gray-300"
 					>
+						{i18n.m.footer.privacy}
+					</a>
 					<a
 						href="https://github.com/jamincan/numbrrs"
 						target="_blank"
 						rel="noopener noreferrer"
-						class="transition-colors hover:text-gray-300">{i18n.m.footer.source}</a
+						class="transition-colors hover:text-gray-300"
 					>
+						{i18n.m.footer.source}
+					</a>
 				</nav>
 			</div>
 		</footer>

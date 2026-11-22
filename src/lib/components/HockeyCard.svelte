@@ -147,15 +147,18 @@
 					{/if}
 					<span
 						class="font-condensed mt-[3cqw] py-[0.175em] text-center text-[max(0.875rem,8.5cqw)] leading-[1.15] font-bold text-balance wrap-anywhere text-white"
-						>{playerName}</span
 					>
+						{playerName}
+					</span>
 					<!-- Never under 19px: at that size and weight WCAG counts it as
 					     large text, which is the contrast the team colours are held
 					     to on this background. -->
 					<span
 						class="font-condensed text-[max(1.1875rem,12.5cqw)] font-black"
-						style="color: {primaryColor};">#{sweaterNumber}</span
+						style="color: {primaryColor};"
 					>
+						#{sweaterNumber}
+					</span>
 					<span class="text-center text-[max(0.75rem,5cqw)] text-gray-400">{position}</span>
 					<!-- The mark says which it is to someone who cannot tell the green
 					     from the red, at a size where the word alone is easy to miss. -->

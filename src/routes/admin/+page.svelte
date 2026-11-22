@@ -112,9 +112,9 @@
 						<span style="color: var(--status-good)">● Alerts on</span>
 					{/if}
 					<form method="POST" action="?/logout">
-						<button type="submit" class="underline transition-colors hover:text-white"
-							>Sign out</button
-						>
+						<button type="submit" class="underline transition-colors hover:text-white">
+							Sign out
+						</button>
 					</form>
 				</div>
 			</div>
