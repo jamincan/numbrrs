@@ -1,25 +1,31 @@
 # pnpm 10 moved settings out of package.json's `pnpm` field and into this file,
 # and pnpm 11 renamed the install-script allowlist from `onlyBuiltDependencies`
 # (a list) to `allowBuilds` (an explicit true/false per package).
+
+# package.json asks for Node 26, the version production and CI run. With this on,
+# an install under an older Node stops instead of warning: a native module
+# loaded by the wrong Node fails only when the server first opens the database.
+engineStrict: true
+
+# Only these packages may run install scripts. esbuild sets up its platform
+# binary, which drizzle-kit and wrangler bundle with (Vite 8 builds with Rolldown
+# and no longer needs it, so this is a dev-tool concern only). Everything else
+# stays unbuilt, so a compromised transitive dependency has no install-time
+# foothold. Setting one of these to true is a decision to execute that
+# package's code at install.
 #
-# Only these packages may run install scripts. better-sqlite3 must compile its
-# native binding or the server cannot open the database at all; esbuild sets up
-# its platform binary, which drizzle-kit and wrangler bundle with (Vite 8 builds
-# with Rolldown and no longer needs it, so this is a dev-tool concern only).
-# Everything else stays unbuilt, so a compromised transitive dependency has no
-# install-time foothold. Setting one of these to true is a decision to execute
-# that package's code at install.
+# better-sqlite3 is false on purpose. Since 13 it ships a prebuilt binary for
+# each platform inside the package and needs no install step, but it still
+# carries a binding.gyp, and pnpm would take a true here as leave to compile it
+# from source. The production image has no compiler, so that install fails; on
+# a machine that has one it succeeds, and the locally built binary is then
+# loaded in place of the shipped one, which is not what production runs.
 #
 # workerd is wrangler's local runtime, wanted only by `wrangler dev`. The Worker
 # is deployed with `wrangler deploy`, which bundles and uploads without it, so it
 # stays false — see cloudflare/locale-cache-worker.ts.
-# package.json asks for Node 26, the version production and CI run. With this on,
-# an install under an older Node stops instead of warning: a native module built
-# for the wrong Node fails only when the server first opens the database.
-engineStrict: true
-
 allowBuilds:
-  better-sqlite3: true
+  better-sqlite3: false
   esbuild: true
   workerd: false
 
